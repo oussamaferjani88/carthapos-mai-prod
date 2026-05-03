@@ -1,0 +1,480 @@
+{
+  "nav": {
+    "features": "Fonctionnalités",
+    "howItWorks": "Comment ça marche",
+    "useCases": "Cas d'usage",
+    "pricing": "Tarifs",
+    "testimonials": "Témoignages",
+    "getStarted": "Commencer"
+  },
+  "hero": {
+    "subtitle": "CRÉEZ DES SYSTÈMES POS PERSONNALISÉS EN MINUTES",
+    "title": "Créez des systèmes POS entièrement personnalisés",
+    "titleHighlight": "Instantanément",
+    "description": "Carthapos permet aux utilisateurs, revendeurs et entreprises de concevoir et générer des systèmes POS complets avec des modules prêts à l'emploi, des options de stockage cloud/local et des installateurs .exe téléchargeables.",
+    "ctaPrimary": "Créer votre POS",
+    "ctaSecondary": "Voir la démo"
+  },
+  "stats": {
+    "modules": {
+      "number": "50+",
+      "label": "Modules préconstruits",
+      "description": "Prêts à personnaliser"
+    },
+    "systems": {
+      "number": "10K+",
+      "label": "Systèmes actifs",
+      "description": "Déployés dans le monde"
+    },
+    "uptime": {
+      "number": "99.9%",
+      "label": "Disponibilité",
+      "description": "Fiabilité cloud"
+    },
+    "support": {
+      "number": "24/7",
+      "label": "Support",
+      "description": "Toujours disponible"
+    }
+  },
+  "features": {
+    "title": "Conçu pour vous aider à",
+    "titleHighlight": "Créer des systèmes POS plus rapidement",
+    "description": "Carthapos simplifie la création de POS avec une génération alimentée par l'IA, une sélection modulaire, des flux de travail personnalisés et des exports desktop instantanés. Créez exactement ce dont votre entreprise a besoin sans la complexité.",
+    "generator": {
+      "title": "Générateur POS",
+      "description": "Créez un POS complet avec les modules que vous sélectionnez. Personnalisation visuelle. Flexibilité totale."
+    },
+    "library": {
+      "title": "Bibliothèque de modules intelligents",
+      "description": "Choisissez parmi des composants prêts : Inventaire, Ventes, Clients, Imprimantes, Permissions, Rapports, etc."
+    },
+    "export": {
+      "title": "Export .exe en un clic",
+      "description": "Générez une version desktop prête à installer avec licence incluse."
+    }
+  },
+  "howItWorks": {
+    "title": "Comment ça marche",
+    "description": "Du concept au déploiement en quatre étapes simples. Créez votre système POS parfait sans écrire une seule ligne de code.",
+    "step1": {
+      "step": "01",
+      "title": "Choisissez vos modules",
+      "description": "Sélectionnez parmi notre vaste bibliothèque de modules préconstruits incluant la gestion des stocks, le suivi des ventes, la gestion client, et plus encore."
+    },
+    "step2": {
+      "step": "02",
+      "title": "Personnalisez votre système",
+      "description": "Adaptez chaque module à vos besoins spécifiques. Ajustez les flux de travail, ajoutez des champs personnalisés et configurez les permissions pour correspondre à votre entreprise."
+    },
+    "step3": {
+      "step": "03",
+      "title": "Configurez et testez",
+      "description": "Configurez vos préférences de stockage (cloud ou local), intégrez avec vos systèmes existants et testez tout dans notre environnement sandbox."
+    },
+    "step4": {
+      "step": "04",
+      "title": "Déployez et évoluez",
+      "description": "Exportez votre système POS complet sous forme de fichier .exe prêt à installer avec licence incluse. Déployez instantanément et évoluez au fur et à mesure de votre croissance."
+    }
+  },
+  "useCases": {
+    "title": "Conçu pour chaque entreprise",
+    "description": "Que vous gériez un café, un magasin de détail ou un restaurant, Carthapos s'adapte aux besoins uniques de votre entreprise.",
+    "retail": {
+      "title": "Magasins de détail",
+      "description": "Parfait pour les boutiques, magasins d'électronique et commerce de détail général avec gestion des stocks et programmes de fidélité client."
+    },
+    "cafe": {
+      "title": "Cafés et Coffee Shops",
+      "description": "Traitement rapide des commandes, gestion des tables et suivi des ingrédients pour des opérations de café efficaces."
+    },
+    "restaurant": {
+      "title": "Restaurants",
+      "description": "POS pour restaurants à service complet et rapide avec systèmes d'affichage cuisine et gestion des tables."
+    },
+    "fashion": {
+      "title": "Mode et Vêtements",
+      "description": "Gestion des variantes de taille et couleur, suivi des stocks saisonniers et support multi-emplacements."
+    },
+    "wholesale": {
+      "title": "Grossiste",
+      "description": "Traitement des commandes en gros, gestion des fournisseurs et portails clients B2B pour les opérations de gros."
+    },
+    "mobile": {
+      "title": "Vente mobile",
+      "description": "Solutions POS portables pour boutiques éphémères, marchés et équipes de vente mobiles avec capacités hors ligne."
+    }
+  },
+  "pricing": {
+    "title": "Tarification personnalisée",
+    "description": "Carthapos s'adapte à votre entreprise. Les tarifs sont générés dynamiquement en fonction des modules et fonctionnalités sélectionnés.",
+    "features": {
+      "payPerUse": "Payez uniquement pour les modules que vous utilisez",
+      "licensing": "Options de licence flexibles",
+      "deployment": "Déploiement cloud ou local",
+      "support": "Support prioritaire inclus",
+      "updates": "Mises à jour régulières et nouveaux modules"
+    },
+    "cta": "Demander un devis personnalisé"
+  },
+  "testimonials": {
+    "title": "Aimé par les entreprises du monde entier",
+    "description": "Rejoignez des milliers d'entreprises qui font confiance à Carthapos pour leurs besoins en point de vente.",
+    "testimonial1": {
+      "name": "Sarah Mitchell",
+      "role": "Propriétaire, Bella Boutique",
+      "company": "Commerce de détail mode",
+      "content": "Carthapos a transformé notre gestion des stocks dans nos trois emplacements. Le système modulaire nous a permis de créer exactement ce dont nous avions besoin sans payer pour des fonctionnalités inutilisées."
+    },
+    "testimonial2": {
+      "name": "James Rodriguez",
+      "role": "Responsable des opérations",
+      "company": "TechHub Electronics",
+      "content": "Les options de personnalisation sont incroyables. Nous avons intégré notre système d'entrepôt existant et créé des rapports personnalisés en quelques jours, pas en mois. L'export .exe facilite grandement le déploiement."
+    },
+    "testimonial3": {
+      "name": "Emily Chen",
+      "role": "Fondatrice",
+      "company": "Green Leaf Café",
+      "content": "En tant que propriétaire de petite entreprise, j'avais besoin de quelque chose de simple mais puissant. Carthapos m'a donné exactement cela. La configuration a pris moins d'une journée et notre personnel l'a appris en quelques heures."
+    }
+  },
+  "featuresPage": {
+    "title": "Fonctionnalités puissantes pour votre entreprise",
+    "subtitle": "Tout ce dont vous avez besoin pour créer, personnaliser et déployer des systèmes POS professionnels",
+    "features": {
+      "fast": {
+        "title": "Ultra rapide",
+        "description": "Générez des systèmes POS complets en quelques minutes avec notre plateforme alimentée par l'IA."
+      },
+      "secure": {
+        "title": "Sécurisé et fiable",
+        "description": "Sécurité de niveau entreprise avec garantie de disponibilité de 99,9%."
+      },
+      "storage": {
+        "title": "Cloud ou local",
+        "description": "Choisissez entre le stockage cloud ou le déploiement local selon vos besoins."
+      },
+      "noCode": {
+        "title": "Aucun code requis",
+        "description": "Créez des systèmes POS puissants sans écrire une seule ligne de code."
+      },
+      "multiUser": {
+        "title": "Support multi-utilisateurs",
+        "description": "Gérez les permissions et les rôles pour toute votre équipe."
+      }
+    },
+    "customization": {
+      "title": "Modules personnalisables",
+      "description": "Choisissez parmi plus de 50 modules préconstruits incluant la gestion des stocks, le suivi des ventes, la gestion client, les rapports et plus encore. Mélangez et associez pour créer la solution parfaite pour votre entreprise.",
+      "list": {
+        "inventory": "Gestion des stocks",
+        "sales": "Ventes et commandes",
+        "customers": "Base de données clients",
+        "analytics": "Rapports et analyses",
+        "multiLocation": "Support multi-emplacements"
+      }
+    },
+    "deployment": {
+      "title": "Déploiement facile",
+      "description": "Exportez votre système POS complet sous forme de fichier .exe prêt à installer. Déployez sur des appareils illimités avec licence intégrée et mises à jour automatiques.",
+      "cta": "Commencer"
+    }
+  },
+  "docsPage": {
+    "title": "Documentation",
+    "subtitle": "Tout ce que vous devez savoir pour créer et déployer avec Carthapos",
+    "searchPlaceholder": "Rechercher dans la documentation...",
+    "sections": {
+      "gettingStarted": {
+        "title": "Démarrage",
+        "description": "Apprenez les bases et créez votre premier système POS",
+        "links": {
+          "quickStart": "Guide de démarrage rapide",
+          "requirements": "Exigences système",
+          "installation": "Installation"
+        }
+      },
+      "configuration": {
+        "title": "Configuration",
+        "description": "Configurez les modules et personnalisez votre POS",
+        "links": {
+          "moduleSetup": "Configuration des modules",
+          "storage": "Options de stockage",
+          "permissions": "Permissions utilisateurs"
+        }
+      },
+      "api": {
+        "title": "Référence API",
+        "description": "Intégrez avec des systèmes et services externes",
+        "links": {
+          "rest": "API REST",
+          "webhooks": "Webhooks",
+          "auth": "Authentification"
+        }
+      },
+      "bestPractices": {
+        "title": "Meilleures pratiques",
+        "description": "Conseils et astuces pour des performances optimales",
+        "links": {
+          "performance": "Conseils de performance",
+          "security": "Directives de sécurité",
+          "deployment": "Déploiement"
+        }
+      }
+    },
+    "help": {
+      "title": "Besoin d'aide ?",
+      "description": "Vous ne trouvez pas ce que vous cherchez ? Notre équipe de support est là pour vous aider.",
+      "cta": "Contacter le support"
+    }
+  },
+  "blogPage": {
+    "title": "Blog et ressources",
+    "subtitle": "Informations, tutoriels et mises à jour de l'équipe Carthapos",
+    "categories": {
+      "all": "Tout",
+      "tutorial": "Tutoriel",
+      "bestPractices": "Meilleures pratiques",
+      "technical": "Technique",
+      "productUpdates": "Mises à jour produit",
+      "security": "Sécurité"
+    },
+    "posts": {
+      "post1": {
+        "title": "Créer votre premier système POS en 10 minutes",
+        "excerpt": "Apprenez à créer un système de point de vente complet à partir de zéro en utilisant Carthapos en seulement 10 minutes.",
+        "author": "Sarah Johnson",
+        "date": "15 nov. 2025",
+        "category": "Tutoriel",
+        "readTime": "5 min de lecture"
+      },
+      "post2": {
+        "title": "Top 10 des fonctionnalités POS dont chaque entreprise a besoin",
+        "excerpt": "Découvrez les fonctionnalités essentielles qui rendent un système POS efficace pour les entreprises modernes.",
+        "author": "Michael Chen",
+        "date": "12 nov. 2025",
+        "category": "Meilleures pratiques",
+        "readTime": "8 min de lecture"
+      },
+      "post3": {
+        "title": "Cloud vs Local : Choisir le bon stockage",
+        "excerpt": "Un guide complet pour vous aider à choisir entre le stockage cloud et local pour votre système POS.",
+        "author": "Emma Davis",
+        "date": "10 nov. 2025",
+        "category": "Technique",
+        "readTime": "6 min de lecture"
+      }
+    },
+    "readMore": "Lire plus",
+    "loadMore": "Charger plus d'articles",
+    "newsletter": {
+      "title": "Abonnez-vous à notre newsletter",
+      "description": "Recevez les derniers articles et mises à jour dans votre boîte de réception",
+      "placeholder": "Entrez votre email",
+      "cta": "S'abonner"
+    }
+  },
+  "contactPage": {
+    "title": "Contactez-nous",
+    "subtitle": "Vous avez des questions ? Nous aimerions vous entendre. Envoyez-nous un message et nous vous répondrons dès que possible.",
+    "form": {
+      "title": "Envoyez-nous un message",
+      "firstName": "Prénom",
+      "firstNamePlaceholder": "Jean",
+      "lastName": "Nom",
+      "lastNamePlaceholder": "Dupont",
+      "email": "Email",
+      "emailPlaceholder": "jean@exemple.com",
+      "company": "Entreprise (Optionnel)",
+      "companyPlaceholder": "Votre entreprise",
+      "subject": "Sujet",
+      "subjectPlaceholder": "Comment pouvons-nous vous aider ?",
+      "message": "Message",
+      "messagePlaceholder": "Parlez-nous de vos besoins...",
+      "submit": "Envoyer le message"
+    },
+    "info": {
+      "title": "Informations de contact",
+      "description": "Contactez-nous par l'un de ces canaux et nous vous répondrons dans les 24 heures.",
+      "email": {
+        "title": "Email",
+        "value": "support@carthapos.com"
+      },
+      "phone": {
+        "title": "Téléphone",
+        "value": "+1 (555) 123-4567"
+      },
+      "address": {
+        "title": "Bureau",
+        "value": "123 Business St, San Francisco, CA 94102"
+      }
+    },
+    "hours": {
+      "title": "Heures d'ouverture",
+      "weekdays": "Lundi - Vendredi",
+      "weekdaysTime": "9h00 - 18h00",
+      "saturday": "Samedi",
+      "saturdayTime": "10h00 - 16h00",
+      "sunday": "Dimanche",
+      "sundayTime": "Fermé"
+    }
+  },
+  "auth": {
+    "loginTitle": "Bienvenue",
+    "loginDescription": "Entrez vos identifiants pour accéder à votre compte",
+    "registerTitle": "Créer un compte",
+    "registerDescription": "Entrez vos informations pour commencer",
+    "email": "Email",
+    "emailPlaceholder": "nom@exemple.com",
+    "yourEmail": "Votre email",
+    "emailPlaceholderCompany": "nom@entreprise.com",
+    "password": "Mot de passe",
+    "passwordPlaceholder": "Entrez votre mot de passe",
+    "confirmPassword": "Confirmer le mot de passe",
+    "confirmPasswordPlaceholder": "Confirmez votre mot de passe",
+    "fullName": "Nom complet",
+    "fullNamePlaceholder": "Jean Dupont",
+    "company": "Entreprise",
+    "companyPlaceholder": "Votre entreprise",
+    "optional": "optionnel",
+    "login": "Connexion",
+    "register": "S'inscrire",
+    "createAccount": "Créer un compte",
+    "loggingIn": "Connexion en cours...",
+    "registering": "Création du compte...",
+    "creatingAccount": "Création du compte...",
+    "forgotPassword": "Mot de passe oublié ?",
+    "noAccount": "Vous n'avez pas de compte ?",
+    "haveAccount": "Vous avez déjà un compte ?",
+    "agreeToTerms": "J'accepte les",
+    "termsAndConditions": "Conditions générales",
+    "loginError": "Échec de la connexion. Veuillez vérifier vos identifiants.",
+    "registerError": "Échec de l'inscription. Veuillez réessayer.",
+    "passwordMismatch": "Les mots de passe ne correspondent pas",
+    "passwordLength": "Le mot de passe doit contenir au moins 8 caractères",
+    "acceptTerms": "Vous devez accepter les conditions générales",
+    "backToHome": "Retour à l'accueil",
+    "welcomeBack": "Bon retour",
+    "continueManaging": "Continuez à gérer votre entreprise en toute simplicité.",
+    "accountCreation": "Accédez à vos tâches, notes et projets à tout moment, n'importe où - et gardez tout organisé en un seul endroit.",
+    "accountType": "Type de compte",
+    "normalUser": "Utilisateur Normal",
+    "normalUserDesc": "Créez et gérez vos propres systèmes de caisse",
+    "businessOwner": "Propriétaire d'Entreprise",
+    "businessOwnerDesc": "Nécessite vérification - pour cafés, restaurants, magasins",
+    "reseller": "Revendeur",
+    "resellerDesc": "Nécessite vérification - vendez des systèmes de caisse aux entreprises",
+    "referralCode": "Code de parrainage (Optionnel)",
+    "referralCodePlaceholder": "Entrez un code de parrainage si vous en avez un",
+    "referralCodeHelp": "Vous avez un code de parrainage ? Saisissez-le pour soutenir votre parrain !",
+    "businessInfo": "Informations Commerciales",
+    "businessName": "Nom de l'Entreprise",
+    "businessNamePlaceholder": "Café Délicieux",
+    "businessType": "Type d'Entreprise",
+    "businessTypePlaceholder": "Sélectionnez le type d'entreprise",
+    "cafe": "Café",
+    "restaurant": "Restaurant",
+    "retail": "Magasin de Détail",
+    "supermarket": "Supermarché",
+    "pharmacy": "Pharmacie",
+    "bakery": "Boulangerie",
+    "other": "Autre",
+    "businessAddress": "Adresse de l'Entreprise",
+    "businessAddressPlaceholder": "123 Rue Principale, Tunis",
+    "businessPhone": "Téléphone de l'Entreprise",
+    "businessPhonePlaceholder": "+216 12 345 678",
+    "taxId": "Numéro Fiscal / Matricule",
+    "taxIdPlaceholder": "Numéro d'identification fiscale",
+    "businessLicense": "Patente Commerciale",
+    "businessLicenseHelp": "Téléchargez votre patente et tout document pertinent (PDF, JPG, PNG)",
+    "resellerInfo": "Informations Revendeur",
+    "companyName": "Nom de la Société",
+    "companyNamePlaceholder": "Solutions POS SARL",
+    "registrationNumber": "Numéro d'Enregistrement",
+    "registrationNumberPlaceholder": "Numéro d'enregistrement",
+    "resellerTaxId": "Numéro Fiscal",
+    "resellerAddress": "Adresse de la Société",
+    "resellerAddressPlaceholder": "456 Avenue des Affaires, Tunis",
+    "resellerPhone": "Téléphone de la Société",
+    "resellerPhonePlaceholder": "+216 71 123 456",
+    "resellerDocs": "Documents d'Enregistrement",
+    "resellerDocsHelp": "Téléchargez l'enregistrement de la société, le certificat fiscal et tout document pertinent",
+    "verificationNotice": "Votre compte nécessitera une vérification administrative. Vous recevrez un email une fois votre compte examiné (généralement sous 24-48 heures).",
+    "submitForVerification": "Soumettre pour Vérification",
+    "rememberMe": "Se souvenir de moi",
+    "continueWithGoogle": "Continuer avec Google",
+    "continueWithGithub": "Continuer avec GitHub",
+    "orContinueWith": "Ou continuer avec email",
+    "dontHaveAccount": "Vous n'avez pas de compte ?",
+    "alreadyHaveAccount": "Vous avez déjà un compte ?",
+    "taglineNormal": "Accédez à votre espace personnel pour plus de clarté et de productivité.",
+    "taglineBusiness": "Gérez vos opérations commerciales avec des solutions de caisse professionnelles.",
+    "taglineReseller": "Associez-vous à nous pour offrir des systèmes de caisse exceptionnels aux entreprises."
+  },
+  "footer": {
+    "description": "Créez des systèmes de caisse personnalisés en quelques minutes avec des modules prêts à l'emploi, des options de stockage cloud/local et des installateurs téléchargeables.",
+    "copyright": "Tous droits réservés.",
+    "product": {
+      "title": "Produit",
+      "features": "Fonctionnalités",
+      "pricing": "Tarifs",
+      "demo": "Démo",
+      "modules": "Modules"
+    },
+    "company": {
+      "title": "Entreprise",
+      "about": "À propos",
+      "blog": "Blog",
+      "careers": "Carrières",
+      "contact": "Contact"
+    },
+    "resources": {
+      "title": "Ressources",
+      "documentation": "Documentation",
+      "tutorials": "Tutoriels",
+      "support": "Centre d'aide",
+      "faq": "FAQ"
+    },
+    "legal": {
+      "title": "Légal",
+      "privacy": "Politique de confidentialité",
+      "terms": "Conditions d'utilisation",
+      "cookies": "Politique des cookies",
+      "licenses": "Licences"
+    }
+  },
+  "dashboard": {
+    "title": "Mon Tableau de Bord",
+    "subtitle": "Gérez vos systèmes de caisse et configurations",
+    "createNew": "Créer un Nouveau POS",
+    "stats": {
+      "totalSystems": "Systèmes Totaux",
+      "activeSystems": "Systèmes Actifs",
+      "totalModules": "Modules Totaux"
+    },
+    "myPOS": "Mes Systèmes de Caisse",
+    "myPOSDescription": "Visualisez et gérez tous vos systèmes de caisse générés",
+    "noPOS": "Aucun Système de Caisse",
+    "noPOSDescription": "Commencez par créer votre premier système de caisse personnalisé",
+    "createFirst": "Créer Votre Premier POS",
+    "modules": "modules",
+    "view": "Voir",
+    "download": "Télécharger",
+    "back": "Retour",
+    "nav": {
+      "dashboard": "Tableau de Bord",
+      "generator": "Générateur POS",
+      "settings": "Paramètres",
+      "logout": "Déconnexion"
+    }
+  },
+  "generator": {
+    "title": "Générateur de POS",
+    "subtitle": "Créez votre système de point de vente personnalisé",
+    "comingSoon": "Générateur POS Bientôt Disponible",
+    "description": "Le générateur de POS vous permettra de sélectionner des modules, personnaliser les fonctionnalités et générer votre système complet.",
+    "note": "Cette fonctionnalité est actuellement en cours de développement et sera bientôt disponible."
+  }
+}

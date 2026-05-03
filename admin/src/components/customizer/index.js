@@ -1,0 +1,13 @@
+// Main refactored component
+export { default as POSCustomizerRefactored } from './POSCustomizerRefactored';
+
+// Individual components for further customization
+export { default as CustomizerHeader } from './CustomizerHeader';
+export { default as CustomizerNavigation } from './CustomizerNavigation';
+export { default as ThemeSelector } from './ThemeSelector';
+export { default as ColorPaletteEditor } from './ColorPaletteEditor';
+export { default as TypographyEditor } from './TypographyEditor';
+export { default as VisualEffectsEditor } from './VisualEffectsEditor';
+export { default as LayoutEditor } from './LayoutEditor';
+export { default as DragDropManager } from './DragDropManager';
+export { default as AdvancedSettings } from './AdvancedSettings';

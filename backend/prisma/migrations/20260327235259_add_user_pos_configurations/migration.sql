@@ -1,0 +1,2 @@
+-- Placeholder migration to align with database history.
+-- The schema is already present in the database; no SQL changes required.

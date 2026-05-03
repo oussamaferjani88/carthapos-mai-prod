@@ -1,0 +1,23 @@
+{
+  "name": "pos-system-scripts",
+  "version": "1.0.0",
+  "description": "Scripts de génération et packaging pour le système POS",
+  "main": "build-pos.js",
+  "scripts": {
+    "build-pos": "node build-pos.js",
+    "generate-license": "node generate-license.js",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "dependencies": {
+    "crypto-js": "^4.2.0"
+  },
+  "keywords": [
+    "pos",
+    "electron",
+    "license",
+    "build"
+  ],
+  "author": "POS System Generator",
+  "license": "MIT"
+}
+

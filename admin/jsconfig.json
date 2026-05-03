@@ -1,0 +1,10 @@
+{
+  "$schema": "http://json.schemastore.org/jsconfig.json",
+  "compilerOptions": {
+    "baseUrl": "./",
+    "ignoreDeprecations": "6.0",
+    "paths": {
+      "@/*": ["src/*"]
+    }
+  }
+}

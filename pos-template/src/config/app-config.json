@@ -1,0 +1,75 @@
+{
+  "license": null,
+  "modules": [
+    {
+      "name": "pos-core",
+      "displayName": "Caisse de base",
+      "isEnabled": true,
+      "description": "Fonctionnalités de base de la caisse"
+    },
+    {
+      "name": "inventory",
+      "displayName": "Gestion des stocks",
+      "isEnabled": true,
+      "description": "Gestion des produits et stocks"
+    },
+    {
+      "name": "reports",
+      "displayName": "Rapports",
+      "isEnabled": true,
+      "description": "Rapports de ventes et analyses"
+    },
+    {
+      "name": "kitchen-printer",
+      "displayName": "Impression cuisine",
+      "isEnabled": false,
+      "description": "Impression des commandes en cuisine"
+    },
+    {
+      "name": "table-management",
+      "displayName": "Gestion des tables",
+      "isEnabled": false,
+      "description": "Gestion des tables pour restaurants"
+    },
+    {
+      "name": "loyalty-program",
+      "displayName": "Programme de fidélité",
+      "isEnabled": false,
+      "description": "Gestion des clients fidèles"
+    }
+  ],
+  "theme": {
+    "businessName": "Mon Commerce",
+    "colors": {
+      "primary": "#3B82F6",
+      "accent": "#10B981",
+      "background": "#FFFFFF",
+      "text": "#1F2937"
+    },
+    "logo": null,
+    "currency": "EUR",
+    "taxRate": 20.0,
+    "language": "fr",
+    "timezone": "Europe/Paris"
+  },
+  "database": {
+    "type": "sqlite",
+    "filename": "pos-data.db"
+  },
+  "security": {
+    "requireUSBLicense": true,
+    "licenseFileName": "license.key"
+  },
+  "printer": {
+    "enabled": true,
+    "autoprint": false,
+    "paperWidth": 80
+  },
+  "features": {
+    "barcode": true,
+    "multiplePaymentMethods": true,
+    "discounts": true,
+    "returns": true
+  }
+}
+

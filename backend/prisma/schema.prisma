@@ -1,0 +1,358 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Client {
+  id        String    @id @default(cuid())
+  name      String
+  email     String    @unique
+  phone     String?
+  address   String?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  licenses  License[]
+
+  @@map("clients")
+}
+
+model License {
+  id                   String                @id @default(cuid())
+  clientId             String
+  licenseKey           String                @unique
+  sector               String
+  licenseType          LicenseType
+  expirationDate       DateTime?
+  isActive             Boolean               @default(true)
+  machineId            String?
+  createdAt            DateTime              @default(now())
+  updatedAt            DateTime              @updatedAt
+  UserPosConfiguration UserPosConfiguration?
+  configuration        LicenseConfiguration?
+  modules              LicenseModule[]
+  client               Client                @relation(fields: [clientId], references: [id], onDelete: Cascade)
+
+  @@map("licenses")
+}
+
+model Module {
+  id             String          @id @default(cuid())
+  name           String          @unique
+  displayName    String
+  description    String?
+  category       String
+  isCore         Boolean         @default(false)
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+  licenseModules LicenseModule[]
+
+  @@map("modules")
+}
+
+model LicenseModule {
+  id        String  @id @default(cuid())
+  licenseId String
+  moduleId  String
+  isEnabled Boolean @default(true)
+  license   License @relation(fields: [licenseId], references: [id], onDelete: Cascade)
+  module    Module  @relation(fields: [moduleId], references: [id], onDelete: Cascade)
+
+  @@unique([licenseId, moduleId])
+  @@map("license_modules")
+}
+
+model LicenseConfiguration {
+  id                  String  @id @default(cuid())
+  licenseId           String  @unique
+  businessName        String
+  logo                String?
+  primaryColor        String  @default("#3B82F6")
+  secondaryColor      String  @default("#1E40AF")
+  accentColor         String  @default("#F59E0B")
+  backgroundColor     String  @default("#FFFFFF")
+  textColor           String  @default("#1F2937")
+  currency            String  @default("EUR")
+  taxRate             Float   @default(20.0)
+  language            String  @default("fr")
+  timezone            String  @default("Europe/Paris")
+  borderRadius        String  @default("medium")
+  fontFamily          String  @default("Inter")
+  navbarPosition      String?
+  animations          Boolean @default(true)
+  brandWatermark      Boolean @default(false)
+  buttonStyle         String  @default("filled")
+  cardBackgroundColor String  @default("#FFFFFF")
+  cardStyle           String  @default("modern")
+  compactMode         Boolean @default(false)
+  customCSS           String?
+  dashboardLayout     String  @default("grid")
+  favicon             String?
+  fontSize            String  @default("14px")
+  fontWeight          String  @default("normal")
+  glassEffect         Boolean @default(false)
+  gradientBackgrounds Boolean @default(false)
+  highContrastMode    Boolean @default(false)
+  hoverEffects        String  @default("subtle")
+  largeTextMode       Boolean @default(false)
+  modalStyle          String  @default("centered")
+  navbarCollapsible   Boolean @default(false)
+  navbarStyle         String  @default("modern")
+  reducedMotion       Boolean @default(false)
+  responsiveMode      String  @default("auto")
+  showBreadcrumbs     Boolean @default(true)
+  showModuleBadges    Boolean @default(true)
+  showModuleIcons     Boolean @default(true)
+  showQuickActions    Boolean @default(true)
+  splashScreen        Boolean @default(false)
+  tableStyle          String  @default("modern")
+  textMutedColor      String  @default("#6B7280")
+  widgetSizes         String  @default("mixed")
+  appTitle            String?
+  autoModeSwitch      Boolean @default(false)
+  autoSave            Boolean @default(true)
+  backdropBlur        Boolean @default(false)
+  borderColor         String  @default("#E5E7EB")
+  maxWidth            String  @default("1200px")
+  opacity             Float   @default(1.0)
+  shadows             Boolean @default(true)
+  spacingScale        Float   @default(1.0)
+  theme               String  @default("light")
+  shadowIntensity     Float   @default(1.0)
+  license             License @relation(fields: [licenseId], references: [id], onDelete: Cascade)
+
+  @@map("license_configurations")
+}
+
+model User {
+  id                   String                 @id @default(cuid())
+  username             String                 @unique
+  email                String                 @unique
+  password             String
+  role                 UserRole               @default(CASHIER)
+  isActive             Boolean                @default(true)
+  lastLogin            DateTime?
+  createdAt            DateTime               @default(now())
+  updatedAt            DateTime               @updatedAt
+  accountType          AccountType            @default(NORMAL)
+  affiliateCode        String?                @unique
+  businessInfo         Json?
+  documents            String[]               @default([])
+  pendingCommissions   Float                  @default(0)
+  referredBy           String?
+  rejectionReason      String?
+  totalCommissions     Float                  @default(0)
+  totalReferrals       Int                    @default(0)
+  verificationStatus   VerificationStatus     @default(PENDING)
+  verifiedAt           DateTime?
+  UserPosConfiguration UserPosConfiguration[]
+  orders               Order[]
+  affiliateOwner       Referral[]             @relation("AffiliateOwner")
+  referrals            Referral[]             @relation("UserReferrals")
+
+  @@map("users")
+}
+
+model Referral {
+  id               String         @id @default(cuid())
+  affiliateUserId  String
+  referredUserId   String
+  purchaseAmount   Float
+  commissionRate   Float
+  commissionAmount Float
+  status           ReferralStatus @default(PENDING)
+  paidAt           DateTime?
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
+  affiliateUser    User           @relation("AffiliateOwner", fields: [affiliateUserId], references: [id])
+  referredUser     User           @relation("UserReferrals", fields: [referredUserId], references: [id])
+
+  @@map("referrals")
+}
+
+model Customer {
+  id                  String               @id @default(cuid())
+  name                String
+  email               String?              @unique
+  phone               String?
+  address             String?
+  loyaltyPoints       Int                  @default(0)
+  createdAt           DateTime             @default(now())
+  updatedAt           DateTime             @updatedAt
+  appointments        Appointment[]
+  loyaltyTransactions LoyaltyTransaction[]
+  orders              Order[]
+
+  @@map("customers")
+}
+
+model Product {
+  id          String      @id @default(cuid())
+  name        String
+  description String?
+  price       Float
+  category    String
+  barcode     String?     @unique
+  stock       Int         @default(0)
+  isActive    Boolean     @default(true)
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+  orderItems  OrderItem[]
+
+  @@map("products")
+}
+
+model Order {
+  id                  String      @id @default(cuid())
+  customerId          String?
+  userId              String?
+  orderType           OrderType   @default(DINE_IN)
+  status              OrderStatus @default(PENDING)
+  total               Float
+  tableNumber         Int?
+  pickupTime          DateTime?
+  deliveryAddress     String?
+  specialInstructions String?
+  preparationTime     Int?
+  createdAt           DateTime    @default(now())
+  updatedAt           DateTime    @updatedAt
+  orderItems          OrderItem[]
+  customer            Customer?   @relation(fields: [customerId], references: [id])
+  user                User?       @relation(fields: [userId], references: [id])
+
+  @@map("orders")
+}
+
+model OrderItem {
+  id        String  @id @default(cuid())
+  orderId   String
+  productId String
+  quantity  Int
+  unitPrice Float
+  order     Order   @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  product   Product @relation(fields: [productId], references: [id])
+
+  @@map("order_items")
+}
+
+model LoyaltyTransaction {
+  id         String                 @id @default(cuid())
+  customerId String
+  points     Int
+  type       LoyaltyTransactionType
+  reason     String?
+  createdAt  DateTime               @default(now())
+  customer   Customer               @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  @@map("loyalty_transactions")
+}
+
+model GiftCard {
+  id            String    @id @default(cuid())
+  code          String    @unique
+  originalValue Float
+  currentValue  Float
+  isActive      Boolean   @default(true)
+  expiryDate    DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@map("gift_cards")
+}
+
+model Table {
+  id       String  @id @default(cuid())
+  number   Int     @unique
+  capacity Int
+  isActive Boolean @default(true)
+  x        Float?
+  y        Float?
+
+  @@map("tables")
+}
+
+model Appointment {
+  id              String    @id @default(cuid())
+  customerId      String?
+  customerName    String
+  customerPhone   String?
+  customerEmail   String?
+  serviceType     String
+  appointmentDate DateTime
+  duration        Int
+  notes           String?
+  status          String    @default("SCHEDULED")
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  customer        Customer? @relation(fields: [customerId], references: [id])
+
+  @@map("appointments")
+}
+
+model UserPosConfiguration {
+  id           String    @id
+  userId       String
+  licenseId    String    @unique
+  businessName String
+  sector       String
+  outputPath   String?
+  buildStatus  String    @default("idle")
+  lastBuiltAt  DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime
+  licenses     License   @relation(fields: [licenseId], references: [id])
+  users        User      @relation(fields: [userId], references: [id])
+}
+
+enum LicenseType {
+  SUBSCRIPTION
+  LIFETIME
+}
+
+enum UserRole {
+  ADMIN
+  MANAGER
+  CASHIER
+  KITCHEN
+}
+
+enum OrderType {
+  DINE_IN
+  TAKEAWAY
+  DELIVERY
+}
+
+enum OrderStatus {
+  PENDING
+  PREPARING
+  READY
+  DELIVERED
+  CANCELLED
+}
+
+enum LoyaltyTransactionType {
+  EARNED
+  REDEEMED
+}
+
+enum AccountType {
+  NORMAL
+  BUSINESS
+  RESELLER
+}
+
+enum VerificationStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum ReferralStatus {
+  PENDING
+  APPROVED
+  PAID
+  CANCELLED
+}

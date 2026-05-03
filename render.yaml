@@ -1,0 +1,65 @@
+# PostgreSQL Database - defined in the databases section
+databases:
+  - name: carthapos-db
+    databaseName: pos_system
+    plan: free
+
+services:
+  # Backend API (handles license management + POS generation)
+  - type: web
+    name: carthapos-backend
+    runtime: docker
+    # Omit 'plan' field - free tier is selected during dashboard creation
+    rootDir: .
+    dockerContext: .
+    dockerfilePath: backend/Dockerfile
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 10000
+      - key: DATABASE_URL
+        fromDatabase:
+          name: carthapos-db
+          property: connectionString
+      - key: JWT_SECRET
+        generateValue: true
+      - key: ENCRYPTION_KEY
+        generateValue: true
+      - key: FRONTEND_URL
+        value: https://carthapos.onrender.com
+      - key: ADMIN_URL
+        value: https://carthapos-admin.onrender.com
+      - key: GITHUB_TOKEN
+        sync: false
+      - key: GITHUB_OWNER
+        sync: false
+      - key: GITHUB_REPO
+        sync: false
+      - key: GENERATED_POS_PATH
+        value: /app/generated-pos
+      - key: NODE_OPTIONS
+        value: "--max-old-space-size=450"
+    healthCheckPath: /api/health
+
+  # Frontend (Public website - landing page, register, login)
+  - type: web
+    name: carthapos-frontend
+    runtime: static
+    rootDir: frontend
+    buildCommand: npm install && npm run build
+    staticPublishPath: dist
+    envVars:
+      - key: VITE_API_URL
+        value: https://carthapos-backend.onrender.com/api
+
+  # Admin Panel (For CarthaPos staff - manage licenses, generate POS)
+  - type: web
+    name: carthapos-admin
+    runtime: static
+    rootDir: admin
+    buildCommand: npm install && npm run build
+    staticPublishPath: dist
+    envVars:
+      - key: VITE_API_URL
+        value: https://carthapos-backend.onrender.com/api

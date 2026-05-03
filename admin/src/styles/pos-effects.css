@@ -1,0 +1,642 @@
+/* Effets visuels pour le POS Preview */
+
+/* ===========================================
+   ANIMATIONS DE BASE
+   =========================================== */
+
+/* Animations conditionnelles */
+.pos-animations-enabled {
+  transition: all 0.2s ease-in-out;
+}
+
+.pos-animations-disabled,
+.pos-animations-disabled * {
+  transition: none !important;
+  animation: none !important;
+}
+
+/* ===========================================
+   TYPES D'ANIMATIONS HOVER
+   =========================================== */
+
+/* 1. SLIDE UP - Glissement vers le haut (Recommandé pour POS) */
+.pos-animation-slide .card,
+.pos-animation-slide .button,
+.pos-animation-slide button,
+.pos-animation-slide .nav-item {
+  transition: all 0.2s ease-in-out;
+}
+
+.pos-animation-slide .card:hover,
+.pos-animation-slide button:hover,
+.pos-animation-slide .nav-item:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 8px 16px rgba(0, 0, 0, 0.15);
+}
+
+/* 2. GLOW - Effet de lueur (Excellent pour POS) */
+.pos-animation-glow .card:hover,
+.pos-animation-glow button:hover,
+.pos-animation-glow .nav-item:hover {
+  box-shadow: 0 0 20px rgba(59, 130, 246, 0.4);
+  border-color: #3b82f6;
+  background-color: rgba(59, 130, 246, 0.1) !important;
+}
+
+/* 3. FADE - Changement d'opacité subtil */
+.pos-animation-fade .card:hover,
+.pos-animation-fade button:hover,
+.pos-animation-fade .nav-item:hover {
+  opacity: 0.9;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+}
+
+/* 4. BORDER PULSE - Pulsation de bordure */
+.pos-animation-border-pulse .card,
+.pos-animation-border-pulse button,
+.pos-animation-border-pulse .nav-item {
+  border: 2px solid transparent;
+  transition: all 0.3s ease;
+}
+
+.pos-animation-border-pulse .card:hover,
+.pos-animation-border-pulse button:hover,
+.pos-animation-border-pulse .nav-item:hover {
+  border-color: #3b82f6;
+  box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.1);
+}
+
+/* 5. ELASTIC - Effet élastique léger */
+.pos-animation-elastic .card:hover,
+.pos-animation-elastic button:hover,
+.pos-animation-elastic .nav-item:hover {
+  transform: scale(1.02);
+  transition: transform 0.3s cubic-bezier(0.68, -0.55, 0.265, 1.55);
+}
+
+/* 6. ROTATE - Rotation très légère */
+.pos-animation-rotate .card:hover,
+.pos-animation-rotate button:hover,
+.pos-animation-rotate .nav-item:hover {
+  transform: rotate(1deg) translateY(-2px);
+  transition: transform 0.2s ease-in-out;
+}
+
+/* 7. NONE - Pas d'animation hover */
+.pos-animation-none .card:hover,
+.pos-animation-none button:hover,
+.pos-animation-none .nav-item:hover {
+  transform: none;
+  box-shadow: inherit;
+}
+
+/* Effets de verre (Glass Effect) */
+.pos-glass-effect {
+  backdrop-filter: blur(10px) saturate(200%);
+  background-color: rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 12px;
+}
+
+.pos-glass-card {
+  backdrop-filter: blur(8px) saturate(180%);
+  background-color: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+}
+
+/* Gradients d'arrière-plan */
+.pos-gradient-bg {
+  background: linear-gradient(135deg, var(--primary-color, #3b82f6) 0%, var(--accent-color, #1e40af) 100%);
+}
+
+.pos-gradient-subtle {
+  background: linear-gradient(45deg, var(--background-color, #ffffff) 0%, rgba(var(--primary-color), 0.05) 100%);
+}
+
+.pos-gradient-card {
+  background: linear-gradient(135deg, 
+    rgba(var(--primary-color), 0.05) 0%, 
+    rgba(var(--accent-color), 0.02) 50%, 
+    rgba(var(--secondary-color), 0.08) 100%);
+}
+
+/* Intensités d'ombres */
+.pos-shadow-none {
+  box-shadow: none !important;
+}
+
+.pos-shadow-light {
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+.pos-shadow-medium {
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+}
+
+.pos-shadow-heavy {
+  box-shadow: 0 10px 15px rgba(0, 0, 0, 0.2);
+}
+
+/* Combinaisons d'effets */
+.pos-glass-gradient {
+  backdrop-filter: blur(10px) saturate(200%);
+  background: linear-gradient(135deg, 
+    rgba(255, 255, 255, 0.1) 0%, 
+    rgba(var(--primary-color), 0.05) 50%,
+    rgba(255, 255, 255, 0.08) 100%);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+/* Animations spéciales */
+@keyframes pos-fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes pos-scale-in {
+  from {
+    opacity: 0;
+    transform: scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+/* ===========================================
+   NOUVELLES ANIMATIONS KEYFRAMES POUR POS
+   =========================================== */
+
+/* Slide In - Glissement d'entrée */
+@keyframes pos-slide-in {
+  from {
+    opacity: 0;
+    transform: translateX(-20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+/* Bounce In - Rebond d'entrée */
+@keyframes pos-bounce-in {
+  0% {
+    opacity: 0;
+    transform: scale(0.8);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.05);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+/* Pulse - Pulsation continue */
+@keyframes pos-pulse {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.7;
+  }
+}
+
+/* Glow Pulse - Pulsation avec lueur */
+@keyframes pos-glow-pulse {
+  0%, 100% {
+    box-shadow: 0 0 5px rgba(var(--primary-color-rgb, 59, 130, 246), 0.3);
+  }
+  50% {
+    box-shadow: 0 0 20px rgba(var(--primary-color-rgb, 59, 130, 246), 0.8);
+  }
+}
+
+/* Shake - Tremblement pour erreurs */
+@keyframes pos-shake {
+  0%, 100% { transform: translateX(0); }
+  25% { transform: translateX(-5px); }
+  75% { transform: translateX(5px); }
+}
+
+/* Float - Flottement léger */
+@keyframes pos-float {
+  0%, 100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-5px);
+  }
+}
+
+/* Flip In - Retournement d'entrée */
+@keyframes pos-flip-in {
+  from {
+    opacity: 0;
+    transform: rotateY(-90deg);
+  }
+  to {
+    opacity: 1;
+    transform: rotateY(0);
+  }
+}
+
+/* ===========================================
+   CLASSES D'ANIMATIONS D'ENTRÉE
+   =========================================== */
+
+.pos-animation-fade-in {
+  animation: pos-fade-in 0.3s ease-out;
+}
+
+.pos-animation-scale-in {
+  animation: pos-scale-in 0.2s ease-out;
+}
+
+.pos-animation-slide-in {
+  animation: pos-slide-in 0.3s ease-out;
+}
+
+.pos-animation-bounce-in {
+  animation: pos-bounce-in 0.4s ease-out;
+}
+
+.pos-animation-flip-in {
+  animation: pos-flip-in 0.4s ease-out;
+}
+
+/* ===========================================
+   ANIMATIONS CONTINUES
+   =========================================== */
+
+.pos-animation-pulse {
+  animation: pos-pulse 2s infinite;
+}
+
+.pos-animation-glow-pulse {
+  animation: pos-glow-pulse 2s infinite;
+}
+
+.pos-animation-float {
+  animation: pos-float 3s ease-in-out infinite;
+}
+
+.pos-animation-shake {
+  animation: pos-shake 0.5s ease-in-out;
+}
+
+/* ===========================================
+   ANIMATIONS SPÉCIALES POS
+   =========================================== */
+
+/* Notification Success */
+.pos-notification-success {
+  animation: pos-bounce-in 0.5s ease-out;
+  background: linear-gradient(135deg, #10b981, #059669);
+}
+
+/* Error Animation */
+.pos-error {
+  animation: pos-shake 0.5s ease-in-out;
+  border-color: #ef4444;
+}
+
+/* Loading Pulse */
+.pos-loading {
+  animation: pos-pulse 1.5s infinite;
+  opacity: 0.6;
+}
+
+/* Success Glow */
+.pos-success-glow {
+  animation: pos-glow-pulse 1s ease-in-out 3;
+  border-color: #10b981;
+}
+
+/* États de hover avec animations - SUPPRIMÉ LE ZOOM */
+.pos-interactive:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 6px 12px rgba(0, 0, 0, 0.15);
+}
+
+.pos-card-interactive:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 16px rgba(0, 0, 0, 0.15);
+}
+
+/* ===========================================
+   ANIMATIONS BOUTONS POS
+   =========================================== */
+
+/* Bouton principal */
+.pos-button-primary:hover {
+  background: linear-gradient(135deg, var(--primary-color), var(--accent-color));
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(var(--primary-color-rgb, 59, 130, 246), 0.3);
+}
+
+/* Bouton secondaire */
+.pos-button-secondary:hover {
+  background-color: var(--secondary-color);
+  border-color: var(--primary-color);
+}
+
+/* Bouton danger */
+.pos-button-danger:hover {
+  background: linear-gradient(135deg, #ef4444, #dc2626);
+  animation: pos-pulse 0.3s ease-in-out;
+}
+
+/* Bouton success */
+.pos-button-success:hover {
+  background: linear-gradient(135deg, #10b981, #059669);
+  animation: pos-glow-pulse 0.5s ease-in-out;
+}
+
+/* Responsivité pour les effets */
+@media (max-width: 768px) {
+  .pos-glass-effect {
+    backdrop-filter: blur(5px);
+  }
+  
+  .pos-animations-enabled .card:hover {
+    transform: none;
+  }
+}
+
+/* ===========================================
+   ANIMATIONS SPÉCIFIQUES POUR CARTES POS
+   =========================================== */
+
+/* Cartes de produits - Animations professionnelles */
+.pos-product-card {
+  transition: all 0.2s ease-in-out;
+  cursor: pointer;
+  border-radius: 8px;
+  position: relative;
+  overflow: hidden;
+}
+
+/* Animation d'ajout au panier - Success feedback */
+@keyframes pos-add-to-cart {
+  0% { transform: scale(1); }
+  50% { transform: scale(1.05); background-color: rgba(34, 197, 94, 0.1); }
+  100% { transform: scale(1); }
+}
+
+.pos-add-to-cart-animation {
+  animation: pos-add-to-cart 0.3s ease-out;
+  border-color: #22c55e !important;
+}
+
+/* Animation d'erreur - Stock insuffisant */
+@keyframes pos-error-shake {
+  0%, 100% { transform: translateX(0); }
+  25% { transform: translateX(-3px); }
+  75% { transform: translateX(3px); }
+}
+
+.pos-error-animation {
+  animation: pos-error-shake 0.5s ease-in-out;
+  border-color: #ef4444 !important;
+  background-color: rgba(239, 68, 68, 0.05) !important;
+}
+
+/* Animation de promotion - Pulse subtil */
+@keyframes pos-promotion-pulse {
+  0%, 100% { 
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+  }
+  50% { 
+    box-shadow: 0 4px 12px rgba(255, 193, 7, 0.3);
+  }
+}
+
+.pos-promotion-card {
+  animation: pos-promotion-pulse 2s infinite;
+  border: 2px solid #ffc107;
+}
+
+/* Animations par type pour les cartes */
+
+/* ===========================================
+   ANIMATIONS INDÉPENDANTES POUR CARTES
+   =========================================== */
+
+/* Classe de base pour activer les animations de cartes */
+.pos-card-animation {
+  transition: all 0.2s ease-in-out;
+}
+
+/* Cartes avec animation slide */
+.pos-card-animation.pos-animation-slide:hover,
+.pos-card-animation.pos-animation-slide .pos-product-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 12px rgba(0, 0, 0, 0.1);
+}
+
+/* Cartes avec animation glow */
+.pos-card-animation.pos-animation-glow:hover,
+.pos-card-animation.pos-animation-glow .pos-product-card:hover {
+  box-shadow: 0 0 15px rgba(59, 130, 246, 0.3);
+  border-color: #3b82f6;
+  background-color: rgba(59, 130, 246, 0.05) !important;
+}
+
+/* Cartes avec animation fade */
+.pos-card-animation.pos-animation-fade:hover,
+.pos-card-animation.pos-animation-fade .pos-product-card:hover {
+  opacity: 0.9;
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+}
+
+/* Cartes avec animation border-pulse */
+.pos-card-animation.pos-animation-border-pulse,
+.pos-card-animation.pos-animation-border-pulse .pos-product-card {
+  border: 2px solid transparent;
+}
+
+.pos-card-animation.pos-animation-border-pulse:hover,
+.pos-card-animation.pos-animation-border-pulse .pos-product-card:hover {
+  border-color: #3b82f6;
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+}
+
+/* Cartes avec animation elastic */
+.pos-card-animation.pos-animation-elastic:hover,
+.pos-card-animation.pos-animation-elastic .pos-product-card:hover {
+  transform: scale(1.03);
+  transition: transform 0.3s cubic-bezier(0.68, -0.55, 0.265, 1.55);
+}
+
+/* Cartes avec animation rotate */
+.pos-card-animation.pos-animation-rotate:hover,
+.pos-card-animation.pos-animation-rotate .pos-product-card:hover {
+  transform: rotate(1deg) translateY(-1px);
+  transition: transform 0.2s ease-in-out;
+}
+
+/* Cartes sans animation */
+.pos-card-animation.pos-animation-none:hover,
+.pos-card-animation.pos-animation-none .pos-product-card:hover {
+  transform: none !important;
+  box-shadow: inherit !important;
+}
+
+/* Cartes avec animation fade */
+.pos-card-animation.pos-animation-fade:hover,
+.pos-card-animation.pos-animation-fade .pos-product-card:hover {
+  opacity: 0.9;
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+}
+
+/* Cartes avec animation border-pulse */
+.pos-card-animation.pos-animation-border-pulse {
+  border: 2px solid transparent;
+}
+
+.pos-card-animation.pos-animation-border-pulse:hover,
+.pos-card-animation.pos-animation-border-pulse .pos-product-card:hover {
+  border-color: #3b82f6;
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+}
+
+/* Cartes avec animation elastic */
+.pos-card-animation.pos-animation-elastic:hover,
+.pos-card-animation.pos-animation-elastic .pos-product-card:hover {
+  transform: scale(1.03);
+  transition: transform 0.3s cubic-bezier(0.68, -0.55, 0.265, 1.55);
+}
+
+/* Cartes avec animation rotate */
+.pos-card-animation.pos-animation-rotate:hover,
+.pos-card-animation.pos-animation-rotate .pos-product-card:hover {
+  transform: rotate(1deg) translateY(-1px);
+}
+
+/* Cartes sans animation */
+.pos-card-animation.pos-animation-none:hover,
+.pos-card-animation.pos-animation-none .pos-product-card:hover {
+  transform: none;
+  box-shadow: inherit;
+}
+
+/* ===========================================
+   ANIMATIONS EXISTANTES (compatibilité)
+   =========================================== */
+.pos-animation-slide .pos-product-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 16px rgba(0, 0, 0, 0.15);
+}
+
+.pos-animation-glow .pos-product-card:hover {
+  box-shadow: 0 0 15px rgba(59, 130, 246, 0.3);
+  border-color: #3b82f6;
+}
+
+.pos-animation-fade .pos-product-card:hover {
+  opacity: 0.95;
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.15);
+}
+
+.pos-animation-border-pulse .pos-product-card:hover {
+  border-color: #3b82f6;
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+}
+
+.pos-animation-elastic .pos-product-card:hover {
+  transform: scale(1.03);
+  transition: transform 0.3s cubic-bezier(0.68, -0.55, 0.265, 1.55);
+}
+
+.pos-animation-none .pos-product-card:hover {
+  transform: none;
+  box-shadow: inherit;
+}
+
+/* Animation de sélection active */
+.pos-product-card-selected {
+  border-color: #3b82f6 !important;
+  background-color: rgba(59, 130, 246, 0.05) !important;
+  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.2) !important;
+}
+
+/* Animations pour les cartes du panier */
+.pos-cart-item {
+  transition: all 0.2s ease-in-out;
+}
+
+.pos-cart-item:hover {
+  background-color: rgba(0, 0, 0, 0.02);
+}
+
+/* Animation d'ajout à la liste */
+@keyframes pos-slide-in-cart {
+  from {
+    opacity: 0;
+    transform: translateX(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+.pos-cart-item-new {
+  animation: pos-slide-in-cart 0.3s ease-out;
+}
+
+/* Animation de suppression */
+@keyframes pos-slide-out-cart {
+  from {
+    opacity: 1;
+    transform: translateX(0);
+  }
+  to {
+    opacity: 0;
+    transform: translateX(-20px);
+  }
+}
+
+.pos-cart-item-removing {
+  animation: pos-slide-out-cart 0.2s ease-in forwards;
+}
+
+/* Badges et indicateurs animés */
+.pos-badge-pulse {
+  animation: pos-pulse 1.5s infinite;
+}
+
+.pos-price-highlight {
+  color: #059669 !important;
+  font-weight: 600;
+  animation: pos-glow-pulse 1s ease-in-out;
+}
+
+/* Mode sombre */
+.dark .pos-glass-effect {
+  background-color: rgba(0, 0, 0, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.dark .pos-shadow-light {
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+}
+
+.dark .pos-shadow-medium {
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
+}
+
+.dark .pos-shadow-heavy {
+  box-shadow: 0 10px 15px rgba(0, 0, 0, 0.4);
+}

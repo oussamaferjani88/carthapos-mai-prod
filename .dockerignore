@@ -1,0 +1,43 @@
+﻿# Ignore node_modules
+**/node_modules
+
+# Ignore build artifacts
+**/dist
+**/release
+**/build
+**/out
+
+# Ignore generated POS folders
+generated-pos/*
+!generated-pos/.gitkeep
+
+# Ignore git
+.git/
+**/.git
+
+# Ignore env files
+**/.env
+**/.env.*
+
+# Ignore logs
+**/*.log
+
+# Ignore tests and dev files
+coverage/
+**/.vscode/
+**/.idea/
+*.swp
+
+# Ignore databases
+**/*.db
+**/*.sqlite*
+
+# Ignore docs and tests
+docs/
+*.md
+!README.md
+examples/
+tests/
+**/__tests__
+**/*.test.js
+**/*.spec.js

@@ -1,0 +1,81 @@
+name: Build POS Windows Installer
+
+on:
+  workflow_dispatch:
+    inputs:
+      project_name:
+        description: 'POS Project Name (e.g., pos-restaurant-xyz)'
+        required: true
+      license_key:
+        description: 'License Key'
+        required: true
+      business_name:
+        description: 'Business Name'
+        required: true
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      
+      - name: Install pos-template dependencies
+        working-directory: ./pos-template
+        run: npm install --legacy-peer-deps
+      
+      - name: Create project directory
+        run: |
+          robocopy "pos-template" "generated-pos\${{ inputs.project_name }}" /E /NFL /NDL /NJH /NJS /NP
+          if ($LASTEXITCODE -le 7) { exit 0 } else { exit $LASTEXITCODE }
+      
+      - name: Verify files copied
+        working-directory: ./generated-pos/${{ inputs.project_name }}
+        run: |
+          Write-Host "Files in project root:"
+          Get-ChildItem -Name
+          Write-Host "`nChecking public folder:"
+          if (Test-Path "public") {
+            Get-ChildItem "public" -Name
+          } else {
+            Write-Host "ERROR: public folder not found!"
+            exit 1
+          }
+      
+      - name: Install project dependencies
+        working-directory: ./generated-pos/${{ inputs.project_name }}
+        run: npm install --legacy-peer-deps
+      
+      - name: Update license configuration
+        working-directory: ./generated-pos/${{ inputs.project_name }}
+        run: |
+          $config = @{
+            businessName = "${{ inputs.business_name }}"
+            licenseKey = "${{ inputs.license_key }}"
+          }
+          $config | ConvertTo-Json | Out-File -FilePath "public/app-config.json" -Encoding UTF8
+      
+      - name: Build Electron application
+        working-directory: ./generated-pos/${{ inputs.project_name }}
+        run: npm run build:electron
+      
+      - name: Find installer file
+        id: find_installer
+        working-directory: ./generated-pos/${{ inputs.project_name }}/release
+        run: |
+          $installer = Get-ChildItem -Filter "*.exe" | Select-Object -First 1
+          echo "installer_name=$($installer.Name)" >> $env:GITHUB_OUTPUT
+          echo "installer_path=generated-pos/${{ inputs.project_name }}/release/$($installer.Name)" >> $env:GITHUB_OUTPUT
+      
+      - name: Upload installer as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ inputs.project_name }}-installer
+          path: ${{ steps.find_installer.outputs.installer_path }}
+          retention-days: 90

@@ -1,0 +1,46 @@
+@tailwind base;
+@tailwind components;
+
+
+@tailwind utilities;
+
+/* Import des effets visuels POS */
+@import './styles/pos-effects.css';
+
+/* Typography Settings - Apply globally */
+.pos-preview * {
+  font-family: var(--font-family) !important;
+  font-size: var(--font-size) !important;
+  font-weight: var(--font-weight) !important;
+}
+
+/* Specific element targeting for typography */
+.pos-preview h1,
+.pos-preview h2,
+.pos-preview h3,
+.pos-preview h4,
+.pos-preview h5,
+.pos-preview h6,
+.pos-preview p,
+.pos-preview span,
+.pos-preview div,
+.pos-preview button,
+.pos-preview input,
+.pos-preview label,
+.pos-preview td,
+.pos-preview th {
+  font-family: var(--font-family) !important;
+  font-weight: var(--font-weight) !important;
+}
+
+/* Base font size override */
+.pos-preview {
+  font-size: var(--font-size) !important;
+}
+
+/* Font weight specific classes */
+.pos-preview .font-light { font-weight: 300 !important; }
+.pos-preview .font-normal { font-weight: 400 !important; }
+.pos-preview .font-medium { font-weight: 500 !important; }
+.pos-preview .font-semibold { font-weight: 600 !important; }
+.pos-preview .font-bold { font-weight: 700 !important; }

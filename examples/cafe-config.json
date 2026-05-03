@@ -1,0 +1,61 @@
+{
+  "appConfig": {
+    "theme": {
+      "businessName": "Café Central",
+      "sector": "cafe",
+      "currency": "EUR",
+      "taxRate": 20.0,
+      "language": "fr",
+      "timezone": "Europe/Paris",
+      "colors": {
+        "primary": "#8B4513",
+        "accent": "#D2691E",
+        "background": "#FFFFFF",
+        "text": "#1F2937"
+      }
+    }
+  },
+  "license": {
+    "licenseKey": "POS-CAFE-2024",
+    "clientName": "Café Central",
+    "sector": "cafe",
+    "licenseType": "SUBSCRIPTION",
+    "isActive": true,
+    "expirationDate": "2025-12-31T23:59:59.999Z",
+    "modules": [
+      {
+        "name": "pos-core",
+        "displayName": "Caisse de base",
+        "isEnabled": true
+      },
+      {
+        "name": "inventory",
+        "displayName": "Gestion des stocks",
+        "isEnabled": true
+      },
+      {
+        "name": "reports",
+        "displayName": "Rapports",
+        "isEnabled": true
+      },
+      {
+        "name": "kitchen-printer",
+        "displayName": "Impression cuisine",
+        "isEnabled": false
+      },
+      {
+        "name": "table-management",
+        "displayName": "Gestion des tables",
+        "isEnabled": false
+      }
+    ],
+    "features": {
+      "maxUsers": 5,
+      "maxProducts": 1000,
+      "supportLevel": "standard"
+    },
+    "generatedBy": "POS License Generator",
+    "generatedAt": "2024-01-15T10:00:00.000Z"
+  }
+}
+

@@ -1,0 +1,61 @@
+{
+  "appConfig": {
+    "theme": {
+      "businessName": "Restaurant Le Gourmet",
+      "sector": "restaurant",
+      "currency": "EUR",
+      "taxRate": 20.0,
+      "language": "fr",
+      "timezone": "Europe/Paris",
+      "colors": {
+        "primary": "#DC2626",
+        "accent": "#F59E0B",
+        "background": "#FFFFFF",
+        "text": "#1F2937"
+      }
+    }
+  },
+  "license": {
+    "licenseKey": "POS-RESTAURANT-2024",
+    "clientName": "Restaurant Le Gourmet",
+    "sector": "restaurant",
+    "licenseType": "LIFETIME",
+    "isActive": true,
+    "expirationDate": null,
+    "modules": [
+      {
+        "name": "pos-core",
+        "displayName": "Caisse de base",
+        "isEnabled": true
+      },
+      {
+        "name": "inventory",
+        "displayName": "Gestion des stocks",
+        "isEnabled": true
+      },
+      {
+        "name": "reports",
+        "displayName": "Rapports",
+        "isEnabled": true
+      },
+      {
+        "name": "kitchen-printer",
+        "displayName": "Impression cuisine",
+        "isEnabled": true
+      },
+      {
+        "name": "table-management",
+        "displayName": "Gestion des tables",
+        "isEnabled": true
+      }
+    ],
+    "features": {
+      "maxUsers": -1,
+      "maxProducts": -1,
+      "supportLevel": "premium"
+    },
+    "generatedBy": "POS License Generator",
+    "generatedAt": "2024-01-15T10:00:00.000Z"
+  }
+}
+

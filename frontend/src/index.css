@@ -1,0 +1,139 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Definition of the design system. All colors, gradients, fonts, etc should be defined here. 
+All colors MUST be HSL.
+*/
+
+@layer base {
+  :root {
+    --background: 0 0% 100%;
+    --foreground: 220 13% 13%;
+
+    --card: 0 0% 100%;
+    --card-foreground: 220 13% 13%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 220 13% 13%;
+
+    --primary: 220 13% 13%;
+    --primary-foreground: 0 0% 98%;
+
+    --secondary: 220 13% 96%;
+    --secondary-foreground: 220 13% 13%;
+
+    --muted: 220 13% 96%;
+    --muted-foreground: 220 9% 46%;
+
+    --accent: 220 13% 96%;
+    --accent-foreground: 220 13% 13%;
+
+    --destructive: 0 84.2% 60.2%;
+    --destructive-foreground: 0 0% 98%;
+
+    --border: 220 13% 91%;
+    --input: 220 13% 91%;
+    --ring: 220 13% 13%;
+
+    --radius: 0.75rem;
+
+    /* Gradient colors for hero sections */
+    --gradient-pink: 340 100% 85%;
+    --gradient-orange: 25 100% 75%;
+    --gradient-yellow: 45 100% 85%;
+
+    /* Custom semantic colors */
+    --text-subtle: 220 9% 46%;
+    --text-muted: 220 9% 60%;
+    
+    /* Ensure proper font sizing */
+    font-size: 15px;
+  }
+
+  html {
+    font-size: 15px;
+    -webkit-text-size-adjust: 100%;
+    -moz-text-size-adjust: 100%;
+    text-size-adjust: 100%;
+  }
+
+  .dark {
+    --background: 220 13% 9%;
+    --foreground: 0 0% 98%;
+
+    --card: 220 13% 9%;
+    --card-foreground: 0 0% 98%;
+
+    --popover: 220 13% 9%;
+    --popover-foreground: 0 0% 98%;
+
+    --primary: 0 0% 98%;
+    --primary-foreground: 220 13% 13%;
+
+    --secondary: 220 13% 15%;
+    --secondary-foreground: 0 0% 98%;
+
+    --muted: 220 13% 15%;
+    --muted-foreground: 220 9% 65%;
+
+    --accent: 220 13% 15%;
+    --accent-foreground: 0 0% 98%;
+
+    --destructive: 0 62.8% 30.6%;
+    --destructive-foreground: 0 0% 98%;
+
+    --border: 220 13% 15%;
+    --input: 220 13% 15%;
+    --ring: 220 9% 80%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  html, body {
+    margin: 0;
+    padding: 0;
+    width: 100%;
+    height: 100%;
+    overflow-x: hidden;
+  }
+
+  body {
+    @apply bg-background text-foreground font-sans antialiased;
+    font-size: 0.9375rem;
+    line-height: 1.5;
+  }
+
+  #root {
+    min-height: 100vh;
+    width: 100%;
+  }
+
+  h1, h2, h3, h4, h5, h6 {
+    @apply font-semibold tracking-tight;
+  }
+}
+
+@layer utilities {
+  .gradient-pink-orange-yellow {
+    background: linear-gradient(135deg, 
+      hsl(var(--gradient-pink)) 0%, 
+      hsl(var(--gradient-orange)) 50%, 
+      hsl(var(--gradient-yellow)) 100%);
+  }
+  
+  .gradient-purple-orange {
+    background: linear-gradient(135deg, 
+      hsl(280 80% 40%) 0%, 
+      hsl(340 100% 60%) 50%, 
+      hsl(25 100% 65%) 100%);
+  }
+
+  .text-balance {
+    text-wrap: balance;
+  }
+}

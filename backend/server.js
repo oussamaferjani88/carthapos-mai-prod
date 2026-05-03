@@ -1,0 +1,164 @@
+const express = require('express');
+const cors = require('cors');
+const helmet = require('helmet');
+const morgan = require('morgan');
+const path = require('path');
+require('dotenv').config();
+
+const { PrismaClient } = require('@prisma/client');
+const prisma = new PrismaClient();
+
+// Import authentication middleware
+const { verifyToken } = require('./middleware/auth');
+
+// Import routes
+const clientRoutes = require('./routes/clients');
+const licenseRoutes = require('./routes/licenses');
+const moduleRoutes = require('./routes/modules');
+const usbRoutes = require('./routes/usb');
+const posRoutes = require('./routes/pos');
+const takeawayRoutes = require('./routes/takeaway');
+const loyaltyRoutes = require('./routes/loyalty');
+const userRoutes = require('./routes/users');
+const directConvertRoutes = require('./routes/direct-convert');
+const seedApiRoutes = require('./routes/seed-api');
+
+// New module routes
+const barcodeRoutes = require('./routes/barcode');
+const suppliersRoutes = require('./routes/suppliers');
+const menuManagementRoutes = require('./routes/menu-management');
+const quickServiceRoutes = require('./routes/quick-service');
+const paymentAdvancedRoutes = require('./routes/payment-advanced');
+const giftCardsRoutes = require('./routes/gift-cards');
+const prescriptionsRoutes = require('./routes/prescriptions');
+const productionRoutes = require('./routes/production');
+const biRequestsRoutes = require('./routes/bi-requests');
+
+const app = express();
+const PORT = process.env.PORT || 3001;
+
+// Middleware
+app.use(helmet());
+app.use(cors({
+  origin: '*', // Allow all origins for development
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization']
+}));
+app.use(morgan('combined'));
+app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+
+// Increase server timeout for long-running operations (like POS generation)
+app.use((req, res, next) => {
+  req.setTimeout(1200000); // 20 minutes
+  res.setTimeout(1200000);
+  next();
+});
+
+// Static files for uploads
+app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+
+// ============================================================================
+// JWT AUTHENTICATION - DISABLED FOR DEVELOPMENT
+// TODO: Re-enable before production deployment
+// ============================================================================
+// Public routes (no authentication required)
+app.use('/api/users', userRoutes); // Login endpoint is in this router
+
+// Health check (public)
+app.get('/api/health', (req, res) => {
+  res.json({
+    status: 'OK',
+    timestamp: new Date().toISOString(),
+    version: '1.0.0'
+  });
+});
+
+// Apply JWT authentication middleware to all routes below
+// COMMENTED OUT FOR DEVELOPMENT - UNCOMMENT BEFORE PRODUCTION
+// app.use('/api', verifyToken);
+
+// Protected routes (authentication required)
+// NOTE: Currently accessible without authentication for development
+app.use('/api/clients', clientRoutes);
+app.use('/api/licenses', licenseRoutes);
+app.use('/api/modules', moduleRoutes);
+app.use('/api/usb', usbRoutes);
+app.use('/api/pos', posRoutes);
+app.use('/api/takeaway', takeawayRoutes);
+app.use('/api/loyalty', loyaltyRoutes);
+app.use('/api', directConvertRoutes);
+app.use('/api', seedApiRoutes);
+
+// New module routes (protected)
+app.use('/api/barcode', barcodeRoutes);
+app.use('/api/suppliers', suppliersRoutes);
+app.use('/api/menu-management', menuManagementRoutes);
+app.use('/api/quick-service', quickServiceRoutes);
+app.use('/api/payment-advanced', paymentAdvancedRoutes);
+app.use('/api/gift-cards', giftCardsRoutes);
+app.use('/api/prescriptions', prescriptionsRoutes);
+app.use('/api/production', productionRoutes);
+app.use('/api/bi-requests', biRequestsRoutes);
+
+// Error handling middleware
+app.use((err, req, res, next) => {
+  console.error('❌ Error caught by middleware:', err.stack);
+  
+  // Don't send response if headers already sent
+  if (res.headersSent) {
+    return next(err);
+  }
+  
+  res.status(err.status || 500).json({
+    error: 'Something went wrong!',
+    message: process.env.NODE_ENV === 'development' ? err.message : 'Internal server error',
+    ...(process.env.NODE_ENV === 'development' && { stack: err.stack })
+  });
+});
+
+// 404 handler
+app.use('*', (req, res) => {
+  res.status(404).json({ error: 'Route not found' });
+});
+
+// Handle uncaught exceptions
+process.on('uncaughtException', (error) => {
+  console.error('❌ Uncaught Exception:', error);
+  // Don't exit process on Render - let it recover
+  if (process.env.NODE_ENV === 'production') {
+    console.log('🔄 Continuing despite uncaught exception...');
+  }
+});
+
+// Handle unhandled promise rejections
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('❌ Unhandled Rejection at:', promise, 'reason:', reason);
+  // Don't exit process on Render - let it recover
+  if (process.env.NODE_ENV === 'production') {
+    console.log('🔄 Continuing despite unhandled rejection...');
+  }
+});
+
+// Graceful shutdown
+process.on('SIGINT', async () => {
+  console.log('Shutting down gracefully...');
+  await prisma.$disconnect();
+  process.exit(0);
+});
+
+// Auto-seed for production
+const autoSeed = require('./utils/autoSeed');
+
+// Helper to run migrations if needed inside code (optional, but autoSeed handles data)
+// Note: Migrations are handled by CMD in Dockerfile, so we just seed data here.
+
+app.listen(PORT, '0.0.0.0', async () => {
+  console.log(`🚀 Server running on http://0.0.0.0:${PORT}`);
+  console.log(`📊 Environment: ${process.env.NODE_ENV}`);
+
+  // Run Auto-Seed
+  await autoSeed();
+});
+

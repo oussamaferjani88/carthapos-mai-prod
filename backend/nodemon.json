@@ -1,0 +1,10 @@
+{
+  "watch": ["server.js", "routes", "middleware", "utils", "src"],
+  "ext": "js,mjs,cjs,json",
+  "ignore": [
+    "generated-pos/**",
+    "uploads/**",
+    "data/**",
+    "prisma/**"
+  ]
+}
