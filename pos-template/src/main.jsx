@@ -48,10 +48,12 @@ if (typeof window !== 'undefined') {
     init: () => {}
   }; // Mock manager
   
-  // Also disable console.error and console.warn in production to reduce noise
+  // Also disable console methods in production to reduce noise and improve performance
   if (import.meta.env.PROD) {
+    console.log = () => {};    // ⚡ Disable console.log (biggest performance drain)
     console.error = () => {};
     console.warn = () => {};
+    console.debug = () => {};  // Also disable debug
   }
 }
 

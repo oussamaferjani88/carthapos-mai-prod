@@ -323,11 +323,32 @@ export class POSConfiguration {
     return config.cardAnimations !== false;
   }
 
-  // Nouvelles méthodes pour les composants
+  // ⚡ Static cache for memoization (prevents recalculation on every render)
+  static _classesCache = new Map();
+  static _MAX_CACHE_SIZE = 50;
+
+  // Helper to generate cache key
+  static _getCacheKey(prefix, config) {
+    // Create a simple hash of the config to use as cache key
+    try {
+      return prefix + '_' + JSON.stringify(config).split('').reduce((a, b) => {
+        a = ((a << 5) - a) + b.charCodeAt(0);
+        return a & a;
+      }, 0);
+    } catch {
+      return prefix + '_' + Date.now();
+    }
+  }
+
+  // Nouvelles méthodes pour les composants (with memoization)
   static getCardClasses(config) {
     const cardConfig = config.components?.cards || {};
-    console.log('POSConfiguration.getCardClasses called with config:', config);
-    console.log('Card config:', cardConfig);
+    const cacheKey = POSConfiguration._getCacheKey('card', cardConfig);
+    
+    // ⚡ Return cached value if available
+    if (POSConfiguration._classesCache.has(cacheKey)) {
+      return POSConfiguration._classesCache.get(cacheKey);
+    }
     
     const borderRadiusMap = {
       'none': 'rounded-none',
@@ -351,14 +372,25 @@ export class POSConfiguration {
     const padding = `p-${Math.round((cardConfig.padding || 1) * 4)}`;
 
     const classes = `${borderRadius} ${shadow} ${padding}`;
-    console.log('Generated card classes:', classes);
+    
+    // ⚡ Cache the result and maintain cache size limit
+    if (POSConfiguration._classesCache.size >= POSConfiguration._MAX_CACHE_SIZE) {
+      const firstKey = POSConfiguration._classesCache.keys().next().value;
+      POSConfiguration._classesCache.delete(firstKey);
+    }
+    POSConfiguration._classesCache.set(cacheKey, classes);
+    
     return classes;
   }
 
   static getButtonClasses(config) {
     const buttonConfig = config.components?.buttons || {};
-    console.log('POSConfiguration.getButtonClasses called with config:', config);
-    console.log('Button config:', buttonConfig);
+    const cacheKey = POSConfiguration._getCacheKey('button', buttonConfig);
+    
+    // ⚡ Return cached value if available
+    if (POSConfiguration._classesCache.has(cacheKey)) {
+      return POSConfiguration._classesCache.get(cacheKey);
+    }
     
     const styleMap = {
       'default': 'bg-primary text-primary-foreground',
@@ -381,7 +413,14 @@ export class POSConfiguration {
     const hoverEffects = buttonConfig.hoverEffects !== false ? 'hover:opacity-90 transition-all' : '';
 
     const classes = `${style} ${size} ${hoverEffects}`;
-    console.log('Generated button classes:', classes);
+    
+    // ⚡ Cache the result and maintain cache size limit
+    if (POSConfiguration._classesCache.size >= POSConfiguration._MAX_CACHE_SIZE) {
+      const firstKey = POSConfiguration._classesCache.keys().next().value;
+      POSConfiguration._classesCache.delete(firstKey);
+    }
+    POSConfiguration._classesCache.set(cacheKey, classes);
+    
     return classes;
   }
 
