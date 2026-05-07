@@ -307,6 +307,15 @@ class ThemeCustomizer {
 
     const config = this.license.configuration || {};
     
+    // ⚡ Generate database filename from business name
+    const businessName = config.businessName || this.license.client?.name || 'Mon Commerce';
+    const sanitizedBusinessName = businessName
+      .toLowerCase()
+      .replace(/[^a-z0-9]/g, '-')  // Replace non-alphanumeric with hyphen
+      .replace(/-+/g, '-')           // Remove multiple consecutive hyphens
+      .replace(/^-|-$/g, '');        // Remove leading/trailing hyphens
+    const databaseFilename = `${sanitizedBusinessName}.db`;
+    
     // Enhanced app configuration matching useAppConfig expectations
     const appConfig = {
       license: {
@@ -320,7 +329,7 @@ class ThemeCustomizer {
         { name: "reports", displayName: "Rapports", isEnabled: true, description: "Rapports de ventes et analyses" }
       ],
       theme: {
-        businessName: config.businessName || this.license.client?.name || 'Mon Commerce',
+        businessName: businessName,
         colors: {
           primary: config.primaryColor || '#3B82F6',
           accent: config.secondaryColor || '#10B981',
@@ -349,7 +358,7 @@ class ThemeCustomizer {
       },
       database: {
         type: 'sqlite',
-        filename: 'pos-data.db'
+        filename: databaseFilename  // ⚡ Dynamic: uses business name (e.g., "naruto.db", "restaurant-le-gourmet.db")
       },
       security: {
         requireUSBLicense: false,
@@ -379,8 +388,10 @@ class ThemeCustomizer {
     fs.writeFileSync(distConfigPath, configContent);
     
     logger.debug('App configuration updated in both public and dist directories');
+    logger.info(`🗄️ Database filename configured: ${databaseFilename}`);
     logger.debug('Configuration preview:', JSON.stringify({
       businessName: appConfig.theme.businessName,
+      databaseFilename: appConfig.database.filename,
       primaryColor: appConfig.theme.primaryColor,
       modules: appConfig.modules.length
     }, null, 2));
