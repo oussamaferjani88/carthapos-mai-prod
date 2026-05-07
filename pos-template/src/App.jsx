@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, lazy, Suspense } from 'react';
 import { HashRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import './App.css';
 import './styles/pos-animations.css';
@@ -11,40 +11,48 @@ import LicenseCheck from './components/LicenseCheck';
 import POSWithAuth from './components/POSWithAuth';
 import SetupWizard from './components/SetupWizard';
 import Layout from './components/Layout';
-import Dashboard from './pages/Dashboard';
-import Sales from './pages/Sales';
-import Products from './pages/Products';
-import Reports from './pages/Reports';
-import Settings from './pages/Settings';
-import Customers from './pages/Customers';
-import Tables from './pages/Tables';
-import Kitchen from './pages/Kitchen';
-import Appointments from './pages/Appointments';
-import Services from './pages/Services';
-import Suppliers from './pages/Suppliers';
-import Inventory from './pages/Inventory';
-import Barcode from './pages/Barcode';
-import QuickService from './pages/QuickService';
-import UserAdmin from './pages/UserAdmin';
-import MenuManagement from './pages/MenuManagement';
-import Takeaway from './pages/Takeaway';
-import Loyalty from './pages/Loyalty';
-import PaymentAdvanced from './pages/PaymentAdvanced';
-import GiftCards from './pages/GiftCards';
-import Prescription from './pages/Prescription';
-import Production from './pages/Production';
-import HardwareSettings from './pages/HardwareSettings';
-import ReceiptDesigner from './pages/ReceiptDesigner';
+
+// Lazy load page components for better performance
+const Dashboard = lazy(() => import('./pages/Dashboard'));
+const Sales = lazy(() => import('./pages/Sales'));
+const Products = lazy(() => import('./pages/Products'));
+const Reports = lazy(() => import('./pages/Reports'));
+const Settings = lazy(() => import('./pages/Settings'));
+const Customers = lazy(() => import('./pages/Customers'));
+const Tables = lazy(() => import('./pages/Tables'));
+const Kitchen = lazy(() => import('./pages/Kitchen'));
+const Appointments = lazy(() => import('./pages/Appointments'));
+const Services = lazy(() => import('./pages/Services'));
+const Suppliers = lazy(() => import('./pages/Suppliers'));
+const Inventory = lazy(() => import('./pages/Inventory'));
+const Barcode = lazy(() => import('./pages/Barcode'));
+const QuickService = lazy(() => import('./pages/QuickService'));
+const UserAdmin = lazy(() => import('./pages/UserAdmin'));
+const MenuManagement = lazy(() => import('./pages/MenuManagement'));
+const Takeaway = lazy(() => import('./pages/Takeaway'));
+const Loyalty = lazy(() => import('./pages/Loyalty'));
+const PaymentAdvanced = lazy(() => import('./pages/PaymentAdvanced'));
+const GiftCards = lazy(() => import('./pages/GiftCards'));
+const Prescription = lazy(() => import('./pages/Prescription'));
+const Production = lazy(() => import('./pages/Production'));
+const HardwareSettings = lazy(() => import('./pages/HardwareSettings'));
+const ReceiptDesigner = lazy(() => import('./pages/ReceiptDesigner'));
 
 // Hooks
 import { useAppConfig } from './hooks/useAppConfig';
 import { useLicense } from './hooks/useLicense';
 
 // Contexts
-
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import ProtectedRoute from './components/ProtectedRoute';
 import { isPreviewMode } from './utils/environment';
+
+// Loading component for lazy-loaded pages
+const PageLoadingFallback = () => (
+  <div className="flex items-center justify-center min-h-screen">
+    <div className="animate-spin rounded-full h-12 w-12 border-4 border-primary/20 border-t-primary"></div>
+  </div>
+);
 
 function App() {
   return (
@@ -240,33 +248,35 @@ function AppContent() {
       <div className="pos-app pos-application min-h-screen bg-gradient-to-br from-background via-muted/20 to-background">
         <Layout config={config} license={license}>
           <main className="transition-all duration-300 ease-in-out">
-            <Routes>
-              <Route path="/" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
-              <Route path="/sales" element={<ProtectedRoute><Sales /></ProtectedRoute>} />
-              <Route path="/products" element={<ProtectedRoute><Products /></ProtectedRoute>} />
-              <Route path="/inventory" element={<ProtectedRoute><Inventory /></ProtectedRoute>} />
-              <Route path="/barcode" element={<ProtectedRoute><Barcode /></ProtectedRoute>} />
-              <Route path="/quick-service" element={<ProtectedRoute><QuickService /></ProtectedRoute>} />
-              <Route path="/customers" element={<ProtectedRoute><Customers /></ProtectedRoute>} />
-              <Route path="/tables" element={<ProtectedRoute><Tables /></ProtectedRoute>} />
-              <Route path="/kitchen" element={<ProtectedRoute><Kitchen /></ProtectedRoute>} />
-              <Route path="/menu-management" element={<ProtectedRoute><MenuManagement /></ProtectedRoute>} />
-              <Route path="/takeaway" element={<ProtectedRoute><Takeaway /></ProtectedRoute>} />
-              <Route path="/loyalty" element={<ProtectedRoute><Loyalty /></ProtectedRoute>} />
-              <Route path="/payment-advanced" element={<ProtectedRoute><PaymentAdvanced /></ProtectedRoute>} />
-              <Route path="/gift-cards" element={<ProtectedRoute><GiftCards /></ProtectedRoute>} />
-              <Route path="/prescription" element={<ProtectedRoute><Prescription /></ProtectedRoute>} />
-              <Route path="/production" element={<ProtectedRoute><Production /></ProtectedRoute>} />
-              <Route path="/appointments" element={<ProtectedRoute><Appointments /></ProtectedRoute>} />
-              <Route path="/services" element={<ProtectedRoute><Services /></ProtectedRoute>} />
-              <Route path="/suppliers" element={<ProtectedRoute><Suppliers /></ProtectedRoute>} />
-              <Route path="/reports" element={<ProtectedRoute><Reports /></ProtectedRoute>} />
-              <Route path="/settings" element={<ProtectedRoute><Settings /></ProtectedRoute>} />
-              <Route path="/hardware-settings" element={<ProtectedRoute><HardwareSettings /></ProtectedRoute>} />
-              <Route path="/receipt-designer" element={<ProtectedRoute><ReceiptDesigner /></ProtectedRoute>} />
-              <Route path="/user-admin" element={<ProtectedRoute><UserAdmin /></ProtectedRoute>} />
-              <Route path="*" element={<Navigate to="/" replace />} />
-            </Routes>
+            <Suspense fallback={<PageLoadingFallback />}>
+              <Routes>
+                <Route path="/" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
+                <Route path="/sales" element={<ProtectedRoute><Sales /></ProtectedRoute>} />
+                <Route path="/products" element={<ProtectedRoute><Products /></ProtectedRoute>} />
+                <Route path="/inventory" element={<ProtectedRoute><Inventory /></ProtectedRoute>} />
+                <Route path="/barcode" element={<ProtectedRoute><Barcode /></ProtectedRoute>} />
+                <Route path="/quick-service" element={<ProtectedRoute><QuickService /></ProtectedRoute>} />
+                <Route path="/customers" element={<ProtectedRoute><Customers /></ProtectedRoute>} />
+                <Route path="/tables" element={<ProtectedRoute><Tables /></ProtectedRoute>} />
+                <Route path="/kitchen" element={<ProtectedRoute><Kitchen /></ProtectedRoute>} />
+                <Route path="/menu-management" element={<ProtectedRoute><MenuManagement /></ProtectedRoute>} />
+                <Route path="/takeaway" element={<ProtectedRoute><Takeaway /></ProtectedRoute>} />
+                <Route path="/loyalty" element={<ProtectedRoute><Loyalty /></ProtectedRoute>} />
+                <Route path="/payment-advanced" element={<ProtectedRoute><PaymentAdvanced /></ProtectedRoute>} />
+                <Route path="/gift-cards" element={<ProtectedRoute><GiftCards /></ProtectedRoute>} />
+                <Route path="/prescription" element={<ProtectedRoute><Prescription /></ProtectedRoute>} />
+                <Route path="/production" element={<ProtectedRoute><Production /></ProtectedRoute>} />
+                <Route path="/appointments" element={<ProtectedRoute><Appointments /></ProtectedRoute>} />
+                <Route path="/services" element={<ProtectedRoute><Services /></ProtectedRoute>} />
+                <Route path="/suppliers" element={<ProtectedRoute><Suppliers /></ProtectedRoute>} />
+                <Route path="/reports" element={<ProtectedRoute><Reports /></ProtectedRoute>} />
+                <Route path="/settings" element={<ProtectedRoute><Settings /></ProtectedRoute>} />
+                <Route path="/hardware-settings" element={<ProtectedRoute><HardwareSettings /></ProtectedRoute>} />
+                <Route path="/receipt-designer" element={<ProtectedRoute><ReceiptDesigner /></ProtectedRoute>} />
+                <Route path="/user-admin" element={<ProtectedRoute><UserAdmin /></ProtectedRoute>} />
+                <Route path="*" element={<Navigate to="/" replace />} />
+              </Routes>
+            </Suspense>
           </main>
         </Layout>
       </div>

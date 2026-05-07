@@ -9,6 +9,7 @@ import { Badge } from '../components/ui/badge';
 import { Textarea } from '../components/ui/textarea';
 import { POSConfiguration } from '../lib/POSConfiguration';
 import { useAppConfig } from '../hooks/useAppConfig';
+import { useDebouncedFormInput } from '../hooks/usePerformance'; // ⚡ Import optimized hook
 import { isPreviewMode, getPreviewData, logEnvironment } from '../utils/environment';
 import { 
   Plus, 
@@ -69,6 +70,9 @@ export default function Products() {
     image: null, // Image du produit (optionnelle)
     description: ''
   });
+
+  // ⚡ PERFORMANCE FIX: Use debounced form input to prevent lag when typing
+  const formInput = useDebouncedFormInput(formData, setFormData, 150);
   
   const fileInputRef = useRef(null);
   const [imagePreview, setImagePreview] = useState(null);
@@ -365,31 +369,56 @@ export default function Products() {
       };
 
       if (editingProduct) {
-        // Mettre à jour le produit
+        // ⚡ OPTIMISTIC UPDATE: Update UI immediately without waiting for DB
+        const updatedProducts = products.map(p => 
+          p.id === editingProduct.id 
+            ? { ...p, ...productData }
+            : p
+        );
+        setProducts(updatedProducts);
+        
+        // Save to database in background
         if (window.electronAPI) {
-          await window.electronAPI.updateProduct(editingProduct.id, productData);
-          await loadProducts();
-        } else {
-          // Fallback pour le développement web
-          setProducts(products.map(p => 
-            p.id === editingProduct.id 
-              ? { ...p, ...productData }
-              : p
-          ));
+          try {
+            await window.electronAPI.updateProduct(editingProduct.id, productData);
+          } catch (error) {
+            console.error('Database save error:', error);
+            // On error, reload products to ensure consistency
+            await loadProducts();
+            alert('Erreur lors de la sauvegarde: ' + error.message);
+            return;
+          }
         }
         alert('Produit mis à jour avec succès');
       } else {
-        // Créer un nouveau produit
+        // ⚡ OPTIMISTIC UPDATE: Add product to UI immediately
+        const newProduct = {
+          id: Date.now(),
+          ...productData,
+          created_at: new Date().toISOString()
+        };
+        setProducts([...products, newProduct]);
+        
+        // Save to database in background
         if (window.electronAPI) {
-          await window.electronAPI.addProduct(productData);
-          await loadProducts();
+          try {
+            const savedProduct = await window.electronAPI.addProduct(productData);
+            // Update with server-assigned ID if different
+            if (savedProduct && savedProduct.id !== newProduct.id) {
+              setProducts(products.map(p => 
+                p.id === newProduct.id ? { ...p, id: savedProduct.id } : p
+              ));
+            }
+          } catch (error) {
+            console.error('Database save error:', error);
+            // On error, remove from UI and reload
+            setProducts(products.filter(p => p.id !== newProduct.id));
+            alert('Erreur lors de la sauvegarde: ' + error.message);
+            return;
+          }
         } else {
-          // Fallback pour le développement web
-          const newProduct = {
-            id: Date.now(),
-            ...productData
-          };
-          setProducts([...products, newProduct]);
+          // Fallback for web mode
+          alert('Produit créé avec succès');
         }
         alert('Produit créé avec succès');
       }
@@ -452,12 +481,19 @@ export default function Products() {
     }
 
     try {
+      // ⚡ OPTIMISTIC UPDATE: Remove from UI immediately
+      setProducts(products.filter(p => p.id !== product.id));
+      
       if (window.electronAPI) {
-        await window.electronAPI.deleteProduct(product.id);
-        await loadProducts();
-      } else {
-        // Fallback pour le développement web
-        setProducts(products.filter(p => p.id !== product.id));
+        try {
+          await window.electronAPI.deleteProduct(product.id);
+        } catch (error) {
+          console.error('Database delete error:', error);
+          // On error, restore the product to the list
+          setProducts([...products, product]);
+          alert('Erreur lors de la suppression: ' + error.message);
+          return;
+        }
       }
       alert('Produit supprimé avec succès');
     } catch (error) {
@@ -804,17 +840,17 @@ export default function Products() {
           
           <form onSubmit={handleSubmit}>
             <div className="grid gap-4 py-4 max-h-[400px] overflow-y-auto">
-              {/* Nom du produit */}
-              <div className="grid gap-2">
-                <Label htmlFor="name">Nom du produit *</Label>
-                <Input
-                  id="name"
-                  value={formData.name}
-                  onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                  placeholder="Ex: Café Expresso, Croissant..."
-                  required
-                />
-              </div>
+               {/* Nom du produit */}
+               <div className="grid gap-2">
+                 <Label htmlFor="name">Nom du produit *</Label>
+                 <Input
+                   id="name"
+                   value={formData.name}
+                   {...formInput.bind('name')}
+                   placeholder="Ex: Café Expresso, Croissant..."
+                   required
+                 />
+               </div>
               
               {/* Famille du produit */}
               <div className="grid gap-2">
@@ -836,38 +872,38 @@ export default function Products() {
                 </Select>
               </div>
               
-              {/* Prix de vente */}
-              <div className="grid gap-2">
-                <Label htmlFor="price">Prix de vente *</Label>
-                <div className="relative">
-                  <Input
-                    id="price"
-                    type="number"
-                    step="0.01"
-                    min="0"
-                    value={formData.price}
-                    onChange={(e) => setFormData({ ...formData, price: e.target.value })}
-                    placeholder="0.00"
-                    className="pr-8"
-                    required
-                  />
-                  <span className="absolute right-3 top-1/2 transform -translate-y-1/2 text-muted-foreground">
-                    DT
-                  </span>
-                </div>
-              </div>
+               {/* Prix de vente */}
+               <div className="grid gap-2">
+                 <Label htmlFor="price">Prix de vente *</Label>
+                 <div className="relative">
+                   <Input
+                     id="price"
+                     type="number"
+                     step="0.01"
+                     min="0"
+                     value={formData.price}
+                     {...formInput.bind('price')}
+                     placeholder="0.00"
+                     className="pr-8"
+                     required
+                   />
+                   <span className="absolute right-3 top-1/2 transform -translate-y-1/2 text-muted-foreground">
+                     DT
+                   </span>
+                 </div>
+               </div>
               
-              {/* Code-barres */}
-              <div className="grid gap-2">
-                <Label htmlFor="barcode">Code-barres</Label>
-                <div className="flex gap-2">
-                  <Input
-                    id="barcode"
-                    value={formData.barcode}
-                    onChange={(e) => setFormData({ ...formData, barcode: e.target.value })}
-                    placeholder="Code-barres du produit"
-                    className="flex-1"
-                  />
+               {/* Code-barres */}
+               <div className="grid gap-2">
+                 <Label htmlFor="barcode">Code-barres</Label>
+                 <div className="flex gap-2">
+                   <Input
+                     id="barcode"
+                     value={formData.barcode}
+                     {...formInput.bind('barcode')}
+                     placeholder="Code-barres du produit"
+                     className="flex-1"
+                   />
                   <Button
                     type="button"
                     variant="outline"
@@ -957,17 +993,17 @@ export default function Products() {
                 </div>
               </div>
               
-              {/* Description (optionnelle) */}
-              <div className="grid gap-2">
-                <Label htmlFor="description">Description (optionnelle)</Label>
-                <Textarea
-                  id="description"
-                  value={formData.description}
-                  onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                  placeholder="Description du produit, ingrédients, allergènes..."
-                  rows={3}
-                />
-              </div>
+               {/* Description (optionnelle) */}
+               <div className="grid gap-2">
+                 <Label htmlFor="description">Description (optionnelle)</Label>
+                 <Textarea
+                   id="description"
+                   value={formData.description}
+                   {...formInput.bind('description')}
+                   placeholder="Description du produit, ingrédients, allergènes..."
+                   rows={3}
+                 />
+               </div>
             </div>
             
             <DialogFooter>

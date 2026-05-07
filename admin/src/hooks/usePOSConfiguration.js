@@ -8,7 +8,7 @@ import toast from 'react-hot-toast';
 
 const DEFAULT_CONFIGURATION = {
   // Basic Business Info
-  businessName: 'Mon POS',
+  businessName: '',
   logo: '',
   favicon: '',
   appTitle: 'POS System',

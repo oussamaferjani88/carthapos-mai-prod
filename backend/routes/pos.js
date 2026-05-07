@@ -47,10 +47,16 @@ router.post('/generate', async (req, res) => {
       return res.status(400).json({ error: 'License is not active' });
     }
 
-    // Générer l'application POS
-    // Skip local build (Render timeout prevention) - GitHub Actions does the heavy lifting
+    // Generation mode:
+    // - LOCAL_BUILD=true => full local .exe build (unless fast mode is requested)
+    // - LOCAL_BUILD=false => source generation only (build delegated externally)
     const localBuild = process.env.LOCAL_BUILD === 'true';
-    const result = await generatePOSApplication(license, outputPath, { skipBuild: !localBuild });
+    const fastLocalGeneration = process.env.FAST_LOCAL_GENERATION === 'true' || req.body.fastMode === true;
+    const skipBuild = !localBuild || fastLocalGeneration;
+    const result = await generatePOSApplication(license, outputPath, {
+      skipBuild,
+      skipNodeModulesInstall: skipBuild
+    });
 
     // Mettre à jour le productName et assurer le bon fichier main dans package.json avant la construction
     const packageJsonPath = path.join(result.outputPath, 'package.json');
@@ -90,12 +96,12 @@ router.post('/generate', async (req, res) => {
       }
     }
 
-    if (process.env.LOCAL_BUILD === 'true') {
+    if (localBuild) {
       try {
         await prisma.license.update({
           where: { id: licenseId },
           data: {
-            buildStatus: 'completed',
+            buildStatus: skipBuild ? 'source_ready' : 'completed',
             buildProjectPath: result.outputPath,
             buildProjectName: projectName
           }
@@ -140,17 +146,27 @@ router.post('/generate', async (req, res) => {
     }
     
     // Return success response immediately (build continues in background)
+    const buildStatus = localBuild
+      ? (skipBuild ? 'source_ready' : 'completed')
+      : 'building';
+
     res.json({
-      message: 'POS generation started - build in progress',
+      message: skipBuild
+        ? 'POS source generation completed'
+        : 'POS generation started - build in progress',
       path: result.outputPath,
-      executablePath: localBuild ? localExecutablePath : null, // Will be available after build completes
+      executablePath: localBuild && !skipBuild ? localExecutablePath : null,
       projectName,
       licenseKey: license.licenseKey,
-      buildStatus: localBuild ? 'completed' : 'building',
+      buildStatus,
       licenseId: licenseId, // Include license ID for polling
-      estimatedTime: localBuild ? '3-8 minutes' : '6-8 minutes',
+      estimatedTime: localBuild
+        ? (skipBuild ? '10-60 seconds' : '3-8 minutes')
+        : '6-8 minutes',
       note: localBuild
-        ? 'Local generation complete. Use executablePath or output path for testing.'
+        ? (skipBuild
+          ? 'Fast local source generation complete. Trigger installer build explicitly when needed.'
+          : 'Local generation complete. Use executablePath or output path for testing.')
         : 'Build in progress on GitHub Actions. Refresh page in 6-8 minutes to download.'
     });
     
@@ -701,41 +717,11 @@ router.get('/download', async (req, res) => {
       const localBuild = process.env.LOCAL_BUILD === 'true';
 
       if (localBuild) {
-        try {
-          logger.info('LOCAL_BUILD enabled - attempting local installer build on download');
-          const buildManager = new BuildSystemManager(requestedPath);
-          await buildManager.executeFullBuild();
-
-          // Retry search after build
-          for (const searchPath of searchLocations) {
-            searchedPaths.push(searchPath);
-            if (fs.existsSync(searchPath)) {
-              const contents = fs.readdirSync(searchPath);
-              const exeFile = contents.find(file => file.toLowerCase().endsWith('.exe'));
-              if (exeFile) {
-                installerPath = path.join(searchPath, exeFile);
-                if (searchPath !== requestedPath) {
-                  const rootExePath = path.join(requestedPath, path.basename(exeFile));
-                  if (!fs.existsSync(rootExePath)) {
-                    fs.copyFileSync(installerPath, rootExePath);
-                  }
-                  if (searchPath.endsWith(path.sep + 'release')) {
-                    fs.rmSync(searchPath, { recursive: true, force: true });
-                  }
-                  installerPath = rootExePath;
-                }
-                logger.info(`✅ Local build produced installer: ${installerPath}`);
-                break;
-              }
-            }
-            if (installerPath) break;
-          }
-        } catch (buildError) {
-          logger.error('LOCAL_BUILD download build failed:', buildError.message);
-        }
+        logger.warn('LOCAL_BUILD is enabled but no installer was found. Skipping download-time rebuild to avoid long duplicate builds.');
       }
 
       if (!installerPath) {
+        const fastLocalGeneration = process.env.FAST_LOCAL_GENERATION === 'true';
         // On Linux (Render), .exe can't be built - offer source code instead
         logger.info('No .exe installer found - checking for dist/ folder (Linux build)');
 
@@ -779,7 +765,9 @@ router.get('/download', async (req, res) => {
           path: requestedPath,
           searchedPaths: searchedPaths,
           note: localBuild
-            ? 'Local build is enabled but no installer was produced. Check backend logs for build errors.'
+            ? (fastLocalGeneration
+              ? 'Fast local generation mode is enabled (source-only). Build installer explicitly when needed.'
+              : 'Local build is enabled but no installer was produced. Check backend logs for build errors.')
             : 'Windows .exe can only be built on Windows. Download source code and run "npm run build:electron" on Windows.'
         });
       }

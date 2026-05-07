@@ -1,4 +1,4 @@
-import { useState, useEffect, useContext } from 'react';
+import { useState } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
@@ -13,7 +13,9 @@ const POSWithAuth = ({ config, children }) => {
   const [showPassword, setShowPassword] = useState(false);
   const { user, login, logout, loading: authLoading } = useAuth();
   
-  // Two-step login: Step 1 = role selection, Step 2 = password entry
+  const previewMode = isPreviewMode();
+
+  // Two-step login for preview only: Step 1 = role selection, Step 2 = password entry
   const [loginStep, setLoginStep] = useState(1); // 1 = role selection, 2 = password entry
   const [selectedRole, setSelectedRole] = useState(null); // 'admin' or 'caissier'
   
@@ -140,12 +142,12 @@ const POSWithAuth = ({ config, children }) => {
               {config?.theme?.businessName || 'POS System'}
             </CardTitle>
             <CardDescription className="text-base">
-              {loginStep === 1 ? 'Sélectionnez votre rôle' : 'Connexion sécurisée'}
+              {previewMode && loginStep === 1 ? 'Sélectionnez votre rôle' : 'Connexion sécurisée'}
             </CardDescription>
           </CardHeader>
           <CardContent className="pt-4">
             {/* STEP 1: Role Selection */}
-            {loginStep === 1 && (
+            {previewMode && loginStep === 1 && (
               <div className="space-y-3">
                 <p className="text-sm text-gray-600 text-center mb-4">
                   Choisissez votre rôle pour vous connecter
@@ -194,7 +196,7 @@ const POSWithAuth = ({ config, children }) => {
                 </button>
 
                 {/* Demo accounts info - Only in preview mode */}
-                {isPreviewMode() && (
+                {previewMode && (
                   <div className="mt-6 text-xs bg-muted/50 p-4 rounded-lg space-y-2">
                     <p className="font-medium text-center mb-3">Comptes de démonstration :</p>
                     <div className="space-y-2">
@@ -217,37 +219,65 @@ const POSWithAuth = ({ config, children }) => {
             )}
 
             {/* STEP 2: Password Entry */}
-            {loginStep === 2 && (
+            {((previewMode && loginStep === 2) || !previewMode) && (
               <form onSubmit={handleLogin} className="space-y-4">
-                {/* Selected Role Display */}
-                <div className="bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200 rounded-lg p-4">
-                  <div className="flex items-center gap-3">
-                    <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${
-                      selectedRole === 'admin' 
-                        ? 'bg-gradient-to-br from-blue-500 to-indigo-600' 
-                        : 'bg-gradient-to-br from-green-500 to-emerald-600'
-                    }`}>
-                      {selectedRole === 'admin' ? (
-                        <Settings className="w-5 h-5 text-white" />
-                      ) : (
-                        <User className="w-5 h-5 text-white" />
-                      )}
+                {/* Selected Role Display (preview mode only) */}
+                {previewMode ? (
+                  <div className="bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200 rounded-lg p-4">
+                    <div className="flex items-center gap-3">
+                      <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${
+                        selectedRole === 'admin'
+                          ? 'bg-gradient-to-br from-blue-500 to-indigo-600'
+                          : 'bg-gradient-to-br from-green-500 to-emerald-600'
+                      }`}>
+                        {selectedRole === 'admin' ? (
+                          <Settings className="w-5 h-5 text-white" />
+                        ) : (
+                          <User className="w-5 h-5 text-white" />
+                        )}
+                      </div>
+                      <div className="flex-1">
+                        <p className="text-xs text-gray-600">Connexion en tant que</p>
+                        <p className="font-semibold text-gray-900">
+                          {selectedRole === 'admin' ? 'Administrateur' : 'Caissier'}
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={handleBack}
+                        className="text-sm text-blue-600 hover:text-blue-800 font-medium"
+                      >
+                        Changer
+                      </button>
                     </div>
-                    <div className="flex-1">
-                      <p className="text-xs text-gray-600">Connexion en tant que</p>
-                      <p className="font-semibold text-gray-900">
-                        {selectedRole === 'admin' ? 'Administrateur' : 'Caissier'}
-                      </p>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={handleBack}
-                      className="text-sm text-blue-600 hover:text-blue-800 font-medium"
-                    >
-                      Changer
-                    </button>
                   </div>
-                </div>
+                ) : (
+                  <div className="bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200 rounded-lg p-4">
+                    <p className="text-sm text-blue-900 font-medium">Connexion sécurisée POS</p>
+                    <p className="text-xs text-blue-700 mt-1">
+                      Entrez vos identifiants administrateur ou caissier.
+                    </p>
+                  </div>
+                )}
+
+                {!previewMode && (
+                  <div className="space-y-2">
+                    <Label htmlFor="username" className="flex items-center text-sm font-medium">
+                      <User className="w-4 h-4 mr-2" />
+                      Nom d'utilisateur
+                    </Label>
+                    <Input
+                      id="username"
+                      type="text"
+                      value={credentials.username}
+                      onChange={(e) => setCredentials(prev => ({ ...prev, username: e.target.value }))}
+                      placeholder="admin"
+                      className="h-11"
+                      required
+                      autoFocus
+                    />
+                  </div>
+                )}
 
                 {/* Password Field */}
                 <div className="space-y-2">
@@ -264,7 +294,7 @@ const POSWithAuth = ({ config, children }) => {
                       placeholder="••••••••"
                       className="h-11 pr-10"
                       required
-                      autoFocus
+                      autoFocus={previewMode}
                     />
                     <button
                       type="button"
@@ -303,14 +333,16 @@ const POSWithAuth = ({ config, children }) => {
                   ) : 'Se connecter'}
                 </Button>
 
-                {/* Back Button */}
-                <button
-                  type="button"
-                  onClick={handleBack}
-                  className="w-full text-sm text-gray-600 hover:text-gray-800 py-2"
-                >
-                  ← Retour à la sélection de rôle
-                </button>
+                {/* Back Button (preview mode only) */}
+                {previewMode && (
+                  <button
+                    type="button"
+                    onClick={handleBack}
+                    className="w-full text-sm text-gray-600 hover:text-gray-800 py-2"
+                  >
+                    ← Retour à la sélection de rôle
+                  </button>
+                )}
               </form>
             )}
           </CardContent>

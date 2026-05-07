@@ -124,11 +124,16 @@ export default function POSGenerator() {
       case 2:
         return modulesHook.selectedModules.length > 0;
       case 3:
-        return configHook.configuration.businessName;
+        return typeof configHook.configuration.businessName === 'string' && configHook.configuration.businessName.trim().length > 0;
       case 4:
         // Check if license type is valid AND either expiry is valid or lifetime
         // USB is now optional (for cloud downloads)
-        return formData.licenseType && (formData.licenseType === 'LIFETIME' || formData.expirationDate);
+        return (
+          typeof configHook.configuration.businessName === 'string' &&
+          configHook.configuration.businessName.trim().length > 0 &&
+          formData.licenseType &&
+          (formData.licenseType === 'LIFETIME' || formData.expirationDate)
+        );
       default:
         return false;
     }
@@ -146,6 +151,10 @@ export default function POSGenerator() {
           }}
           modulesByCategory={modulesHook.modulesByCategory}
           onSave={() => {
+            if (typeof configHook.configuration.businessName !== 'string' || configHook.configuration.businessName.trim().length === 0) {
+              toast.error("Nom du commerce obligatoire");
+              return;
+            }
             generatorHook.exitCustomizer();
             if (generatorHook.step <= 2) {
               generatorHook.goToStep(3);

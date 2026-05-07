@@ -58,10 +58,25 @@ if (typeof window !== 'undefined') {
 // Note: initializeTheme sera appelé automatiquement par ThemeWrapper
 // Ceci garantit que le thème est appliqué AVANT le rendu des composants
 
-createRoot(document.getElementById('root')).render(
-  <StrictMode>
+// ⚡ PERFORMANCE: Only use StrictMode in development to avoid double-renders in production
+const isDev = import.meta.env.DEV;
+
+const root = createRoot(document.getElementById('root'));
+
+if (isDev) {
+  // Development: Use StrictMode for debugging
+  root.render(
+    <StrictMode>
+      <ThemeWrapper>
+        <App />
+      </ThemeWrapper>
+    </StrictMode>,
+  );
+} else {
+  // Production: No StrictMode for better performance
+  root.render(
     <ThemeWrapper>
       <App />
-    </ThemeWrapper>
-  </StrictMode>,
-)
+    </ThemeWrapper>,
+  );
+}

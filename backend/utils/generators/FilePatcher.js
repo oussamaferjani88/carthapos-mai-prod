@@ -316,9 +316,62 @@ export default defineConfig({
   }
 
   /**
+   * Patch package.json to set productName and artifactName based on business name
+   * This ensures the EXE is named like: carthapos-oasis.exe
+   */
+  async patchPackageJSON(businessName) {
+    logger.info(`📦 Patching package.json with business name: ${businessName}`);
+    
+    const packageJsonPath = path.join(this.projectPath, 'package.json');
+    
+    if (!fs.existsSync(packageJsonPath)) {
+      logger.warn('package.json not found, skipping patch');
+      return;
+    }
+
+    try {
+      let packageContent = fs.readFileSync(packageJsonPath, 'utf8');
+      const packageObj = JSON.parse(packageContent);
+
+      // Sanitize business name for safe use in filenames
+      const sanitizedName = businessName
+        .toLowerCase()
+        .trim()
+        .replace(/[^a-z0-9\s-]/g, '')  // Remove special chars
+        .replace(/\s+/g, '-')           // Replace spaces with hyphens
+        .replace(/-+/g, '-')            // Collapse multiple hyphens
+        .substring(0, 30);              // Limit length
+
+      // Update productName to include business name
+      const newProductName = `CarthaPos ${businessName}`;
+      
+      // Update artifactName to be carthapos-{businessname}-Setup-${version}.exe
+      const newArtifactName = `carthapos-${sanitizedName}-Setup-\${version}.\${ext}`;
+
+      if (packageObj.build) {
+        packageObj.build.productName = newProductName;
+        
+        if (packageObj.build.win) {
+          packageObj.build.win.artifactName = newArtifactName;
+        }
+      }
+
+      fs.writeFileSync(packageJsonPath, JSON.stringify(packageObj, null, 2), 'utf8');
+      
+      logger.info(`✅ package.json patched successfully`);
+      logger.info(`   Product Name: ${newProductName}`);
+      logger.info(`   Artifact Name: ${newArtifactName}`);
+      logger.info(`   Final EXE will be: carthapos-${sanitizedName}-Setup-[version].exe`);
+    } catch (error) {
+      logger.error('❌ Failed to patch package.json:', error);
+      throw error;
+    }
+  }
+
+  /**
    * Apply all patches in the correct order
    */
-  async applyAllPatches() {
+  async applyAllPatches(businessName) {
     logger.info('Applying all file patches');
     
     try {
@@ -330,6 +383,7 @@ export default defineConfig({
       await this.ensurePreloadFile();
       await this.ensureUIComponents();
       await this.patchDashboardComponent();
+      await this.patchPackageJSON(businessName);  // ✅ Patch EXE filename
       
       logger.info('All file patches applied successfully');
     } catch (error) {

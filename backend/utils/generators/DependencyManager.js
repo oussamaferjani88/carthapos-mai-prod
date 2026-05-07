@@ -19,13 +19,18 @@ class DependencyManager {
     this.buildManager = new BuildSystemManager(projectPath);
   }
 
-  async installDependencies() {
+  async installDependencies(options = {}) {
     logger.info('Installing project dependencies');
     
     await this.packageManager.updatePackageJson();
     await this.installTailwindDependencies();
     await this.createConfigFiles();
-    await this.buildManager.installDependencies();
+
+    if (options.skipNodeModulesInstall) {
+      logger.info('Skipping node_modules installation (source-only generation mode)');
+    } else {
+      await this.buildManager.installDependencies();
+    }
     
     logger.info('Dependencies installed successfully');
   }

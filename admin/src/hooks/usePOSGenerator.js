@@ -41,6 +41,12 @@ export const usePOSGenerator = () => {
     navigation: false,
     branding: false
   });
+  const progressDelayMs = Number(import.meta.env.VITE_POS_PROGRESS_DELAY_MS || 0);
+  const waitForProgress = async () => {
+    if (progressDelayMs > 0) {
+      await new Promise(resolve => setTimeout(resolve, progressDelayMs));
+    }
+  };
 
   /**
    * Navigate to next step
@@ -108,6 +114,11 @@ export const usePOSGenerator = () => {
     console.log('Starting generatePOS with formData:', formData);
 
     try {
+      const businessName = formData?.configuration?.businessName;
+      if (typeof businessName !== 'string' || businessName.trim().length === 0) {
+        throw new Error('Nom du commerce requis');
+      }
+
       setLoading(true);
       setShowProgress(true);
       setProgressError(null);
@@ -143,7 +154,7 @@ export const usePOSGenerator = () => {
       // Step 2: Generate License File (20-40%)
       setProgressStep(1);
       setCurrentAction('Génération du fichier de licence sécurisé...');
-      await new Promise(resolve => setTimeout(resolve, 500));
+      await waitForProgress();
 
       // MOCK: Bypass backend generation as requested
       // const licenseFile = await licenseService.generateLicenseFile(license.id);
@@ -161,7 +172,7 @@ export const usePOSGenerator = () => {
       if (formData.selectedUSB) {
         setProgressStep(2);
         setCurrentAction('Installation sur le support USB...');
-        await new Promise(resolve => setTimeout(resolve, 300));
+        await waitForProgress();
 
         await usbService.writeLicenseToUSB({
           drivePath: formData.selectedUSB,
@@ -176,10 +187,11 @@ export const usePOSGenerator = () => {
       // Step 4: Generate POS Application (60-90%)
       setProgressStep(3);
       setCurrentAction('Construction de votre application POS personnalisée...');
-      await new Promise(resolve => setTimeout(resolve, 500));
+      await waitForProgress();
 
       const posApplication = await posService.generatePOS({
-        licenseId: license.id
+        licenseId: license.id,
+        fastMode: import.meta.env.VITE_FAST_LOCAL_GENERATION === 'true'
       });
       console.log('POS application generated:', posApplication);
       setProgressPercentage(90);
@@ -187,7 +199,7 @@ export const usePOSGenerator = () => {
       // Step 5: Finalization (90-100%)
       setProgressStep(4);
       setCurrentAction('Optimisation et finalisation...');
-      await new Promise(resolve => setTimeout(resolve, 800));
+      await waitForProgress();
 
       setGenerationResult({
         license,
@@ -239,8 +251,9 @@ export const usePOSGenerator = () => {
       setCurrentAction('Validation de la configuration du preview...');
       setProgressPercentage(10);
 
-      if (!formData.configuration.businessName) {
-        throw new Error('Nom de l\'entreprise requis pour la conversion');
+      const businessName = formData?.configuration?.businessName;
+      if (typeof businessName !== 'string' || businessName.trim().length === 0) {
+        throw new Error('Nom du commerce requis pour la conversion');
       }
 
       setProgressPercentage(20);
@@ -253,7 +266,7 @@ export const usePOSGenerator = () => {
       const directConvertData = {
         previewConfig: formData.configuration,
         modules: formData.selectedModules,
-        businessName: formData.configuration.businessName
+        businessName
       };
 
       const posApplication = await posService.directConvert(directConvertData);

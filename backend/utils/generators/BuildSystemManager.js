@@ -45,6 +45,16 @@ class BuildSystemManager {
       const isWindows = process.platform === 'win32';
       const targetNodeModules = path.join(this.projectPath, 'node_modules');
 
+      // ✅ NEW OPTIMIZATION: Skip installation if node_modules already exists
+      if (fs.existsSync(targetNodeModules)) {
+        const existingPackages = fs.readdirSync(targetNodeModules).length;
+        if (existingPackages > 100) {  // Sanity check - should have lots of packages
+          logger.info(`✅ node_modules already exists with ${existingPackages} packages - SKIPPING INSTALL`);
+          logger.info('⏱️ Time saved: ~3-5 minutes!');
+          return;
+        }
+      }
+
       // On Linux (Render), skip copy and just install directly (more reliable)
       if (!isWindows) {
         logger.info('🐧 Linux detected - Running npm install directly (no copy)');

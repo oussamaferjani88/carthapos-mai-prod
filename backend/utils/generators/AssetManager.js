@@ -58,10 +58,16 @@ class AssetManager {
   }
 
   /**
-   * Recursively copy directory contents
+   * Recursively copy directory contents with parallel file operations
+   * Using Promise.all for parallel copying instead of sequential fs.copyFileSync
    */
   async copyDirectoryRecursive(source, destination) {
     const entries = fs.readdirSync(source, { withFileTypes: true });
+    
+    // Separate directories and files for parallel processing
+    const directories = [];
+    const files = [];
+    const copyTasks = [];
 
     for (const entry of entries) {
       const sourcePath = path.join(source, entry.name);
@@ -69,24 +75,53 @@ class AssetManager {
 
       if (entry.isDirectory()) {
         // Skip node_modules and other unnecessary directories
-        if (this.shouldSkipDirectory(entry.name)) {
-          continue;
+        if (!this.shouldSkipDirectory(entry.name)) {
+          directories.push({ sourcePath, destPath });
         }
-
-        if (!fs.existsSync(destPath)) {
-          fs.mkdirSync(destPath, { recursive: true });
-        }
-        await this.copyDirectoryRecursive(sourcePath, destPath);
       } else {
         // Skip unnecessary files
-        if (this.shouldSkipFile(entry.name)) {
-          continue;
+        if (!this.shouldSkipFile(entry.name)) {
+          files.push({ sourcePath, destPath });
         }
-
-        fs.copyFileSync(sourcePath, destPath);
-        logger.debug(`Copied file: ${entry.name}`);
       }
     }
+
+    // Process directories sequentially (need to create them first)
+    for (const { sourcePath, destPath } of directories) {
+      if (!fs.existsSync(destPath)) {
+        fs.mkdirSync(destPath, { recursive: true });
+      }
+      await this.copyDirectoryRecursive(sourcePath, destPath);
+    }
+
+    // Copy files in parallel for speed (max 8 concurrent operations)
+    const chunkSize = 8;
+    for (let i = 0; i < files.length; i += chunkSize) {
+      const chunk = files.slice(i, i + chunkSize);
+      const promises = chunk.map(({ sourcePath, destPath }) =>
+        this.copyFileAsync(sourcePath, destPath)
+      );
+      await Promise.all(promises);
+    }
+  }
+
+  /**
+   * Async file copy helper
+   */
+  async copyFileAsync(source, destination) {
+    return new Promise((resolve, reject) => {
+      const readStream = fs.createReadStream(source);
+      const writeStream = fs.createWriteStream(destination);
+      
+      readStream.on('error', reject);
+      writeStream.on('error', reject);
+      writeStream.on('finish', () => {
+        logger.debug(`Copied file: ${path.basename(source)}`);
+        resolve();
+      });
+      
+      readStream.pipe(writeStream);
+    });
   }
 
   /**
@@ -259,7 +294,25 @@ window.addEventListener('DOMContentLoaded', () => {
       }
 
       // Extract business name from license configuration
-      const businessName = license.configuration?.businessName || license.client?.name || 'CarthaposDB';
+      // Priority: configuration.businessName > client.name > license sector > 'CarthaposDB'
+      let businessName = null;
+      
+      if (license.configuration?.businessName) {
+        businessName = license.configuration.businessName;
+        logger.info(`📝 Business name from configuration: ${businessName}`);
+      } else if (license.client?.name) {
+        businessName = license.client.name;
+        logger.info(`📝 Business name from client: ${businessName}`);
+      } else if (license.sector) {
+        businessName = license.sector;
+        logger.info(`📝 Business name from sector: ${businessName}`);
+      } else {
+        businessName = 'CarthaposDB';
+        logger.warn(`⚠️ Using default business name: ${businessName}`);
+      }
+      
+      const databaseFilename = `${this.sanitizeDbBaseName(businessName)}.db`;
+      logger.info(`📊 Sanitized database name: ${databaseFilename}`);
       
       // Check if portable mode should be forced (from license configuration)
       const forcePortableMode = license.configuration?.forcePortableMode === true;
@@ -303,10 +356,19 @@ window.addEventListener('DOMContentLoaded', () => {
           configuration: license.configuration || {}
         },
         modules: license.modules || [],
-        theme: license.configuration || {},
+        theme: {
+          // Ensure businessName is prominently set in theme
+          businessName: businessName,
+          ...( license.configuration || {}), // Spread all theme settings from configuration
+          // Ensure these core properties exist
+          primaryColor: license.configuration?.primaryColor || '#3B82F6',
+          secondaryColor: license.configuration?.secondaryColor || '#1E40AF',
+          backgroundColor: license.configuration?.backgroundColor || '#FFFFFF',
+          textColor: license.configuration?.textColor || '#1F2937'
+        },
         database: {
           type: 'sqlite',
-          filename: 'pos-data.db'
+          filename: databaseFilename  // Use the sanitized business name
         },
         security: {
           requireUSBLicense: requireUSB, // Default: true (USB required for security)
@@ -318,18 +380,34 @@ window.addEventListener('DOMContentLoaded', () => {
       const appConfigPath = path.join(publicDir, 'app-config.json');
       fs.writeFileSync(appConfigPath, JSON.stringify(appConfig, null, 2), 'utf8');
       
-      logger.info(`✅ App config created at: ${appConfigPath}`);
-      logger.info(`📝 Business name: ${businessName}`);
-      logger.info(`🔑 License key: ${license.licenseKey}`);
-      logger.info(`📦 Modules: ${license.modules?.length || 0}`);
-      logger.info(`🎯 Portable mode: ${forcePortableMode ? 'FORCED' : 'AUTO (install dir if writable)'}`);
-      logger.info(`🔒 USB License required: ${requireUSB ? 'YES (anti-piracy protection)' : 'NO (trusted client)'}`);
+       logger.info(`✅ App config created at: ${appConfigPath}`);
+       logger.info(`📝 Business name: ${businessName}`);
+       logger.info(`🗄️ Database filename: ${databaseFilename}`);
+       logger.info(`🔑 License key: ${license.licenseKey}`);
+       logger.info(`📦 Modules: ${license.modules?.length || 0}`);
+       logger.info(`🎯 Portable mode: ${forcePortableMode ? 'FORCED' : 'AUTO (install dir if writable)'}`);
+       logger.info(`🔒 USB License required: ${requireUSB ? 'YES (anti-piracy protection)' : 'NO (trusted client)'}`);
+       
+       // Log the actual config being written
+       logger.info(`📋 App config content:`);
+       logger.info(JSON.stringify(appConfig, null, 2));
 
       return appConfigPath;
     } catch (error) {
       logger.error('❌ Failed to create config files:', error);
       throw error;
     }
+  }
+
+  sanitizeDbBaseName(name) {
+    const safe = (name || '')
+      .trim()
+      .replace(/[^a-zA-Z0-9\s-]/g, '')
+      .replace(/\s+/g, '_')
+      .replace(/-+/g, '_')
+      .replace(/^_+|_+$/g, '')
+      .substring(0, 50);
+    return safe || 'CarthaposDB';
   }
 
   /**

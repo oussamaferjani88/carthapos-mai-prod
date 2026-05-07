@@ -8,14 +8,13 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build --mode production",
-    "build:safe": "npm install terser --save-dev --silent && vite build --mode production",
+    "build:safe": "vite build --mode production",
     "lint": "eslint .",
     "preview": "vite preview",
     "clean": "rimraf dist release node_modules/.cache",
     "electron": "electron .",
     "electron-dev": "concurrently \"npm run dev\" \"wait-on http://localhost:5173 && electron public/electron-modular.cjs\"",
     "debug-electron": "node debug-electron.js",
-    "prebuild": "npm run clean",
     "package": "npm run build:safe && electron-builder",
     "build:electron": "npm run build:safe && electron-builder",
     "build:win": "npm run build:safe && electron-builder --win",
@@ -132,7 +131,7 @@
         "to": "icudtl.dat"
       }
     ],
-    "compression": "maximum",
+    "compression": "normal",
     "mac": {
       "category": "public.app-category.business"
     },

@@ -6,12 +6,44 @@
 const sqlite3 = require('sqlite3').verbose();
 const path = require('path');
 const fs = require('fs');
+const FileLockManager = require('./FileLockManager.cjs');
+const DatabaseQueryOptimizer = require('./DatabaseQueryOptimizer.cjs');
 
 class ElectronDatabaseManager {
   constructor() {
     this.db = null;
     this.dbPath = null;
     this.isInitialized = false;
+    this.queryOptimizer = null;
+  }
+
+  /**
+   * Read explicit DB filename from app-config.json when available.
+   * This ensures generated POS instances use the filename chosen during generation.
+   */
+  getConfiguredDatabaseFilename() {
+    const { app } = require('electron');
+    try {
+      let configPath;
+      if (app.isPackaged) {
+        configPath = path.join(app.getAppPath(), 'dist', 'app-config.json');
+      } else {
+        configPath = path.join(__dirname, '..', 'config', 'app-config.json');
+      }
+
+      if (!fs.existsSync(configPath)) return null;
+      const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+      const configured = config?.database?.filename;
+      if (!configured || typeof configured !== 'string') return null;
+
+      const clean = configured.trim().replace(/[\\/:*?"<>|]/g, '');
+      if (!clean) return null;
+
+      return clean.toLowerCase().endsWith('.db') ? clean : `${clean}.db`;
+    } catch (error) {
+      console.warn('⚠️ Could not read configured database filename:', error.message);
+      return null;
+    }
   }
 
   /**
@@ -74,37 +106,62 @@ class ElectronDatabaseManager {
   /**
    * Pick a DB filename for this tenant, persisting it in a map file so we
    * don't create a new suffixed DB on every launch.
+   * NOW USES FILE LOCKING to prevent race conditions with multiple POS instances
    */
-  getOrCreateDbFilename(dbDir, baseDbName) {
+  async getOrCreateDbFilename(dbDir, baseDbName) {
     const tenantId = this.getTenantIdentifierFromConfig();
     const mapPath = path.join(dbDir, '.db-map.json');
 
-    let map = {};
     try {
-      if (fs.existsSync(mapPath)) {
-        map = JSON.parse(fs.readFileSync(mapPath, 'utf8')) || {};
+      // Read with lock to prevent concurrent access
+      let map = await FileLockManager.readJsonWithLock(mapPath, 3000) || {};
+
+      if (tenantId && typeof map[tenantId] === 'string' && map[tenantId].trim() !== '') {
+        console.log(`✅ Found existing DB mapping for tenant: ${map[tenantId]}`);
+        return map[tenantId].trim();
       }
+
+      const selected = this.findAvailableDbFilename(dbDir, baseDbName);
+      console.log(`🆕 Selected new DB filename: ${selected}`);
+
+      if (tenantId) {
+        map[tenantId] = selected;
+        // Write with lock to prevent concurrent writes
+        await FileLockManager.writeJsonWithLock(mapPath, map, 3000);
+        console.log(`✅ Persisted DB mapping for tenant: ${tenantId}`);
+      }
+
+      return selected;
     } catch (error) {
-      console.warn('⚠️ Could not read .db-map.json, will recreate:', error.message);
-      map = {};
-    }
-
-    if (tenantId && typeof map[tenantId] === 'string' && map[tenantId].trim() !== '') {
-      return map[tenantId].trim();
-    }
-
-    const selected = this.findAvailableDbFilename(dbDir, baseDbName);
-
-    if (tenantId) {
-      map[tenantId] = selected;
+      console.warn('⚠️ Could not use file locking, falling back to direct access:', error.message);
+      // Fallback to non-locking version for backward compatibility
+      let map = {};
       try {
-        fs.writeFileSync(mapPath, JSON.stringify(map, null, 2), 'utf8');
-      } catch (error) {
-        console.warn('⚠️ Could not write .db-map.json:', error.message);
+        if (fs.existsSync(mapPath)) {
+          map = JSON.parse(fs.readFileSync(mapPath, 'utf8')) || {};
+        }
+      } catch (fallbackError) {
+        console.warn('⚠️ Fallback read also failed:', fallbackError.message);
+        map = {};
       }
-    }
 
-    return selected;
+      if (tenantId && typeof map[tenantId] === 'string' && map[tenantId].trim() !== '') {
+        return map[tenantId].trim();
+      }
+
+      const selected = this.findAvailableDbFilename(dbDir, baseDbName);
+
+      if (tenantId) {
+        map[tenantId] = selected;
+        try {
+          fs.writeFileSync(mapPath, JSON.stringify(map, null, 2), 'utf8');
+        } catch (writeError) {
+          console.warn('⚠️ Could not write .db-map.json fallback:', writeError.message);
+        }
+      }
+
+      return selected;
+    }
   }
 
   /**
@@ -174,8 +231,9 @@ class ElectronDatabaseManager {
         console.log('📁 Using fallback directory:', dbDirFinal);
       }
 
-      const selectedDbFile = this.getOrCreateDbFilename(dbDirFinal, dbName);
-      this.dbPath = path.join(dbDirFinal, selectedDbFile);
+       const configuredDbFile = this.getConfiguredDatabaseFilename();
+       const selectedDbFile = configuredDbFile || await this.getOrCreateDbFilename(dbDirFinal, dbName);
+       this.dbPath = path.join(dbDirFinal, selectedDbFile);
       
       // Enhanced logging with database name and folder
       console.log('\n═══════════════════════════════════════════════════════════');
@@ -198,6 +256,10 @@ class ElectronDatabaseManager {
         }
         console.log(`✅ Connected to SQLite database: ${dbName}.db`);
       });
+
+      // Initialize query optimizer for better performance
+      this.queryOptimizer = new DatabaseQueryOptimizer(this.db);
+      console.log('⚡ Query optimizer initialized with caching and timeout protection');
 
       // Create tables
       await this.createTables();
@@ -791,6 +853,13 @@ class ElectronDatabaseManager {
    */
   getDatabase() {
     return this.db;
+  }
+
+  /**
+   * Get query optimizer for optimized queries with caching and timeout protection
+   */
+  getQueryOptimizer() {
+    return this.queryOptimizer;
   }
 
   /**

@@ -41,13 +41,14 @@ const AdvancedSettings = ({ formData, setFormData }) => {
           
           <div className="grid gap-3">
             <div className="grid gap-2">
-              <Label htmlFor="businessName" className="text-sm font-medium">Nom du commerce</Label>
+              <Label htmlFor="businessName" className="text-sm font-medium">Nom du commerce *</Label>
               <Input
                 id="businessName"
                 value={formData.configuration.businessName || ''}
                 onChange={(e) => handleBusinessInfoChange('businessName', e.target.value)}
                 placeholder="Ex: Restaurant Le Gourmet"
                 className="h-10"
+                required
               />
             </div>
 

@@ -20,6 +20,8 @@ const logger = createLogger('POS Generator');
  * @param {string} outputPath - Optional output directory
  * @param {Object} options - Generation options
  * @param {boolean} options.skipBuild - Skip the compiled build step (for source-only gen)
+ * @param {boolean} options.skipNodeModulesInstall - Skip node_modules install for fast source generation
+ * @param {boolean} options.fastMode - Fast mode: skip build entirely for quick testing
  * @returns {Promise<Object>} Generation result
  */
 async function generatePOSApplication(license, outputPath = null, options = {}) {
@@ -45,7 +47,9 @@ async function generatePOSApplication(license, outputPath = null, options = {}) 
 
     // 4. Install dependencies with extracted components
     const dependencyManager = new DependencyManager(projectInfo.projectPath, validatedLicense);
-    await dependencyManager.installDependencies();
+    await dependencyManager.installDependencies({
+      skipNodeModulesInstall: Boolean(options.skipNodeModulesInstall || options.fastMode)
+    });
     logger.info('📦 Dependencies installed using modular approach');
 
     // 5. Apply theme customization
@@ -53,20 +57,31 @@ async function generatePOSApplication(license, outputPath = null, options = {}) 
     await themeCustomizer.applyCustomization();
     logger.info('🎨 Theme customization applied');
 
-    // 6. Apply file patches
-    const filePatcher = new FilePatcher(projectInfo.projectPath);
-    await filePatcher.applyAllPatches();
-    logger.info('🔧 File patches applied');
+     // 6. Apply file patches
+     const filePatcher = new FilePatcher(projectInfo.projectPath);
+     const businessName = validatedLicense.configuration?.businessName || 
+                         validatedLicense.client?.name || 
+                         'CarthaPos';
+     await filePatcher.applyAllPatches(businessName);
+     logger.info('🔧 File patches applied');
 
     // 7. Build application
     let buildStats = {};
     const buildManager = new BuildSystemManager(projectInfo.projectPath);
 
-    if (options.skipBuild) {
-      logger.info('⏩ Skipping local build step (delegating to GitHub Actions)');
+    // Fast mode: skip build entirely for quick config testing
+    if (options.fastMode) {
+      logger.info('⏩ FAST MODE: Skipping build step entirely (source generation only)');
       buildStats = {
         skipped: true,
-        reason: 'Delegated to GitHub Actions',
+        reason: 'Fast mode - source generation only',
+        timestamp: new Date().toISOString()
+      };
+    } else if (options.skipBuild) {
+      logger.info('⏩ Skipping local build step (source-only generation mode)');
+      buildStats = {
+        skipped: true,
+        reason: options.skipNodeModulesInstall ? 'Fast source generation' : 'Build skipped',
         timestamp: new Date().toISOString()
       };
     } else {
@@ -77,7 +92,7 @@ async function generatePOSApplication(license, outputPath = null, options = {}) 
     const result = {
       outputPath: projectInfo.projectPath,
       projectName: projectInfo.projectName,
-      executablePath: options.skipBuild ? null : buildManager.findExecutable(),
+      executablePath: options.skipBuild || options.fastMode ? null : buildManager.findExecutable(),
       buildStats: buildStats,
       timestamp: new Date().toISOString()
     };

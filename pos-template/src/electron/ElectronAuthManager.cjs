@@ -61,6 +61,16 @@ class ElectronAuthManager {
       );
       if (!user) return false;
 
+      // Empty or missing hash should force setup/reset flow.
+      if (!user.password_hash || String(user.password_hash).trim() === '') {
+        return true;
+      }
+
+      // Some legacy/demo builds may have stored plain text by mistake.
+      if (String(user.password_hash) === 'admin123') {
+        return true;
+      }
+
       // Compare against known demo password. If it matches, force password reset flow.
       const isDefault = await bcrypt.compare('admin123', user.password_hash);
       return !!isDefault;
