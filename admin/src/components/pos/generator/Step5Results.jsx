@@ -11,6 +11,28 @@ import { CheckCircle, Download, Loader2, Clock, Trash2 } from 'lucide-react';
 import { posService } from '../../../services';
 import toast from 'react-hot-toast';
 
+// Utility to extract project directory from executable path
+// e.g., "D:\...\pos-restaurant\dist\carthapos-restaurant.exe" -> "D:\...\pos-restaurant"
+const getProjectDirectoryFromExecutablePath = (execPath) => {
+  if (!execPath) return null;
+  
+  // Check if path contains 'dist' directory (Windows or Unix paths)
+  const parts = execPath.split(/[\\\/]/);
+  const distIndex = parts.findIndex(p => p === 'dist');
+  
+  if (distIndex > 0) {
+    // Found dist/ - project dir is the parent
+    // Detect path separator from original path
+    const separator = execPath.includes('\\') ? '\\' : '/';
+    return parts.slice(0, distIndex).join(separator);
+  }
+  
+  // Fallback: return parent directory
+  const separator = execPath.includes('\\') ? '\\' : '/';
+  const lastSepIndex = Math.max(execPath.lastIndexOf('\\'), execPath.lastIndexOf('/'));
+  return execPath.substring(0, lastSepIndex);
+};
+
 export default function Step5Results({ generationResult, selectedUSB, onNewPOS }) {
   const [buildStatus, setBuildStatus] = useState(generationResult?.posApplication?.buildStatus || 'completed');
   const [downloadUrl, setDownloadUrl] = useState(null);
@@ -31,7 +53,9 @@ export default function Step5Results({ generationResult, selectedUSB, onNewPOS }
     }
 
     if (generationResult?.posApplication?.executablePath) {
-      setDownloadUrl(posService.getDownloadUrl(generationResult.posApplication.executablePath));
+      // Extract directory from executable path for download endpoint
+      const projectDir = getProjectDirectoryFromExecutablePath(generationResult.posApplication.executablePath);
+      setDownloadUrl(posService.getDownloadUrl(projectDir));
       setBuildStatus('completed');
       setProgress(100);
       shouldCleanupRef.current = true;
