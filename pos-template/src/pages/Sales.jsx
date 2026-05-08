@@ -226,13 +226,76 @@ const Sales = () => {
     setShowPaymentMethods(true);
   };
 
-  const confirmPayment = (method) => {
-    setLocalNotification(`✅ Paiement ${method}: ${formatPrice(getTotalAmount())}`);
-    setCart([]);
-    setSelectedTableForOrder(null);
-    setShowPaymentMethods(false);
-    setTimeout(() => setLocalNotification(null), 3000);
-  };
+   const confirmPayment = async (method) => {
+     const startTime = performance.now();
+     console.log(`⏱️ [PAYMENT-SAVE START] Method: ${method} - Items: ${cart.length}`);
+     
+     try {
+       // Calculate totals
+       const totalAmount = getTotalAmount();
+       const discount = 0; // Could be added from UI
+       const tax = Math.round(totalAmount * (config.taxRate || 0.19) * 100) / 100;
+       const finalTotal = Math.round((totalAmount + tax) * 100) / 100;
+       
+       // Save sale to database if Electron API is available
+       if (window.electronAPI && window.electronAPI.addSale) {
+         console.log(`💾 [SAVING-SALE] Total: ${finalTotal}€ - Tax: ${tax}€`);
+         
+         const saleData = {
+           total: finalTotal,
+           tax: tax,
+           discount: discount,
+           payment_method: method
+         };
+         
+         try {
+           const savedSale = await window.electronAPI.addSale(saleData);
+           const dbDuration = performance.now() - startTime;
+           console.log(`✅ [SALE-CREATED] ID: ${savedSale?.id} - ${dbDuration.toFixed(2)}ms`);
+           
+           // Save individual cart items if sale was created
+           if (savedSale && savedSale.id) {
+             console.log(`💾 [SAVING-ITEMS] Creating ${cart.length} items...`);
+             
+             for (const item of cart) {
+               try {
+                 await window.electronAPI.addSaleItem({
+                   sale_id: savedSale.id,
+                   product_id: item.id,
+                   quantity: item.quantity,
+                   unit_price: item.price,
+                   total: item.price * item.quantity
+                 });
+               } catch (itemError) {
+                 console.error(`❌ [ITEM-SAVE-ERROR]`, itemError);
+               }
+             }
+             console.log(`✅ [ITEMS-SAVED]`);
+           }
+         } catch (saleError) {
+           console.error(`❌ [SALE-SAVE-ERROR]`, saleError);
+           setLocalNotification(`❌ Erreur lors de la sauvegarde: ${saleError.message}`);
+           setTimeout(() => setLocalNotification(null), 3000);
+           return;
+         }
+       }
+       
+       // Show confirmation
+       setLocalNotification(`✅ Paiement ${method}: ${formatPrice(finalTotal)}`);
+       setCart([]);
+       setSelectedTableForOrder(null);
+       setShowPaymentMethods(false);
+       
+       const totalDuration = performance.now() - startTime;
+       console.log(`✅ [PAYMENT-COMPLETED] Total: ${totalDuration.toFixed(2)}ms`);
+       
+       setTimeout(() => setLocalNotification(null), 3000);
+     } catch (error) {
+       console.error('❌ [PAYMENT-ERROR]', error);
+       setLocalNotification(`❌ Erreur lors du paiement`);
+       setTimeout(() => setLocalNotification(null), 3000);
+     }
+   };
 
   const handleKeypadClick = (value) => {
     if (value === 'C') {
