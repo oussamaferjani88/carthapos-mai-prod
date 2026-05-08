@@ -106,9 +106,11 @@ router.post('/generate', async (req, res) => {
             buildProjectName: projectName
           }
         });
+        logger.info(`✅ Build metadata saved to database: status=${skipBuild ? 'source_ready' : 'completed'}, path=${result.outputPath}`);
       } catch (updateError) {
         // Some databases may not have buildStatus/buildProject fields; do not fail local generation.
-        console.warn('LOCAL_BUILD: skipped build status update:', updateError.message);
+        logger.warn('⚠️ LOCAL_BUILD: failed to save build status:', updateError.message);
+        logger.warn('This is usually due to old database schema. Run "npx prisma migrate deploy" to apply pending migrations.');
       }
     } else {
       try {
@@ -760,16 +762,20 @@ router.get('/download', async (req, res) => {
           return; // Exit early
         }
 
-        return res.status(404).json({
+        const errorResponse = {
           error: 'No installer file found in the project directory',
           path: requestedPath,
           searchedPaths: searchedPaths,
-          note: localBuild
+          suggestion: localBuild
             ? (fastLocalGeneration
-              ? 'Fast local generation mode is enabled (source-only). Build installer explicitly when needed.'
-              : 'Local build is enabled but no installer was produced. Check backend logs for build errors.')
-            : 'Windows .exe can only be built on Windows. Download source code and run "npm run build:electron" on Windows.'
-        });
+              ? 'Fast local generation mode is enabled (source-only). To build installer: disable FAST_LOCAL_GENERATION and regenerate.'
+              : 'The build process did not produce an installer .exe file. This usually means the build failed. Regenerating will retry the build with the latest fixes.')
+            : 'Windows .exe can only be built on Windows. Download source code and run "npm run build:electron" on Windows.',
+          action: localBuild ? 'REGENERATE' : 'DOWNLOAD_SOURCE'
+        };
+        
+        logger.warn('Download failed - installer not found:', errorResponse);
+        return res.status(404).json(errorResponse);
       }
     }
   }
