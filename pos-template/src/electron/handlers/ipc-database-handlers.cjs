@@ -108,79 +108,100 @@ function registerDatabaseHandlers(getDatabase) {
   });
 
   // Add product
-  ipcMain.handle('add-product', async (event, product) => {
-    try {
-      const db = getDatabase();
-      if (!db) throw new Error('Database not initialized');
-      
-      const { name, price, category, family, barcode, stock, image, description } = product;
-      
-      return new Promise((resolve, reject) => {
-        db.run(
-          'INSERT INTO products (name, price, category, family, barcode, stock, image, description) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-          [name, price, category || family, family, barcode || '', stock || 0, image || null, description || ''],
-          function(err) {
-            if (err) {
-              reject(err);
-              return;
-            }
-            resolve({ id: this.lastID, ...product });
-          }
-        );
-      });
-    } catch (error) {
-      console.error('❌ Error adding product:', error);
-      throw error;
-    }
-  });
+   ipcMain.handle('add-product', async (event, product) => {
+     const startTime = Date.now();
+     try {
+       const db = getDatabase();
+       if (!db) throw new Error('Database not initialized');
+       
+       const { name, price, category, family, barcode, stock, image, description } = product;
+       
+       console.log(`⏱️ [ADD-PRODUCT START] Adding: "${name}" - Family: "${family}"`);
+       
+       return new Promise((resolve, reject) => {
+         db.run(
+           'INSERT INTO products (name, price, category, family, barcode, stock, image, description) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+           [name, price, category || family, family, barcode || '', stock || 0, image || null, description || ''],
+           function(err) {
+             const duration = Date.now() - startTime;
+             if (err) {
+               console.error(`❌ [ADD-PRODUCT FAILED] "${name}" - ${duration}ms - Error:`, err.message);
+               reject(err);
+               return;
+             }
+             console.log(`✅ [ADD-PRODUCT OK] "${name}" - ${duration}ms - ID: ${this.lastID}`);
+             resolve({ id: this.lastID, ...product });
+           }
+         );
+       });
+     } catch (error) {
+       const duration = Date.now() - startTime;
+       console.error(`❌ [ADD-PRODUCT ERROR] ${duration}ms -`, error.message);
+       throw error;
+     }
+   });
 
-  // Update product
-  ipcMain.handle('update-product', async (event, id, product) => {
-    try {
-      const db = getDatabase();
-      if (!db) throw new Error('Database not initialized');
-      
-      const { name, price, category, family, barcode, stock, image, description } = product;
-      
-      return new Promise((resolve, reject) => {
-        db.run(
-          'UPDATE products SET name = ?, price = ?, category = ?, family = ?, barcode = ?, stock = ?, image = ?, description = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
-          [name, price, category || family, family, barcode || '', stock || 0, image || null, description || '', id],
-          function(err) {
-            if (err) {
-              reject(err);
-              return;
-            }
-            resolve({ id, ...product });
-          }
-        );
-      });
-    } catch (error) {
-      console.error('❌ Error updating product:', error);
-      throw error;
-    }
-  });
+   // Update product
+   ipcMain.handle('update-product', async (event, id, product) => {
+     const startTime = Date.now();
+     try {
+       const db = getDatabase();
+       if (!db) throw new Error('Database not initialized');
+       
+       const { name, price, category, family, barcode, stock, image, description } = product;
+       
+       console.log(`⏱️ [UPDATE-PRODUCT START] ID: ${id} - "${name}"`);
+       
+       return new Promise((resolve, reject) => {
+         db.run(
+           'UPDATE products SET name = ?, price = ?, category = ?, family = ?, barcode = ?, stock = ?, image = ?, description = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
+           [name, price, category || family, family, barcode || '', stock || 0, image || null, description || '', id],
+           function(err) {
+             const duration = Date.now() - startTime;
+             if (err) {
+               console.error(`❌ [UPDATE-PRODUCT FAILED] ID: ${id} - ${duration}ms - Error:`, err.message);
+               reject(err);
+               return;
+             }
+             console.log(`✅ [UPDATE-PRODUCT OK] ID: ${id} - ${duration}ms`);
+             resolve({ id, ...product });
+           }
+         );
+       });
+     } catch (error) {
+       const duration = Date.now() - startTime;
+       console.error(`❌ [UPDATE-PRODUCT ERROR] ${duration}ms -`, error.message);
+       throw error;
+     }
+   });
 
-  // Delete product
-  ipcMain.handle('delete-product', async (event, id) => {
-    try {
-      const db = getDatabase();
-      if (!db) throw new Error('Database not initialized');
-      
-      return new Promise((resolve, reject) => {
-        db.run('DELETE FROM products WHERE id = ?', [id], function(err) {
-          if (err) {
-            reject(err);
-            return;
-          }
-          resolve({ success: true });
-        });
-      });
-    } catch (error) {
-      console.error('❌ Error deleting product:', error);
-      throw error;
-    }
-  });
+   // Delete product
+   ipcMain.handle('delete-product', async (event, id) => {
+     const startTime = Date.now();
+     try {
+       const db = getDatabase();
+       if (!db) throw new Error('Database not initialized');
+       
+       console.log(`⏱️ [DELETE-PRODUCT START] ID: ${id}`);
+       
+       return new Promise((resolve, reject) => {
+         db.run('DELETE FROM products WHERE id = ?', [id], function(err) {
+           const duration = Date.now() - startTime;
+           if (err) {
+             console.error(`❌ [DELETE-PRODUCT FAILED] ID: ${id} - ${duration}ms - Error:`, err.message);
+             reject(err);
+             return;
+           }
+           console.log(`✅ [DELETE-PRODUCT OK] ID: ${id} - ${duration}ms`);
+           resolve({ success: true });
+         });
+       });
+     } catch (error) {
+       const duration = Date.now() - startTime;
+       console.error(`❌ [DELETE-PRODUCT ERROR] ${duration}ms -`, error.message);
+       throw error;
+     }
+   });
 
   // Get tables
   ipcMain.handle('get-tables', async () => {
@@ -298,35 +319,42 @@ function registerDatabaseHandlers(getDatabase) {
     }
   });
 
-  // Add a family (if not already existing)
-  ipcMain.handle('add-family', async (event, name, description = null) => {
-    try {
-      const db = getDatabase();
-      if (!db) throw new Error('Database not initialized');
+   // Add a family (if not already existing)
+   ipcMain.handle('add-family', async (event, name, description = null) => {
+     const startTime = Date.now();
+     try {
+       const db = getDatabase();
+       if (!db) throw new Error('Database not initialized');
 
-      const trimmed = (name || '').trim();
-      if (!trimmed) {
-        throw new Error('Family name is required');
-      }
+       const trimmed = (name || '').trim();
+       if (!trimmed) {
+         throw new Error('Family name is required');
+       }
 
-      return new Promise((resolve, reject) => {
-        db.run(
-          'INSERT OR IGNORE INTO product_families (name, description) VALUES (?, ?)',
-          [trimmed, description],
-          function(err) {
-            if (err) {
-              reject(err);
-              return;
-            }
-            resolve({ id: this.lastID || null, name: trimmed });
-          }
-        );
-      });
-    } catch (error) {
-      console.error('❌ Error adding family:', error);
-      throw error;
-    }
-  });
+       console.log(`⏱️ [ADD-FAMILY START] Adding family: "${trimmed}"`);
+
+       return new Promise((resolve, reject) => {
+         db.run(
+           'INSERT OR IGNORE INTO product_families (name, description) VALUES (?, ?)',
+           [trimmed, description],
+           function(err) {
+             const duration = Date.now() - startTime;
+             if (err) {
+               console.error(`❌ [ADD-FAMILY FAILED] "${trimmed}" - ${duration}ms - Error:`, err);
+               reject(err);
+               return;
+             }
+             console.log(`✅ [ADD-FAMILY OK] "${trimmed}" - ${duration}ms`);
+             resolve({ id: this.lastID || null, name: trimmed });
+           }
+         );
+       });
+     } catch (error) {
+       const duration = Date.now() - startTime;
+       console.error(`❌ [ADD-FAMILY ERROR] ${duration}ms -`, error);
+       throw error;
+     }
+   });
 
   // Delete a family and detach it from products
   ipcMain.handle('delete-family', async (event, name) => {

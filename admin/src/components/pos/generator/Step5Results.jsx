@@ -192,11 +192,11 @@ export default function Step5Results({ generationResult, selectedUSB, onNewPOS }
 
               {buildStatus === 'completed' && downloadUrl && (
                 <>
-                  <p className="text-sm text-blue-700 mb-3">
-                    ✅ Build terminé! Vous pouvez télécharger l'application maintenant.
-                  </p>
-                  
-                  <Progress value={100} className="w-full h-2 mb-3 bg-green-200" indicatorClassName="bg-green-600" />
+                   <p className="text-sm text-blue-700 mb-3">
+                     ✅ Build terminé! Vous pouvez télécharger l'application maintenant.
+                   </p>
+                   
+                   <Progress value={100} className="w-full h-2 mb-3" />
                   
                   <a href={downloadUrl} download>
                     <Button variant="outline" size="sm" className="bg-white hover:bg-green-50 text-green-700 border-green-200">

@@ -158,35 +158,50 @@ export default function Products() {
     }
   };
 
-  // Ajouter une nouvelle famille
-  const handleAddFamily = async () => {
-    const trimmed = newFamily.trim();
-    if (!trimmed) {
-      alert('Veuillez entrer un nom de famille');
-      return;
-    }
-    
-    if (families.includes(trimmed)) {
-      alert('Cette famille existe déjà');
-      return;
-    }
-    
-    try {
-      if (window.electronAPI && window.electronAPI.addFamily) {
-        await window.electronAPI.addFamily(trimmed, null);
-        await loadFamilies();
-      } else {
-        // Fallback: update local state only
-        setFamilies([...families, trimmed]);
-      }
-      setNewFamily('');
-      setFamilyDialogOpen(false);
-      alert('Famille ajoutée avec succès');
-    } catch (error) {
-      console.error('Erreur lors de l\'ajout de la famille:', error);
-      alert('Erreur lors de l\'ajout de la famille');
-    }
-  };
+   // Ajouter une nouvelle famille
+   const handleAddFamily = async () => {
+     const startTime = performance.now();
+     const trimmed = newFamily.trim();
+     
+     console.log(`⏱️ [FAMILY-ADD START] Name: "${trimmed}"`);
+     
+     if (!trimmed) {
+       alert('Veuillez entrer un nom de famille');
+       return;
+     }
+     
+     if (families.includes(trimmed)) {
+       alert('Cette famille existe déjà');
+       return;
+     }
+     
+     try {
+       if (window.electronAPI && window.electronAPI.addFamily) {
+         const addStart = performance.now();
+         console.log(`⏱️ [IPC-CALL] Sending addFamily to Electron...`);
+         
+         await window.electronAPI.addFamily(trimmed, null);
+         const addDuration = performance.now() - addStart;
+         console.log(`✅ [IPC-RETURN] addFamily returned - ${addDuration.toFixed(2)}ms`);
+         
+         const reloadStart = performance.now();
+         await loadFamilies();
+         const reloadDuration = performance.now() - reloadStart;
+         console.log(`✅ [FAMILIES-RELOADED] - ${reloadDuration.toFixed(2)}ms`);
+       } else {
+         // Fallback: update local state only
+         setFamilies([...families, trimmed]);
+       }
+       setNewFamily('');
+       setFamilyDialogOpen(false);
+       alert('Famille ajoutée avec succès');
+       const totalDuration = performance.now() - startTime;
+       console.log(`✅ [FAMILY-ADD OK] Total: ${totalDuration.toFixed(2)}ms`);
+     } catch (error) {
+       console.error('❌ [FAMILY-ADD ERROR]', error);
+       alert('Erreur lors de l\'ajout de la famille');
+     }
+   };
 
   // Supprimer une famille
   const handleDeleteFamily = async (familyToDelete) => {
@@ -350,23 +365,113 @@ export default function Products() {
     return matchesSearch && matchesFamily;
   });
 
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    
-    if (!formData.name || !formData.price || !formData.family) {
-      alert('Le nom, prix et famille sont obligatoires');
-      return;
-    }
+   const handleSubmit = async (e) => {
+     e.preventDefault();
+     
+     const startTime = performance.now();
+     console.log(`⏱️ [PRODUCT-SUBMIT START] Adding/Editing product`);
+     
+     if (!formData.name || !formData.price || !formData.family) {
+       console.warn('❌ Form validation failed - missing required fields');
+       alert('Le nom, prix et famille sont obligatoires');
+       return;
+     }
 
-    try {
-      const productData = {
-        name: formData.name,
-        family: formData.family,
-        price: parseFloat(formData.price),
-        barcode: formData.barcode,
-        image: formData.image ? await convertImageToBase64(formData.image) : null,
-        description: formData.description || ''
-      };
+     try {
+       const imageConvertStart = performance.now();
+       console.log(`⏱️ [IMAGE-CONVERT START]`);
+       
+       const productData = {
+         name: formData.name,
+         family: formData.family,
+         price: parseFloat(formData.price),
+         barcode: formData.barcode,
+         image: formData.image ? await convertImageToBase64(formData.image) : null,
+         description: formData.description || ''
+       };
+       
+       const imageConvertDuration = performance.now() - imageConvertStart;
+       console.log(`✅ [IMAGE-CONVERT OK] ${imageConvertDuration.toFixed(2)}ms`);
+
+       if (editingProduct) {
+         console.log(`⏱️ [PRODUCT-UPDATE] ID: ${editingProduct.id}`);
+         // ⚡ OPTIMISTIC UPDATE: Update UI immediately without waiting for DB
+         const updatedProducts = products.map(p => 
+           p.id === editingProduct.id 
+             ? { ...p, ...productData }
+             : p
+         );
+         setProducts(updatedProducts);
+         console.log(`✅ [UI-UPDATE] Product updated in UI immediately`);
+         
+         // Save to database in background
+         if (window.electronAPI) {
+           const dbStart = performance.now();
+           try {
+             console.log(`⏱️ [IPC-CALL] Sending updateProduct to Electron...`);
+             await window.electronAPI.updateProduct(editingProduct.id, productData);
+             const dbDuration = performance.now() - dbStart;
+             console.log(`✅ [DB-SAVED] Update persisted - ${dbDuration.toFixed(2)}ms`);
+           } catch (error) {
+             console.error('❌ [DB-ERROR] Database save error:', error);
+             // On error, reload products to ensure consistency
+             await loadProducts();
+             alert('Erreur lors de la sauvegarde: ' + error.message);
+             return;
+           }
+         }
+         alert('Produit mis à jour avec succès');
+       } else {
+         console.log(`⏱️ [PRODUCT-ADD] Creating new product`);
+         // ⚡ OPTIMISTIC UPDATE: Add product to UI immediately
+         const newProduct = {
+           id: Date.now(),
+           ...productData,
+           created_at: new Date().toISOString()
+         };
+         setProducts([...products, newProduct]);
+         console.log(`✅ [UI-UPDATE] New product added to UI immediately`);
+         
+         // Save to database in background
+         if (window.electronAPI) {
+           const dbStart = performance.now();
+           try {
+             console.log(`⏱️ [IPC-CALL] Sending addProduct to Electron...`);
+             const savedProduct = await window.electronAPI.addProduct(productData);
+             const dbDuration = performance.now() - dbStart;
+             console.log(`✅ [DB-SAVED] Product persisted - ${dbDuration.toFixed(2)}ms`);
+             
+             // Update with server-assigned ID if different
+             if (savedProduct && savedProduct.id !== newProduct.id) {
+               setProducts(products.map(p => 
+                 p.id === newProduct.id ? { ...p, id: savedProduct.id } : p
+               ));
+             }
+           } catch (error) {
+             console.error('❌ [DB-ERROR] Database save error:', error);
+             // On error, remove from UI and reload
+             setProducts(products.filter(p => p.id !== newProduct.id));
+             alert('Erreur lors de la sauvegarde: ' + error.message);
+             return;
+           }
+         } else {
+           // Fallback for web mode
+           alert('Produit créé avec succès');
+         }
+         alert('Produit créé avec succès');
+       }
+       
+       setDialogOpen(false);
+       setEditingProduct(null);
+       resetForm();
+       
+       const totalDuration = performance.now() - startTime;
+       console.log(`✅ [PRODUCT-SUBMIT OK] Total: ${totalDuration.toFixed(2)}ms`);
+     } catch (error) {
+       console.error('❌ [PRODUCT-SUBMIT ERROR]', error);
+       alert('Erreur lors de la sauvegarde');
+     }
+   };
 
       if (editingProduct) {
         // ⚡ OPTIMISTIC UPDATE: Update UI immediately without waiting for DB
