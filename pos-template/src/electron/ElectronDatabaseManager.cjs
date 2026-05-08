@@ -257,6 +257,30 @@ class ElectronDatabaseManager {
         console.log(`✅ Connected to SQLite database: ${dbName}.db`);
       });
 
+      // ⚡ Configure SQLite for reliable writes
+      console.log('⚙️ Configuring SQLite pragmas for data reliability...');
+      await new Promise((resolve, reject) => {
+        this.db.serialize(() => {
+          // Enable journal mode (safer transactions)
+          this.db.run('PRAGMA journal_mode = WAL', (err) => {
+            if (err) console.warn('⚠️ WAL mode not available:', err.message);
+            else console.log('✅ WAL mode enabled');
+          });
+          
+          // Set synchronous mode to FULL (ensures all data is written)
+          this.db.run('PRAGMA synchronous = FULL', (err) => {
+            if (err) console.warn('⚠️ Could not set synchronous mode:', err.message);
+            else console.log('✅ Synchronous mode set to FULL');
+          });
+          
+          // Set timeout for busy database (default 5s)
+          this.db.configure('busyTimeout', 5000);
+          console.log('✅ Busy timeout set to 5s');
+          
+          resolve();
+        });
+      });
+
       // Initialize query optimizer for better performance
       this.queryOptimizer = new DatabaseQueryOptimizer(this.db);
       console.log('⚡ Query optimizer initialized with caching and timeout protection');

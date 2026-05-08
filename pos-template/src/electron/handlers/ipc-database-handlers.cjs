@@ -297,27 +297,38 @@ function registerDatabaseHandlers(getDatabase) {
 
   // === Product Families (persistent "familles") ===
 
-  // Get all families
-  ipcMain.handle('get-families', async () => {
-    try {
-      const db = getDatabase();
-      if (!db) throw new Error('Database not initialized');
+   // Get all families
+   ipcMain.handle('get-families', async () => {
+     const startTime = Date.now();
+     try {
+       const db = getDatabase();
+       if (!db) throw new Error('Database not initialized');
 
-      return new Promise((resolve, reject) => {
-        db.all(
-          'SELECT id, name, description FROM product_families ORDER BY name ASC',
-          [],
-          (err, rows) => {
-            if (err) reject(err);
-            else resolve(rows || []);
-          }
-        );
-      });
-    } catch (error) {
-      console.error('❌ Error fetching families:', error);
-      return [];
-    }
-  });
+       console.log(`⏱️ [GET-FAMILIES START]`);
+
+       return new Promise((resolve, reject) => {
+         db.all(
+           'SELECT id, name, description FROM product_families ORDER BY name ASC',
+           [],
+           (err, rows) => {
+             const duration = Date.now() - startTime;
+             if (err) {
+               console.error(`❌ [GET-FAMILIES FAILED] ${duration}ms - Error:`, err.message);
+               reject(err);
+               return;
+             }
+             const count = rows?.length || 0;
+             console.log(`✅ [GET-FAMILIES OK] ${duration}ms - Found ${count} families:`, rows?.map(r => r.name) || []);
+             resolve(rows || []);
+           }
+         );
+       });
+     } catch (error) {
+       const duration = Date.now() - startTime;
+       console.error(`❌ [GET-FAMILIES ERROR] ${duration}ms -`, error.message);
+       return [];
+     }
+   });
 
    // Add a family (if not already existing)
    ipcMain.handle('add-family', async (event, name, description = null) => {
@@ -334,24 +345,47 @@ function registerDatabaseHandlers(getDatabase) {
        console.log(`⏱️ [ADD-FAMILY START] Adding family: "${trimmed}"`);
 
        return new Promise((resolve, reject) => {
-         db.run(
-           'INSERT OR IGNORE INTO product_families (name, description) VALUES (?, ?)',
-           [trimmed, description],
-           function(err) {
-             const duration = Date.now() - startTime;
-             if (err) {
-               console.error(`❌ [ADD-FAMILY FAILED] "${trimmed}" - ${duration}ms - Error:`, err);
-               reject(err);
-               return;
+         // Use db.serialize to ensure proper transaction handling
+         db.serialize(() => {
+           db.run(
+             'INSERT OR IGNORE INTO product_families (name, description) VALUES (?, ?)',
+             [trimmed, description],
+             function(err) {
+               if (err) {
+                 const duration = Date.now() - startTime;
+                 console.error(`❌ [ADD-FAMILY FAILED] "${trimmed}" - ${duration}ms - Error:`, err.message);
+                 reject(err);
+                 return;
+               }
+               
+               // Verify family was actually inserted
+               db.get(
+                 'SELECT id, name FROM product_families WHERE name = ?',
+                 [trimmed],
+                 (verifyErr, row) => {
+                   const duration = Date.now() - startTime;
+                   if (verifyErr) {
+                     console.error(`❌ [ADD-FAMILY VERIFY-FAILED] "${trimmed}" - ${duration}ms - Error:`, verifyErr.message);
+                     reject(verifyErr);
+                     return;
+                   }
+                   
+                   if (row) {
+                     console.log(`✅ [ADD-FAMILY OK] "${trimmed}" - ${duration}ms - ID: ${row.id} - PERSISTED`);
+                     resolve({ id: row.id, name: trimmed });
+                   } else {
+                     console.error(`❌ [ADD-FAMILY VERIFY-FAILED] Family not found after insert: "${trimmed}"`);
+                     reject(new Error('Family not persisted'));
+                   }
+                 }
+               );
              }
-             console.log(`✅ [ADD-FAMILY OK] "${trimmed}" - ${duration}ms`);
-             resolve({ id: this.lastID || null, name: trimmed });
-           }
-         );
+           );
+         });
        });
      } catch (error) {
        const duration = Date.now() - startTime;
-       console.error(`❌ [ADD-FAMILY ERROR] ${duration}ms -`, error);
+       console.error(`❌ [ADD-FAMILY ERROR] ${duration}ms -`, error.message);
        throw error;
      }
    });

@@ -135,28 +135,38 @@ export default function Products() {
     }
   };
 
-  // Charger les familles depuis la base de données
-  const loadFamilies = async () => {
-    try {
-      if (window.electronAPI) {
-        // Prefer dedicated families table when available
-        if (window.electronAPI.getFamilies) {
-          const rows = await window.electronAPI.getFamilies();
-          const familyList = (rows || []).map(row => row.name).filter(Boolean);
-          setFamilies(familyList);
-        } else if (window.electronAPI.query) {
-          // Fallback: derive from products table
-          const data = await window.electronAPI.query(
-            'SELECT DISTINCT family FROM products WHERE family IS NOT NULL AND family != ""'
-          );
-          const familyList = data.map(row => row.family).filter(Boolean);
-          setFamilies(familyList);
-        }
-      }
-    } catch (error) {
-      console.error('Erreur lors du chargement des familles:', error);
-    }
-  };
+   // Charger les familles depuis la base de données
+   const loadFamilies = async () => {
+     try {
+       console.log(`⏱️ [LOAD-FAMILIES START]`);
+       if (window.electronAPI) {
+         // Prefer dedicated families table when available
+         if (window.electronAPI.getFamilies) {
+           console.log(`📡 [IPC-CALL] getFamilies...`);
+           const rows = await window.electronAPI.getFamilies();
+           console.log(`✅ [IPC-RETURN] Got ${rows?.length || 0} families:`, rows);
+           const familyList = (rows || []).map(row => row.name).filter(Boolean);
+           console.log(`📊 [FAMILIES-MAPPED] ${familyList.length} families:`, familyList);
+           setFamilies(familyList);
+         } else if (window.electronAPI.query) {
+           // Fallback: derive from products table
+           console.log(`📡 [FALLBACK-QUERY] Getting families from products table...`);
+           const data = await window.electronAPI.query(
+             'SELECT DISTINCT family FROM products WHERE family IS NOT NULL AND family != ""'
+           );
+           console.log(`✅ [FALLBACK-RETURN] Got ${data?.length || 0} families from products`);
+           const familyList = data.map(row => row.family).filter(Boolean);
+           console.log(`📊 [FAMILIES-MAPPED] ${familyList.length} families:`, familyList);
+           setFamilies(familyList);
+         }
+       } else {
+         console.warn('⚠️ [LOAD-FAMILIES] ElectronAPI not available');
+       }
+       console.log(`✅ [LOAD-FAMILIES OK]`);
+     } catch (error) {
+       console.error('❌ [LOAD-FAMILIES ERROR] Erreur lors du chargement des familles:', error);
+     }
+   };
 
    // Ajouter une nouvelle famille
    const handleAddFamily = async () => {
