@@ -45,6 +45,7 @@ import { useLicense } from './hooks/useLicense';
 // Contexts
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import ProtectedRoute from './components/ProtectedRoute';
+import AdminOnlyRoute from './components/AdminOnlyRoute';
 import { isPreviewMode } from './utils/environment';
 
 // Loading component for lazy-loaded pages
@@ -273,7 +274,9 @@ function AppContent() {
                 <Route path="/settings" element={<ProtectedRoute><Settings /></ProtectedRoute>} />
                 <Route path="/hardware-settings" element={<ProtectedRoute><HardwareSettings /></ProtectedRoute>} />
                 <Route path="/receipt-designer" element={<ProtectedRoute><ReceiptDesigner /></ProtectedRoute>} />
-                <Route path="/user-admin" element={<ProtectedRoute><UserAdmin /></ProtectedRoute>} />
+                {/* Admin Only Routes */}
+                <Route path="/user-admin" element={<AdminOnlyRoute><UserAdmin /></AdminOnlyRoute>} />
+                <Route path="/user-management" element={<AdminOnlyRoute><UserAdmin /></AdminOnlyRoute>} />
                 <Route path="*" element={<Navigate to="/" replace />} />
               </Routes>
             </Suspense>
