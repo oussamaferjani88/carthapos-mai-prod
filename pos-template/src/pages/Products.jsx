@@ -481,71 +481,7 @@ export default function Products() {
        console.error('❌ [PRODUCT-SUBMIT ERROR]', error);
        alert('Erreur lors de la sauvegarde');
      }
-   };
-
-      if (editingProduct) {
-        // ⚡ OPTIMISTIC UPDATE: Update UI immediately without waiting for DB
-        const updatedProducts = products.map(p => 
-          p.id === editingProduct.id 
-            ? { ...p, ...productData }
-            : p
-        );
-        setProducts(updatedProducts);
-        
-        // Save to database in background
-        if (window.electronAPI) {
-          try {
-            await window.electronAPI.updateProduct(editingProduct.id, productData);
-          } catch (error) {
-            console.error('Database save error:', error);
-            // On error, reload products to ensure consistency
-            await loadProducts();
-            alert('Erreur lors de la sauvegarde: ' + error.message);
-            return;
-          }
-        }
-        alert('Produit mis à jour avec succès');
-      } else {
-        // ⚡ OPTIMISTIC UPDATE: Add product to UI immediately
-        const newProduct = {
-          id: Date.now(),
-          ...productData,
-          created_at: new Date().toISOString()
-        };
-        setProducts([...products, newProduct]);
-        
-        // Save to database in background
-        if (window.electronAPI) {
-          try {
-            const savedProduct = await window.electronAPI.addProduct(productData);
-            // Update with server-assigned ID if different
-            if (savedProduct && savedProduct.id !== newProduct.id) {
-              setProducts(products.map(p => 
-                p.id === newProduct.id ? { ...p, id: savedProduct.id } : p
-              ));
-            }
-          } catch (error) {
-            console.error('Database save error:', error);
-            // On error, remove from UI and reload
-            setProducts(products.filter(p => p.id !== newProduct.id));
-            alert('Erreur lors de la sauvegarde: ' + error.message);
-            return;
-          }
-        } else {
-          // Fallback for web mode
-          alert('Produit créé avec succès');
-        }
-        alert('Produit créé avec succès');
-      }
-      
-      setDialogOpen(false);
-      setEditingProduct(null);
-      resetForm();
-    } catch (error) {
-      console.error('Error saving product:', error);
-      alert('Erreur lors de la sauvegarde');
-    }
-  };
+    };
   
   // Fonction pour convertir l'image en base64
   const convertImageToBase64 = (file) => {

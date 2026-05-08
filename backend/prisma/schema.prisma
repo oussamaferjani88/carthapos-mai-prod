@@ -29,6 +29,10 @@ model License {
   expirationDate       DateTime?
   isActive             Boolean               @default(true)
   machineId            String?
+  buildStatus          String?               @default("pending")
+  buildProjectPath     String?
+  buildProjectName     String?
+  buildRunId           String?
   createdAt            DateTime              @default(now())
   updatedAt            DateTime              @updatedAt
   UserPosConfiguration UserPosConfiguration?
