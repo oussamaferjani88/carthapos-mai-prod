@@ -297,7 +297,42 @@ class ElectronDatabaseManager {
       return this.db;
       
     } catch (error) {
-      console.error('❌ Database initialization failed:', error);
+      console.error('❌ Database initialization failed:', error.message);
+      console.error('📋 Full error:', error);
+      
+      // Try to recover: close connection and attempt recovery
+      if (this.db) {
+        try {
+          this.db.close();
+        } catch (closeErr) {
+          console.error('Could not close database:', closeErr.message);
+        }
+      }
+      
+      // Check if database file is corrupted
+      if (fs.existsSync(this.dbPath)) {
+        console.log('🔧 Attempting database recovery...');
+        try {
+          // Move corrupted database to backup
+          const corruptedPath = this.dbPath + '.corrupted';
+          fs.renameSync(this.dbPath, corruptedPath);
+          console.log('📦 Moved corrupted database to:', corruptedPath);
+          
+          // Also remove WAL and SHM files
+          const walPath = this.dbPath + '-wal';
+          const shmPath = this.dbPath + '-shm';
+          if (fs.existsSync(walPath)) fs.unlinkSync(walPath);
+          if (fs.existsSync(shmPath)) fs.unlinkSync(shmPath);
+          
+          // Try to reinitialize with a fresh database
+          console.log('🔄 Retrying with fresh database...');
+          return await this.initializeDatabase();
+        } catch (recoveryErr) {
+          console.error('❌ Recovery failed:', recoveryErr.message);
+          throw new Error(`Database initialization failed and recovery failed: ${error.message}`);
+        }
+      }
+      
       throw error;
     }
   }
@@ -556,7 +591,8 @@ class ElectronDatabaseManager {
   async createTables() {
     console.log('🏗️ Creating database tables...');
     
-    const tables = [
+    try {
+      const tables = [
       {
         name: 'product_families',
         sql: `CREATE TABLE IF NOT EXISTS product_families (
@@ -715,8 +751,13 @@ class ElectronDatabaseManager {
     ];
 
     for (const table of tables) {
-      await this.runQuery(table.sql);
-      console.log(`✅ Table '${table.name}' created/verified`);
+      try {
+        await this.runQuery(table.sql);
+        console.log(`✅ Table '${table.name}' created/verified`);
+      } catch (tableError) {
+        console.error(`❌ Error creating table '${table.name}':`, tableError.message);
+        throw new Error(`Failed to create table '${table.name}': ${tableError.message}`);
+      }
     }
 
     // Create indexes for better query performance
@@ -734,13 +775,22 @@ class ElectronDatabaseManager {
     ];
 
     for (const indexSql of indexes) {
-      await this.runQuery(indexSql);
+      try {
+        await this.runQuery(indexSql);
+      } catch (indexError) {
+        console.warn(`⚠️ Warning: Could not create index:`, indexError.message);
+        // Don't throw for indexes - they're optional
+      }
     }
     console.log('✅ Database indexes created');
 
     // Insert default data
     await this.insertDefaultData();
-  }
+    console.log('✅ Database tables and indexes created successfully');
+    } catch (error) {
+      console.error('❌ Critical error during table creation:', error);
+      throw new Error(`Database initialization failed during table creation: ${error.message}`);
+    }
 
   /**
    * Insert default data
@@ -767,6 +817,8 @@ class ElectronDatabaseManager {
       this.db.run(sql, params, function(err) {
         if (err) {
           console.error('❌ Database query error:', err.message);
+          console.error('📜 SQL that failed:', sql.substring(0, 200) + (sql.length > 200 ? '...' : ''));
+          console.error('📋 Error details:', err.code, err.errno);
           reject(err);
         } else {
           resolve({ lastID: this.lastID, changes: this.changes });
