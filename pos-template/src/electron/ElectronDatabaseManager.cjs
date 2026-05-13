@@ -9,6 +9,22 @@ const fs = require('fs');
 const FileLockManager = require('./FileLockManager.cjs');
 const DatabaseQueryOptimizer = require('./DatabaseQueryOptimizer.cjs');
 
+// Helper to write to error log file for debugging
+function logToFile(message) {
+  try {
+    const { app } = require('electron');
+    const logDir = path.join(app.getPath('userData'), 'logs');
+    if (!fs.existsSync(logDir)) {
+      fs.mkdirSync(logDir, { recursive: true });
+    }
+    const logFile = path.join(logDir, 'database-errors.log');
+    const timestamp = new Date().toISOString();
+    fs.appendFileSync(logFile, `[${timestamp}] ${message}\n`, 'utf8');
+  } catch (e) {
+    // Silently fail if logging doesn't work
+  }
+}
+
 class ElectronDatabaseManager {
   constructor() {
     this.db = null;
@@ -299,6 +315,8 @@ class ElectronDatabaseManager {
     } catch (error) {
       console.error('❌ Database initialization failed:', error.message);
       console.error('📋 Full error:', error);
+      logToFile(`Database initialization failed: ${error.message}`);
+      logToFile(`Stack: ${error.stack}`);
       
       // Try to recover: close connection and attempt recovery
       if (this.db) {
@@ -306,17 +324,20 @@ class ElectronDatabaseManager {
           this.db.close();
         } catch (closeErr) {
           console.error('Could not close database:', closeErr.message);
+          logToFile(`Could not close database: ${closeErr.message}`);
         }
       }
       
       // Check if database file is corrupted
       if (fs.existsSync(this.dbPath)) {
         console.log('🔧 Attempting database recovery...');
+        logToFile('Attempting database recovery...');
         try {
           // Move corrupted database to backup
           const corruptedPath = this.dbPath + '.corrupted';
           fs.renameSync(this.dbPath, corruptedPath);
           console.log('📦 Moved corrupted database to:', corruptedPath);
+          logToFile(`Moved corrupted database to: ${corruptedPath}`);
           
           // Also remove WAL and SHM files
           const walPath = this.dbPath + '-wal';
@@ -326,9 +347,11 @@ class ElectronDatabaseManager {
           
           // Try to reinitialize with a fresh database
           console.log('🔄 Retrying with fresh database...');
+          logToFile('Retrying with fresh database...');
           return await this.initializeDatabase();
         } catch (recoveryErr) {
           console.error('❌ Recovery failed:', recoveryErr.message);
+          logToFile(`Recovery failed: ${recoveryErr.message}`);
           throw new Error(`Database initialization failed and recovery failed: ${error.message}`);
         }
       }
@@ -755,8 +778,12 @@ class ElectronDatabaseManager {
         await this.runQuery(table.sql);
         console.log(`✅ Table '${table.name}' created/verified`);
       } catch (tableError) {
-        console.error(`❌ Error creating table '${table.name}':`, tableError.message);
-        throw new Error(`Failed to create table '${table.name}': ${tableError.message}`);
+        const errorMsg = `Error creating table '${table.name}': ${tableError.message}`;
+        console.error(`❌ ${errorMsg}`);
+        console.error(`📜 Full error:`, tableError);
+        logToFile(errorMsg);
+        logToFile(`Full error: ${JSON.stringify(tableError, null, 2)}`);
+        throw new Error(errorMsg);
       }
     }
 
@@ -789,6 +816,8 @@ class ElectronDatabaseManager {
     console.log('✅ Database tables and indexes created successfully');
     } catch (error) {
       console.error('❌ Critical error during table creation:', error);
+      logToFile(`Critical error during table creation: ${error.message}`);
+      logToFile(`Stack: ${error.stack}`);
       throw new Error(`Database initialization failed during table creation: ${error.message}`);
     }
   }
