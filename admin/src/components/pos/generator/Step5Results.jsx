@@ -55,15 +55,17 @@ export default function Step5Results({ generationResult, selectedUSB, onNewPOS }
       return;
     }
 
+    const licenseId = generationResult?.licenseId || generationResult?.license?.id;
+    
     if (generationResult?.posApplication?.executablePath) {
       // Extract directory from executable path for download endpoint
       const projectDir = getProjectDirectoryFromExecutablePath(generationResult.posApplication.executablePath);
-      setDownloadUrl(posService.getDownloadUrl(projectDir));
+      setDownloadUrl(posService.getDownloadUrl(projectDir, licenseId));
       setBuildStatus('completed');
       setProgress(100);
       shouldCleanupRef.current = true;
     } else if (generationResult?.posApplication?.path && generationResult?.posApplication?.buildStatus === 'completed') {
-      setDownloadUrl(posService.getDownloadUrl(generationResult.posApplication.path));
+      setDownloadUrl(posService.getDownloadUrl(generationResult.posApplication.path, licenseId));
       setBuildStatus('completed');
       setProgress(100);
       shouldCleanupRef.current = true;
@@ -134,7 +136,7 @@ export default function Step5Results({ generationResult, selectedUSB, onNewPOS }
             setBuildStatus('completed');
             setProgress(100);
             if (status.downloadPath) {
-              setDownloadUrl(posService.getDownloadUrl(status.downloadPath));
+              setDownloadUrl(posService.getDownloadUrl(status.downloadPath, licenseId));
             }
             toast.success('Le build est terminé avec succès !');
           } else if (status.status === 'failed') {

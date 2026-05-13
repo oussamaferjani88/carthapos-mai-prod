@@ -156,11 +156,16 @@ class POSService {
   /**
    * Download POS executable
    * @param {string} executablePath - Path to executable
+   * @param {string} licenseId - Optional: License ID for recovery if path is invalid
    * @returns {string} Download URL
    */
-  getDownloadUrl(executablePath) {
+  getDownloadUrl(executablePath, licenseId) {
     const baseUrl = import.meta.env.VITE_API_URL || 'http://localhost:3001/api';
-    return `${baseUrl}/pos/download?path=${encodeURIComponent(executablePath)}`;
+    let url = `${baseUrl}/pos/download?path=${encodeURIComponent(executablePath)}`;
+    if (licenseId) {
+      url += `&licenseId=${encodeURIComponent(licenseId)}`;
+    }
+    return url;
   }
 }
 

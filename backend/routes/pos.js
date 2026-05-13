@@ -409,25 +409,67 @@ router.get('/templates', async (req, res) => {
 
 router.get('/download', async (req, res) => {
   const requestedPath = req.query.path;
+  const licenseIdParam = req.query.licenseId; // Optional: can provide license ID directly
   
-  if (!requestedPath) {
-    return res.status(400).json({ error: 'Path parameter is required' });
+  if (!requestedPath && !licenseIdParam) {
+    return res.status(400).json({ error: 'Path parameter or licenseId is required' });
   }
+
+  logger.info(`[DOWNLOAD] Requested path: ${requestedPath}, License ID: ${licenseIdParam}`);
 
   // RECOVERY LOGIC: Check database first if file is missing (e.g. after server restart)
   if (!fs.existsSync(requestedPath)) {
     try {
       logger.info(`🔍 Path missing: ${requestedPath}. Attempting recovery from DB...`);
-      const license = await prisma.license.findFirst({
-        where: { buildProjectPath: requestedPath },
-        select: {
-          id: true,
-          buildRunId: true,
-          buildStatus: true,
-          buildProjectName: true,
-          licenseKey: true
+      
+      let license = null;
+      
+      // Try to find by path first
+      if (requestedPath) {
+        license = await prisma.license.findFirst({
+          where: { buildProjectPath: requestedPath },
+          select: {
+            id: true,
+            buildRunId: true,
+            buildStatus: true,
+            buildProjectName: true,
+            buildProjectPath: true,
+            licenseKey: true
+          }
+        });
+        
+        if (!license) {
+          logger.warn(`❌ No license found for path: ${requestedPath}`);
         }
-      });
+      }
+      
+      // If not found by path, try by licenseId
+      if (!license && licenseIdParam) {
+        logger.info(`Trying to find license by ID: ${licenseIdParam}`);
+        license = await prisma.license.findUnique({
+          where: { id: licenseIdParam },
+          select: {
+            id: true,
+            buildRunId: true,
+            buildStatus: true,
+            buildProjectName: true,
+            buildProjectPath: true,
+            licenseKey: true
+          }
+        });
+        
+        if (license && license.buildProjectPath) {
+          logger.info(`✅ Found license by ID with path: ${license.buildProjectPath}`);
+          // Use the path from database
+          const dbPath = license.buildProjectPath;
+          if (fs.existsSync(dbPath)) {
+            logger.info(`Path from DB exists, using it: ${dbPath}`);
+            // Continue with database path
+          } else {
+            logger.warn(`Path from DB also doesn't exist: ${dbPath}`);
+          }
+        }
+      }
       
       if (license && license.buildRunId && license.buildStatus === 'completed') {
         // We have a license pointing to this path. Check GitHub.
@@ -439,8 +481,11 @@ router.get('/download', async (req, res) => {
           if (status.status === 'completed' && status.conclusion === 'success') {
             logger.info('✅ Found valid build on GitHub. Restoring artifacts...');
             
+            // Use the actual path from database if available
+            const actualPath = license.buildProjectPath || requestedPath;
+            
             // Use stored project name from database
-            const projectName = license.buildProjectName || path.basename(requestedPath);
+            const projectName = license.buildProjectName || path.basename(actualPath);
             const artifactName = `${projectName}-installer`;
             
             logger.info(`Attempting to download artifact: ${artifactName}`);
@@ -448,13 +493,13 @@ router.get('/download', async (req, res) => {
             const artifactZip = await githubService.downloadArtifactFromRun(license.buildRunId, artifactName);
             
             // Save to temp file
-            const tempZipPath = path.join(requestedPath, 'temp-artifact.zip');
-            fs.mkdirSync(requestedPath, { recursive: true });
+            const tempZipPath = path.join(actualPath, 'temp-artifact.zip');
+            fs.mkdirSync(actualPath, { recursive: true });
             fs.writeFileSync(tempZipPath, Buffer.from(artifactZip));
             
             // Extract using streaming (memory efficient)
             const unzipper = require('unzipper');
-            const distFolder = path.join(requestedPath, 'dist');
+            const distFolder = path.join(actualPath, 'dist');
             fs.mkdirSync(distFolder, { recursive: true });
             
             let exeFound = false;
@@ -500,10 +545,42 @@ router.get('/download', async (req, res) => {
         }
       } else {
         logger.warn(`No valid license found for path: ${requestedPath}`);
-        return res.status(404).json({ 
-          error: 'Path not found - no valid build record', 
-          path: requestedPath 
-        });
+        
+        // Try to fetch any recent builds to diagnose the issue
+        try {
+          const recentBuilds = await prisma.license.findMany({
+            where: {
+              buildStatus: { not: null }
+            },
+            select: {
+              id: true,
+              buildStatus: true,
+              buildProjectPath: true,
+              buildProjectName: true,
+              createdAt: true
+            },
+            orderBy: { updatedAt: 'desc' },
+            take: 3
+          });
+          
+          logger.info('Recent builds in database:', JSON.stringify(recentBuilds, null, 2));
+          
+          return res.status(404).json({ 
+            error: 'Path not found - no valid build record', 
+            path: requestedPath,
+            diagnostics: {
+              recentBuilds: recentBuilds.length > 0 ? recentBuilds : [],
+              suggestion: recentBuilds.length === 0 
+                ? 'No builds found in database. Check if generation completed successfully.'
+                : 'Build record exists but path doesn\'t match. Try regenerating the POS.'
+            }
+          });
+        } catch (diagnosticError) {
+          return res.status(404).json({ 
+            error: 'Path not found - no valid build record', 
+            path: requestedPath 
+          });
+        }
       }
     } catch (dbError) {
       logger.error('Error during recovery check:', dbError);
