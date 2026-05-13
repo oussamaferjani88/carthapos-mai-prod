@@ -55,20 +55,20 @@ class BuildSystemManager {
         }
       }
 
-      // On Linux (Render), skip copy and just install directly (more reliable)
-      if (!isWindows) {
-        logger.info('🐧 Linux detected - Running npm install directly (no copy)');
-        logger.info('⏱️ This will take 3-5 minutes...');
-        
-        execSync('npm install --legacy-peer-deps', {
-          cwd: this.projectPath,
-          stdio: 'inherit',
-          timeout: 600000 // 10 minutes
-        });
-        
-        logger.info('✅ Dependencies installed successfully');
-        return;
-      }
+       // On Linux (Render), skip copy and just install directly (more reliable)
+       if (!isWindows) {
+         logger.info('🐧 Linux detected - Running npm ci directly (no copy)');
+         logger.info('⏱️ This will take 3-5 minutes...');
+         
+         execSync('npm ci --legacy-peer-deps', {
+           cwd: this.projectPath,
+           stdio: 'inherit',
+           timeout: 600000 // 10 minutes
+         });
+         
+         logger.info('✅ Dependencies installed successfully');
+         return;
+       }
 
       // Windows: Try fast copy method
       logger.info('💻 Windows detected - Attempting fast copy from template');
@@ -80,20 +80,20 @@ class BuildSystemManager {
       logger.info(`Source: ${templateNodeModules}`);
       logger.info(`Target: ${targetNodeModules}`);
 
-      // Check if template has node_modules
-      if (!fs.existsSync(templateNodeModules)) {
-        logger.warn('⚠️ Template node_modules not found. Attempting emergency npm install...');
-        try {
-          execSync('npm install --legacy-peer-deps', {
-            cwd: templatePath,
-            stdio: 'inherit',
-            timeout: 900000
-          });
-          logger.info('✓ Emergency install completed');
-        } catch (e) {
-          throw new Error(`CRITICAL: Template node_modules missing and install failed at ${templatePath}`);
-        }
-      }
+       // Check if template has node_modules
+       if (!fs.existsSync(templateNodeModules)) {
+         logger.warn('⚠️ Template node_modules not found. Attempting emergency npm ci...');
+         try {
+           execSync('npm ci --legacy-peer-deps', {
+             cwd: templatePath,
+             stdio: 'inherit',
+             timeout: 900000
+           });
+           logger.info('✓ Emergency install completed');
+         } catch (e) {
+           throw new Error(`CRITICAL: Template node_modules missing and install failed at ${templatePath}`);
+         }
+       }
 
       // Verify source content
       const sourceCount = fs.readdirSync(templateNodeModules).length;
@@ -148,16 +148,16 @@ class BuildSystemManager {
         }
       }
       
-      if (missingPackages.length > 0) {
-        logger.error(`❌ Missing critical packages after copy: ${missingPackages.join(', ')}`);
-        logger.info('Attempting npm install as fallback...');
-        
-        execSync('npm install --legacy-peer-deps', {
-          cwd: this.projectPath,
-          stdio: 'inherit',
-          timeout: 600000
-        });
-      }
+       if (missingPackages.length > 0) {
+         logger.error(`❌ Missing critical packages after copy: ${missingPackages.join(', ')}`);
+         logger.info('Attempting npm ci as fallback...');
+         
+         execSync('npm ci --legacy-peer-deps', {
+           cwd: this.projectPath,
+           stdio: 'inherit',
+           timeout: 600000
+         });
+       }
 
       logger.info('✓ Dependencies copied successfully (7 min → 30 sec!)');
 

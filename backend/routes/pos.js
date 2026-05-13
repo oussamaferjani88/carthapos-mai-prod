@@ -312,7 +312,7 @@ router.post('/build', async (req, res) => {
     const nodeModulesPath = path.join(projectPath, 'node_modules');
     if (!fs.existsSync(nodeModulesPath)) {
       console.log('Installing dependencies...');
-      await execAsync('npm install --legacy-peer-deps', { cwd: projectPath });
+      await execAsync('npm ci --legacy-peer-deps', { cwd: projectPath });
     }
 
     // Builder l'application avec forçage de la création de l'installateur
