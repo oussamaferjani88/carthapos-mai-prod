@@ -791,6 +791,7 @@ class ElectronDatabaseManager {
       console.error('❌ Critical error during table creation:', error);
       throw new Error(`Database initialization failed during table creation: ${error.message}`);
     }
+  }
 
   /**
    * Insert default data
