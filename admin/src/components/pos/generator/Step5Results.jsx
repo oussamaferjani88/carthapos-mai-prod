@@ -42,35 +42,31 @@ export default function Step5Results({ generationResult, selectedUSB, onNewPOS }
   const [downloadStarted, setDownloadStarted] = useState(false);
   const [downloadFailed, setDownloadFailed] = useState(false);
   
-  // Ref to track if unmount cleanup should happen (only if we did a build)
-  const shouldCleanupRef = useRef(false);
-  const licenseIdRef = useRef(generationResult?.licenseId || generationResult?.license?.id);
-  const downloadLinkRef = useRef(null);
+   // Ref to track license ID (for manual cleanup only - not automatic)
+   const licenseIdRef = useRef(generationResult?.licenseId || generationResult?.license?.id);
+   const downloadLinkRef = useRef(null);
 
-  // Initialize download URL if executable path exists and build is completed
-  useEffect(() => {
-    // If explicitly building, don't auto-complete
-    if (generationResult?.posApplication?.buildStatus === 'building') {
-      shouldCleanupRef.current = true; // Mark for cleanup
-      return;
-    }
+   // Initialize download URL if executable path exists and build is completed
+   useEffect(() => {
+     // If explicitly building, wait for completion
+     if (generationResult?.posApplication?.buildStatus === 'building') {
+       return;
+     }
 
-    const licenseId = generationResult?.licenseId || generationResult?.license?.id;
-    
-    if (generationResult?.posApplication?.executablePath) {
-      // Extract directory from executable path for download endpoint
-      const projectDir = getProjectDirectoryFromExecutablePath(generationResult.posApplication.executablePath);
-      setDownloadUrl(posService.getDownloadUrl(projectDir, licenseId));
-      setBuildStatus('completed');
-      setProgress(100);
-      shouldCleanupRef.current = true;
-    } else if (generationResult?.posApplication?.path && generationResult?.posApplication?.buildStatus === 'completed') {
-      setDownloadUrl(posService.getDownloadUrl(generationResult.posApplication.path, licenseId));
-      setBuildStatus('completed');
-      setProgress(100);
-      shouldCleanupRef.current = true;
-    }
-  }, [generationResult]);
+     const licenseId = generationResult?.licenseId || generationResult?.license?.id;
+     
+     if (generationResult?.posApplication?.executablePath) {
+       // Extract directory from executable path for download endpoint
+       const projectDir = getProjectDirectoryFromExecutablePath(generationResult.posApplication.executablePath);
+       setDownloadUrl(posService.getDownloadUrl(projectDir, licenseId));
+       setBuildStatus('completed');
+       setProgress(100);
+     } else if (generationResult?.posApplication?.path && generationResult?.posApplication?.buildStatus === 'completed') {
+       setDownloadUrl(posService.getDownloadUrl(generationResult.posApplication.path, licenseId));
+       setBuildStatus('completed');
+       setProgress(100);
+     }
+   }, [generationResult]);
   
   // Auto-trigger download when URL is ready and build is completed
   useEffect(() => {
@@ -104,15 +100,8 @@ export default function Step5Results({ generationResult, selectedUSB, onNewPOS }
     }
   }, [buildStatus]);
   
-  // Cleanup on unmount (delete .exe/folder)
-  useEffect(() => {
-    return () => {
-      if (shouldCleanupRef.current && licenseIdRef.current) {
-        console.log('🧹 Navigating away - cleaning up build artifacts...');
-        posService.cleanupBuild(licenseIdRef.current).catch(err => console.error('Cleanup failed:', err));
-      }
-    };
-  }, []);
+   // No automatic cleanup - user must explicitly request deletion
+   // This prevents the directory from being deleted before download completes
   
   // Format elapsed time
   const formatTime = (seconds) => {
@@ -216,14 +205,14 @@ export default function Step5Results({ generationResult, selectedUSB, onNewPOS }
                     <span>Temps écoulé: {formatTime(elapsedTime)} / 8 minutes estimées</span>
                   </div>
                   
-                  <div className="mt-4 p-3 bg-white bg-opacity-50 rounded border border-blue-100">
-                    <p className="text-sm text-blue-800 font-medium mb-1">
-                       Le bouton de téléchargement apparaîtra automatiquement ici une fois la construction terminée.
-                    </p>
-                    <p className="text-xs text-blue-600">
-                      Vous pouvez quitter cette page, la construction continuera. Le fichier sera supprimé automatiquement après que vous ayez quitté la page une fois le téléchargement terminé.
-                    </p>
-                  </div>
+                   <div className="mt-4 p-3 bg-white bg-opacity-50 rounded border border-blue-100">
+                     <p className="text-sm text-blue-800 font-medium mb-1">
+                        Le bouton de téléchargement apparaîtra automatiquement ici une fois la construction terminée.
+                     </p>
+                     <p className="text-xs text-blue-600">
+                       Vous pouvez quitter cette page, la construction continuera en arrière-plan.
+                     </p>
+                   </div>
                 </>
               )}
               
@@ -272,9 +261,9 @@ export default function Step5Results({ generationResult, selectedUSB, onNewPOS }
                      </div>
                    </div>
                    
-                   <p className="text-xs text-blue-600 mt-3">
-                     ⚠️ Important : Le fichier d'installation sera supprimé de nos serveurs dès que vous quitterez cette page pour économiser de l'espace. Assurez-vous de le télécharger maintenant.
-                   </p>
+                    <p className="text-xs text-blue-600 mt-3">
+                      💾 Le fichier reste stocké sur nos serveurs. Vous pouvez le télécharger à tout moment.
+                    </p>
                  </>
                )}
             </div>
