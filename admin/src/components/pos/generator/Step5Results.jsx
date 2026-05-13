@@ -39,10 +39,13 @@ export default function Step5Results({ generationResult, selectedUSB, onNewPOS }
   const [elapsedTime, setElapsedTime] = useState(0);
   const [progress, setProgress] = useState(0);
   const [checkingStatus, setCheckingStatus] = useState(false);
+  const [downloadStarted, setDownloadStarted] = useState(false);
+  const [downloadFailed, setDownloadFailed] = useState(false);
   
   // Ref to track if unmount cleanup should happen (only if we did a build)
   const shouldCleanupRef = useRef(false);
   const licenseIdRef = useRef(generationResult?.licenseId || generationResult?.license?.id);
+  const downloadLinkRef = useRef(null);
 
   // Initialize download URL if executable path exists and build is completed
   useEffect(() => {
@@ -66,6 +69,20 @@ export default function Step5Results({ generationResult, selectedUSB, onNewPOS }
       shouldCleanupRef.current = true;
     }
   }, [generationResult]);
+  
+  // Auto-trigger download when URL is ready and build is completed
+  useEffect(() => {
+    if (buildStatus === 'completed' && downloadUrl && !downloadStarted && downloadLinkRef.current) {
+      console.log('🚀 Auto-triggering download...');
+      setDownloadStarted(true);
+      
+      // Trigger download programmatically
+      setTimeout(() => {
+        downloadLinkRef.current?.click();
+        toast.success('Téléchargement démarré!');
+      }, 500);
+    }
+  }, [buildStatus, downloadUrl, downloadStarted]);
   
   // Timer for elapsed time and progress simulation
   useEffect(() => {
@@ -214,25 +231,50 @@ export default function Step5Results({ generationResult, selectedUSB, onNewPOS }
                  </div>
               )}
 
-              {buildStatus === 'completed' && downloadUrl && (
-                <>
-                   <p className="text-sm text-blue-700 mb-3">
-                     ✅ Build terminé! Vous pouvez télécharger l'application maintenant.
-                   </p>
+               {buildStatus === 'completed' && downloadUrl && (
+                 <>
+                    <p className="text-sm text-blue-700 mb-3">
+                      ✅ Build terminé! Le téléchargement devrait démarrer automatiquement.
+                    </p>
+                    
+                    <Progress value={100} className="w-full h-2 mb-3" />
                    
-                   <Progress value={100} className="w-full h-2 mb-3" />
-                  
-                  <a href={downloadUrl} download>
-                    <Button variant="outline" size="sm" className="bg-white hover:bg-green-50 text-green-700 border-green-200">
-                      <Download className="mr-2 h-4 w-4" />
-                      Télécharger l'application
-                    </Button>
-                  </a>
-                  <p className="text-xs text-blue-600 mt-2">
-                    ⚠️ Important : Le fichier d'installation sera supprimé de nos serveurs dès que vous quitterez cette page pour économiser de l'espace. Assurez-vous de le télécharger maintenant.
-                  </p>
-                </>
-              )}
+                   {/* Hidden download link for automatic triggering */}
+                   <a 
+                     ref={downloadLinkRef}
+                     href={downloadUrl} 
+                     download 
+                     style={{ display: 'none' }}
+                   />
+                   
+                   {/* Fallback download button */}
+                   <div className="space-y-3">
+                     <div className="p-3 bg-yellow-50 border border-yellow-200 rounded">
+                       <p className="text-sm text-yellow-800 font-medium mb-2">
+                         Si le téléchargement ne démarre pas automatiquement:
+                       </p>
+                       <a href={downloadUrl} download>
+                         <Button 
+                           variant="outline" 
+                           size="sm" 
+                           className="bg-white hover:bg-green-50 text-green-700 border-green-200 w-full"
+                           onClick={() => {
+                             setDownloadFailed(true);
+                             toast.success('Téléchargement manuel démarré!');
+                           }}
+                         >
+                           <Download className="mr-2 h-4 w-4" />
+                           Cliquez ici pour télécharger
+                         </Button>
+                       </a>
+                     </div>
+                   </div>
+                   
+                   <p className="text-xs text-blue-600 mt-3">
+                     ⚠️ Important : Le fichier d'installation sera supprimé de nos serveurs dès que vous quitterez cette page pour économiser de l'espace. Assurez-vous de le télécharger maintenant.
+                   </p>
+                 </>
+               )}
             </div>
           )}
 
