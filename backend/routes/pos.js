@@ -98,7 +98,14 @@ router.post('/generate', async (req, res) => {
 
     if (localBuild) {
       try {
-        await prisma.license.update({
+        logger.info(`[PRE-UPDATE] Attempting to save build metadata for local build`);
+        logger.info(`  - licenseId: ${licenseId}`);
+        logger.info(`  - outputPath: ${result.outputPath}`);
+        logger.info(`  - projectName: ${projectName}`);
+        logger.info(`  - skipBuild: ${skipBuild}`);
+        logger.info(`  - buildStatus: ${skipBuild ? 'source_ready' : 'completed'}`);
+        
+        const updateResult = await prisma.license.update({
           where: { id: licenseId },
           data: {
             buildStatus: skipBuild ? 'source_ready' : 'completed',
@@ -106,10 +113,17 @@ router.post('/generate', async (req, res) => {
             buildProjectName: projectName
           }
         });
-        logger.info(`✅ Build metadata saved to database: status=${skipBuild ? 'source_ready' : 'completed'}, path=${result.outputPath}`);
+        
+        logger.info(`[POST-UPDATE] ✅ Build metadata saved successfully`);
+        logger.info(`  - Updated fields: buildStatus=${updateResult.buildStatus}, buildProjectPath=${updateResult.buildProjectPath}`);
       } catch (updateError) {
         // Some databases may not have buildStatus/buildProject fields; do not fail local generation.
-        logger.warn('⚠️ LOCAL_BUILD: failed to save build status:', updateError.message);
+        logger.error('[UPDATE-ERROR] ❌ Failed to save build status', {
+          message: updateError.message,
+          code: updateError.code,
+          licenseId: licenseId,
+          outputPath: result.outputPath
+        });
         logger.warn('This is usually due to old database schema. Run "npx prisma migrate deploy" to apply pending migrations.');
       }
     } else {
