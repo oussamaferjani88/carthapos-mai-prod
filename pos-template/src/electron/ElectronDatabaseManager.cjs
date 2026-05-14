@@ -997,6 +997,30 @@ class ElectronDatabaseManager {
   isDatabaseInitialized() {
     return this.isInitialized;
   }
+
+  /**
+   * Close database connection gracefully
+   */
+  close() {
+    return new Promise((resolve, reject) => {
+      if (!this.db) {
+        resolve();
+        return;
+      }
+
+      this.db.close((err) => {
+        if (err) {
+          console.error('Error closing database:', err.message);
+          reject(err);
+        } else {
+          console.log('Database connection closed successfully');
+          this.db = null;
+          this.isInitialized = false;
+          resolve();
+        }
+      });
+    });
+  }
 }
 
 module.exports = ElectronDatabaseManager;

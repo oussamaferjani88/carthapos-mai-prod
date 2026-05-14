@@ -5,8 +5,15 @@
 
 const { ipcMain } = require('electron');
 
-function registerSalesHandlers(db) {
+function registerSalesHandlers(ipcMainInstance, databaseManager) {
   console.log('💰 Registering sales IPC handlers...');
+  
+  // Get the database instance
+  const db = databaseManager.getDatabase();
+  if (!db) {
+    console.warn('⚠️ Database not available for sales handlers');
+    return;
+  }
 
   ipcMain.handle('get-sales', () => {
     return new Promise((resolve, reject) => {

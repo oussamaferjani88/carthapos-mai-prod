@@ -437,77 +437,9 @@ function registerDatabaseHandlers(getDatabase) {
        console.error('❌ Error deleting family:', error);
        throw error;
      }
-   });
-   
-   // Add a sale (transaction)
-   ipcMain.handle('add-sale', async (event, saleData) => {
-     const startTime = Date.now();
-     try {
-       const db = getDatabase();
-       if (!db) throw new Error('Database not initialized');
-       
-       const { total, tax, discount, payment_method } = saleData;
-       
-       console.log(`⏱️ [ADD-SALE START] Total: ${total}€ - Payment: ${payment_method}`);
-       
-       return new Promise((resolve, reject) => {
-         db.run(
-           'INSERT INTO sales (total, tax, discount, payment_method) VALUES (?, ?, ?, ?)',
-           [total, tax || 0, discount || 0, payment_method || 'cash'],
-           function(err) {
-             const duration = Date.now() - startTime;
-             if (err) {
-               console.error(`❌ [ADD-SALE FAILED] ${duration}ms - Error:`, err.message);
-               reject(err);
-               return;
-             }
-             console.log(`✅ [ADD-SALE OK] ID: ${this.lastID} - ${duration}ms`);
-             resolve({ id: this.lastID, total, tax, discount, payment_method });
-           }
-         );
-       });
-     } catch (error) {
-       const duration = Date.now() - startTime;
-       console.error(`❌ [ADD-SALE ERROR] ${duration}ms -`, error.message);
-       throw error;
-     }
-   });
-   
-   // Add a sale item (line item for a sale)
-   ipcMain.handle('add-sale-item', async (event, itemData) => {
-     const startTime = Date.now();
-     try {
-       const db = getDatabase();
-       if (!db) throw new Error('Database not initialized');
-       
-       const { sale_id, product_id, quantity, unit_price, total } = itemData;
-       
-       console.log(`⏱️ [ADD-SALE-ITEM START] Sale: ${sale_id} - Product: ${product_id} - Qty: ${quantity}`);
-       
-       return new Promise((resolve, reject) => {
-         db.run(
-           'INSERT INTO sale_items (sale_id, product_id, quantity, unit_price, total) VALUES (?, ?, ?, ?, ?)',
-           [sale_id, product_id, quantity, unit_price, total],
-           function(err) {
-             const duration = Date.now() - startTime;
-             if (err) {
-               console.error(`❌ [ADD-SALE-ITEM FAILED] ${duration}ms - Error:`, err.message);
-               reject(err);
-               return;
-             }
-             console.log(`✅ [ADD-SALE-ITEM OK] ID: ${this.lastID} - ${duration}ms`);
-             resolve({ id: this.lastID, sale_id, product_id, quantity, unit_price, total });
-           }
-         );
-       });
-     } catch (error) {
-       const duration = Date.now() - startTime;
-       console.error(`❌ [ADD-SALE-ITEM ERROR] ${duration}ms -`, error.message);
-       throw error;
-     }
-   });
-   
-   console.log('✅ Database IPC handlers registered');
+    });
+    
+    console.log('✅ Database IPC handlers registered');
  }
 
 module.exports = { IPCDatabaseHandlers, registerDatabaseHandlers };
