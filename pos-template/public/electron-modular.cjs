@@ -275,12 +275,17 @@ app.on('window-all-closed', () => {
 /**
  * Cleanup before quit
  */
-app.on('before-quit', () => {
+app.on('before-quit', async () => {
   console.log('App is quitting, cleaning up...');
   
   // Close database connections
   if (databaseManager) {
-    databaseManager.close();
+    try {
+      await databaseManager.close();
+      console.log('Database closed successfully');
+    } catch (error) {
+      console.error('Error closing database:', error);
+    }
   }
 });
 
