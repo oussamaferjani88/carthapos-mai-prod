@@ -227,56 +227,14 @@ async function createWindow() {
 }
 
 /**
- * Override userData path to use business name instead of app identifier
- * This ensures each POS instance has its own folder matching the business name
- */
-function overrideUserDataPath() {
-  try {
-    const fs = require('fs');
-    const path = require('path');
-    
-    let configPath;
-    if (isDev) {
-      configPath = path.join(__dirname, 'app-config.json');
-    } else {
-      configPath = path.join(app.getAppPath(), 'dist', 'app-config.json');
-    }
-    
-    if (fs.existsSync(configPath)) {
-      const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
-      const businessName = config?.theme?.businessName || config?.businessName;
-      
-      if (businessName) {
-        // Get the roaming appdata directory
-        const roamingDir = path.join(process.env.APPDATA || path.join(process.env.USERPROFILE, 'AppData', 'Roaming'));
-        // Create folder named after business name
-        const customUserDataPath = path.join(roamingDir, `CarthaPos-${businessName}`);
-        
-        // Override the userData path
-        app.setPath('userData', customUserDataPath);
-        console.log(`✅ USER DATA PATH OVERRIDE: Using business name "${businessName}"`);
-        console.log(`   Old path: ${app.getPath('userData')}`);
-        console.log(`   New path: ${customUserDataPath}`);
-      }
-    }
-  } catch (error) {
-    console.warn('⚠️  Could not override userData path:', error.message);
-    // Continue with default userData path
-  }
-}
-
-/**
  * Application initialization
  */
 app.whenReady().then(async () => {
   console.log('=== Electron App Ready ===');
   console.log('Mode:', isDev ? 'Development' : 'Production');
   console.log('App Path:', app.getAppPath());
-  
-  // Override userData path to use business name
-  overrideUserDataPath();
-  
   console.log('User Data:', app.getPath('userData'));
+  console.log('(userData is automatically determined by package.json "name" field)');
   
   try {
     // Initialize all managers (including database)

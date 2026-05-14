@@ -342,14 +342,25 @@ export default defineConfig({
         .replace(/-+/g, '-')            // Collapse multiple hyphens
         .substring(0, 30);              // Limit length
 
-      // Update productName to include business name
+      // CRITICAL: Update BOTH "name" and "productName" for Electron app identity
+      // "name" = used for userData folder in AppData (e.g., CarthaPos-ca-y-ca)
+      // "productName" = used for window title and display name
+      const newPackageName = `carthapos-${sanitizedName}`;
       const newProductName = `CarthaPos ${businessName}`;
       
       // Update artifactName to be carthapos-{businessname}-Setup-${version}.exe
       const newArtifactName = `carthapos-${sanitizedName}-Setup-\${version}.\${ext}`;
 
+      // Update package name (CRITICAL for AppData folder)
+      packageObj.name = newPackageName;
+      logger.info(`✅ Updated package "name" field to: ${newPackageName}`);
+      
       if (packageObj.build) {
         packageObj.build.productName = newProductName;
+        
+        // CRITICAL: Make appId unique per business to avoid conflicts
+        packageObj.build.appId = `com.carthapos.${sanitizedName}`;
+        logger.info(`✅ Updated appId to: ${packageObj.build.appId}`);
         
         if (packageObj.build.win) {
           packageObj.build.win.artifactName = newArtifactName;
@@ -359,8 +370,10 @@ export default defineConfig({
       fs.writeFileSync(packageJsonPath, JSON.stringify(packageObj, null, 2), 'utf8');
       
       logger.info(`✅ package.json patched successfully`);
+      logger.info(`   Package Name: ${newPackageName}`);
       logger.info(`   Product Name: ${newProductName}`);
       logger.info(`   Artifact Name: ${newArtifactName}`);
+      logger.info(`   AppData Folder: C:\\Users\\...\\AppData\\Roaming\\${newPackageName}`);
       logger.info(`   Final EXE will be: carthapos-${sanitizedName}-Setup-[version].exe`);
     } catch (error) {
       logger.error('❌ Failed to patch package.json:', error);
