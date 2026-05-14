@@ -470,66 +470,70 @@ class ElectronDatabaseManager {
 
   /**
    * Get app installation path (where the exe is installed)
+   * PORTABLE MODE: Store all data in C:\ProgramData\CarthaPos\
+   * This allows Program Files installation with writable data folder
    * @returns {string} Installation path
    */
   getAppInstallPath() {
     const { app } = require('electron');
     
     console.log('\n🔍 === DATABASE LOCATION DETECTION ===');
+    console.log('📦 OPERATING IN PORTABLE MODE (All data in one folder)');
     
-    // Check if portable mode is forced
-    const forcePortable = this.isPortableModeForced();
-    if (forcePortable) {
-      console.log('🎯 Portable mode FORCED via config.json (forcePortableMode: true)');
-    }
-    
-    // In production (packaged app), we want the directory where the .exe is located
+    // In production (packaged app)
     if (app.isPackaged) {
       const exePath = app.getPath('exe');
       const installDir = path.dirname(exePath);
+      
+      // Use C:\ProgramData\CarthaPos\ for all data (writable by all users)
+      const programDataPath = process.env.PROGRAMDATA || 'C:\\ProgramData';
+      const portableDataFolder = path.join(programDataPath, 'CarthaPos');
+      
       console.log(`📍 EXE Path: ${exePath}`);
       console.log(`📍 Install Directory: ${installDir}`);
+      console.log(`📍 Data Folder: ${portableDataFolder}`);
       
-      // Test if install directory is writable
+      // Try to use the ProgramData folder
       try {
-        const testFile = path.join(installDir, `.carthapos_write_test_${Date.now()}`);
-        fs.writeFileSync(testFile, 'test');
-        fs.unlinkSync(testFile);
-        console.log('✅ Install directory is WRITABLE');
-        console.log('🎯 SELECTED: Install Directory (Portable Mode)');
-        console.log('   Database will be in: <InstallDir>/data/');
-        console.log('═══════════════════════════════════\n');
-        return installDir;
-      } catch (writeError) {
-        console.log('❌ Install directory is NOT WRITABLE');
-        console.log(`   Reason: ${writeError.message}`);
-        
-        if (forcePortable) {
-          console.log('🚨 ERROR: Portable mode forced but install directory not writable!');
-          console.log('   Please install in a writable location (e.g., D:\\Apps)');
-          console.log('   instead of system folders (Program Files)');
-          console.log('═══════════════════════════════════\n');
-          throw new Error('Portable mode required but installation directory is not writable. Please install to a user-writable location.');
+        // Create directory if it doesn't exist
+        if (!fs.existsSync(portableDataFolder)) {
+          fs.mkdirSync(portableDataFolder, { recursive: true });
+          console.log('✅ Created data folder in ProgramData');
         }
         
-        console.log('⚠️  Falling back to AppData (User Data) directory...');
+        // Test if it's writable
+        const testFile = path.join(portableDataFolder, `.test_${Date.now()}`);
+        fs.writeFileSync(testFile, 'test');
+        fs.unlinkSync(testFile);
+        
+        console.log('✅ ProgramData folder is WRITABLE');
+        console.log('🎯 SELECTED: Portable Mode (ProgramData)');
+        console.log(`   All data will be in: ${portableDataFolder}`);
+        console.log('═══════════════════════════════════\n');
+        return portableDataFolder;
+      } catch (error) {
+        console.error('❌ Cannot write to ProgramData:', error.message);
+        console.log('⚠️  Falling back to user AppData directory...');
         const userData = app.getPath('userData');
         console.log(`📍 User Data Path: ${userData}`);
-        console.log('✅ User Data Path is ALWAYS WRITABLE');
-        console.log('🎯 SELECTED: AppData (Non-Portable Mode)');
-        console.log('   Database will be in: %APPDATA%/Roaming/<AppName>/');
-        console.log('   This is normal for system-wide installations (Program Files)');
+        console.log('🎯 FALLBACK: AppData Mode');
         console.log('═══════════════════════════════════\n');
         return userData;
       }
     } else {
-      // Development: use userData for testing
+      // Development: use a local data folder
       console.log('🛠️  DEVELOPMENT MODE');
-      const userData = app.getPath('userData');
-      console.log(`📍 User Data Path: ${userData}`);
-      console.log('🎯 SELECTED: AppData (Development Mode)');
+      const devDataFolder = path.join(__dirname, '../../..', 'dev-data');
+      
+      // Create dev-data folder
+      if (!fs.existsSync(devDataFolder)) {
+        fs.mkdirSync(devDataFolder, { recursive: true });
+      }
+      
+      console.log(`📍 Dev Data Path: ${devDataFolder}`);
+      console.log('🎯 SELECTED: Development Data Folder');
       console.log('═══════════════════════════════════\n');
-      return userData;
+      return devDataFolder;
     }
   }
 
