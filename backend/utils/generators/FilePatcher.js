@@ -347,6 +347,7 @@ export default defineConfig({
       // "productName" = used for window title and display name
       const newPackageName = `carthapos-${sanitizedName}`;
       const newProductName = `CarthaPos ${businessName}`;
+      const newShortcutName = `CarthaPos-${sanitizedName}`; // For desktop shortcut
       
       // Update artifactName to be carthapos-{businessname}-Setup-${version}.exe
       const newArtifactName = `carthapos-${sanitizedName}-Setup-\${version}.\${ext}`;
@@ -365,6 +366,12 @@ export default defineConfig({
         if (packageObj.build.win) {
           packageObj.build.win.artifactName = newArtifactName;
         }
+        
+        // Update NSIS installer shortcut name to match executable name
+        if (packageObj.build.nsis) {
+          packageObj.build.nsis.shortcutName = newShortcutName;
+          logger.info(`✅ Updated NSIS shortcutName to: ${newShortcutName}`);
+        }
       }
 
       fs.writeFileSync(packageJsonPath, JSON.stringify(packageObj, null, 2), 'utf8');
@@ -372,9 +379,11 @@ export default defineConfig({
       logger.info(`✅ package.json patched successfully`);
       logger.info(`   Package Name: ${newPackageName}`);
       logger.info(`   Product Name: ${newProductName}`);
+      logger.info(`   Shortcut Name: ${newShortcutName}`);
       logger.info(`   Artifact Name: ${newArtifactName}`);
-      logger.info(`   AppData Folder: C:\\Users\\...\\AppData\\Roaming\\${newPackageName}`);
+      logger.info(`   Data Folder: C:\\ProgramData\\CarthaPos\\${sanitizedName}`);
       logger.info(`   Final EXE will be: carthapos-${sanitizedName}-Setup-[version].exe`);
+      logger.info(`   Final Shortcut will be: ${newShortcutName}.lnk`);
     } catch (error) {
       logger.error('❌ Failed to patch package.json:', error);
       throw error;

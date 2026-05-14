@@ -157,7 +157,7 @@
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
-      "shortcutName": "POS System",
+      "shortcutName": "CarthaPos-default",
       "runAfterFinish": true,
       "allowElevation": true,
       "installerLanguages": [
