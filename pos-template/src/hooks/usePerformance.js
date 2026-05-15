@@ -75,12 +75,16 @@ export const useDebouncedFormInput = (formData, setFormData, delayMs = 200) => {
   const tempDataRef = useRef({ ...formData });
   const timeoutRef = useRef(null);
 
+  // Sync tempDataRef with formData changes from parent
+  useEffect(() => {
+    tempDataRef.current = { ...formData };
+  }, [formData]);
+
   const handleChange = useCallback((field) => (e) => {
     const value = e.target.value;
     
     // Update temporary data immediately (for input responsiveness)
     tempDataRef.current[field] = value;
-    e.target.value = value;  // Keep input value updated
 
     // Clear previous timeout
     if (timeoutRef.current) {
@@ -96,10 +100,11 @@ export const useDebouncedFormInput = (formData, setFormData, delayMs = 200) => {
     }, delayMs);
   }, [setFormData, delayMs]);
 
+  // Return bind function that uses temp data for immediate feedback
   const bind = useCallback((field) => ({
-    onChange: handleChange(field),
-    defaultValue: formData[field] || ''
-  }), [formData, handleChange]);
+    value: tempDataRef.current[field] || '',
+    onChange: handleChange(field)
+  }), [handleChange]);
 
   return { bind, handleChange };
 };
