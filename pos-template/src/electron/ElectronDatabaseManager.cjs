@@ -117,8 +117,8 @@ class ElectronDatabaseManager {
 
     // 2) legacy resources/config.json (fallback)
     try {
-      const appPath = this.getAppInstallPath();
-      const legacyConfigPath = path.join(appPath, 'resources', 'config.json');
+      const installRoot = this.getAppInstallationRoot();
+      const legacyConfigPath = path.join(installRoot, 'resources', 'config.json');
       if (fs.existsSync(legacyConfigPath)) {
         const legacyConfig = JSON.parse(fs.readFileSync(legacyConfigPath, 'utf8'));
         const id = legacyConfig.licenseKey || legacyConfig.clientId || legacyConfig.client_id || null;
@@ -223,41 +223,13 @@ class ElectronDatabaseManager {
       const dbName = this.sanitizeDbName(businessName);
       
       // Database in installation directory (portable)
-      const appPath = this.getAppInstallPath();
-      const dbDir = path.join(appPath, 'data');
+      // getAppInstallPath() already returns the 'data' folder
+      const dbDir = this.getAppInstallPath();
       
-      console.log('📁 App installation path:', appPath);
       console.log('📁 Database directory path:', dbDir);
       
-      // Create data directory if it doesn't exist
+      // Database directory creation and permission check already done in getAppInstallPath()
       let dbDirFinal = dbDir;
-      try {
-        if (!fs.existsSync(dbDirFinal)) {
-          fs.mkdirSync(dbDirFinal, { recursive: true });
-          console.log('✅ Created database directory:', dbDirFinal);
-        } else {
-          console.log('✅ Database directory already exists:', dbDirFinal);
-        }
-
-        // Test write permissions
-        const testFile = path.join(dbDirFinal, '.write-test');
-        fs.writeFileSync(testFile, 'test');
-        fs.unlinkSync(testFile);
-        console.log('✅ Database directory is writable');
-      } catch (dirError) {
-        console.error('❌ Cannot write to installation directory:', dirError.message);
-        console.log('⚠️ Falling back to AppData directory');
-
-        // Fallback to AppData if installation directory is not writable
-        const { app } = require('electron');
-        dbDirFinal = path.join(app.getPath('userData'), 'data');
-
-        if (!fs.existsSync(dbDirFinal)) {
-          fs.mkdirSync(dbDirFinal, { recursive: true });
-        }
-
-        console.log('📁 Using fallback directory:', dbDirFinal);
-      }
 
        const configuredDbFile = this.getConfiguredDatabaseFilename();
        const selectedDbFile = configuredDbFile || await this.getOrCreateDbFilename(dbDirFinal, dbName);
@@ -424,8 +396,8 @@ class ElectronDatabaseManager {
 
     // 2) Legacy / fallback: resources/config.json (if present)
     try {
-      const appPath = this.getAppInstallPath();
-      const legacyConfigPath = path.join(appPath, 'resources', 'config.json');
+      const installRoot = this.getAppInstallationRoot();
+      const legacyConfigPath = path.join(installRoot, 'resources', 'config.json');
       if (fs.existsSync(legacyConfigPath)) {
         const legacyConfig = JSON.parse(fs.readFileSync(legacyConfigPath, 'utf8'));
         return legacyConfig.businessName || legacyConfig.appTitle || 'CarthaposDB';
@@ -481,12 +453,28 @@ class ElectronDatabaseManager {
   }
 
   /**
-   * Get app installation path (where the exe is installed)
-   * SINGLE FOLDER MODE: All data stored in the same directory as the exe
-   * Example: C:\Program Files\CarthaPos-BusinessName\
-   * @returns {string} Installation path with data subfolder
+   * Get app installation root path (where the exe is installed)
+   * This is the base installation directory, NOT the data folder
+   * @returns {string} Installation root path
    */
-  getAppInstallPath() {
+  getAppInstallationRoot() {
+    const { app } = require('electron');
+    
+    if (app.isPackaged) {
+      const exePath = app.getPath('exe');
+      return path.dirname(exePath);
+    } else {
+      // Development mode
+      return path.join(__dirname, '../..');
+    }
+  }
+
+  /**
+   * Get data folder path (where database, backups, and logs go)
+   * With fallback to AppData if Program Files isn't writable
+   * @returns {string} Data folder path
+   */
+  getDataFolderPath() {
     const { app } = require('electron');
     
     console.log('\n🔍 === DATABASE LOCATION DETECTION ===');
@@ -494,12 +482,10 @@ class ElectronDatabaseManager {
     
     // In production (packaged app)
     if (app.isPackaged) {
-      const exePath = app.getPath('exe');
-      const installDir = path.dirname(exePath);
-      const dataFolder = path.join(installDir, 'data');
+      const installRoot = this.getAppInstallationRoot();
+      const dataFolder = path.join(installRoot, 'data');
       
-      console.log(`📍 EXE Path: ${exePath}`);
-      console.log(`📍 Installation Directory: ${installDir}`);
+      console.log(`📍 Installation Root: ${installRoot}`);
       console.log(`📍 Data Folder: ${dataFolder}`);
       
       // Create data folder if it doesn't exist
@@ -516,16 +502,41 @@ class ElectronDatabaseManager {
         
         console.log('✅ Data folder is WRITABLE');
         console.log('🎯 SELECTED: Single Folder Mode (Installation Directory)');
-        console.log(`   EXE Location: ${installDir}`);
+        console.log(`   Installation Root: ${installRoot}`);
         console.log(`   Data Location: ${dataFolder}`);
         console.log(`   All files in one place: YES ✅`);
         console.log('═══════════════════════════════════\n');
         return dataFolder;
       } catch (error) {
         console.error('❌ Cannot write to installation directory:', error.message);
-        console.log('⚠️  Check that the installation folder is writable!');
-        console.log('⚠️  Installation may need admin rights for write access...');
-        throw error;
+        console.log('⚠️  Installation folder not writable - falling back to AppData');
+        
+        // Fallback to AppData if Program Files isn't writable
+        const userData = app.getPath('userData');
+        const businessName = this.getBusinessNameFromConfig() || 'CarthaPos';
+        const sanitizedName = this.sanitizeDbName(businessName);
+        const appDataFolder = path.join(userData, sanitizedName, 'data');
+        
+        try {
+          if (!fs.existsSync(appDataFolder)) {
+            fs.mkdirSync(appDataFolder, { recursive: true });
+          }
+          
+          // Test if AppData is writable
+          const testFile = path.join(appDataFolder, `.test_${Date.now()}`);
+          fs.writeFileSync(testFile, 'test');
+          fs.unlinkSync(testFile);
+          
+          console.log('✅ AppData folder is WRITABLE');
+          console.log('🎯 FALLBACK: AppData Mode');
+          console.log(`   User Data Path: ${userData}`);
+          console.log(`   Data Location: ${appDataFolder}`);
+          console.log('═══════════════════════════════════\n');
+          return appDataFolder;
+        } catch (appDataError) {
+          console.error('❌ Cannot write to AppData either:', appDataError.message);
+          throw new Error('No writable location found for database');
+        }
       }
     } else {
       // Development: use a local data folder
@@ -542,6 +553,14 @@ class ElectronDatabaseManager {
       console.log('═══════════════════════════════════\n');
       return devDataFolder;
     }
+  }
+
+  /**
+   * DEPRECATED: Use getDataFolderPath() instead
+   * Kept for backwards compatibility
+   */
+  getAppInstallPath() {
+    return this.getDataFolderPath();
   }
 
   /**
