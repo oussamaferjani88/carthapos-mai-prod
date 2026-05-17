@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { 
   ShoppingCart, 
   Search, 
@@ -21,6 +21,8 @@ import { useAppConfig } from '../hooks/useAppConfig';
 const Sales = () => {
   const [cart, setCart] = useState([]);
   const [searchTerm, setSearchTerm] = useState('');
+  const [discountAmount, setDiscountAmount] = useState(0); // NEW: Discount support
+  const [discountPercentage, setDiscountPercentage] = useState(0); // NEW: Discount % support
   const [selectedCategory, setSelectedCategory] = useState('Tout');
   const [selectedTableForOrder, setSelectedTableForOrder] = useState(null);
   const [showTableSelector, setShowTableSelector] = useState(false);
@@ -34,6 +36,7 @@ const Sales = () => {
   const [calculatorPosition, setCalculatorPosition] = useState({ x: 50, y: 50 });
   const [isDragging, setIsDragging] = useState(false);
   const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
+  const [selectedCustomer, setSelectedCustomer] = useState(null); // NEW: Customer tracking
 
   // Integration: Electron config + POSConfiguration styling
   const { config: electronConfig, loading: configLoading } = useAppConfig();
@@ -208,11 +211,24 @@ const Sales = () => {
     return cart.reduce((total, item) => total + item.quantity, 0);
   };
 
-  const filteredProducts = products.filter(product => {
-    const matchesSearch = product.name.toLowerCase().includes(searchTerm.toLowerCase());
-    const matchesCategory = selectedCategory === 'Tout' || product.category === selectedCategory;
-    return matchesSearch && matchesCategory;
-  });
+  // ⚡ OPTIMIZED: Memoize filtered products to prevent recalculation on every render
+  const filteredProducts = useMemo(() => {
+    return products.filter(product => {
+      const matchesSearch = product.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                           product.barcode?.toLowerCase().includes(searchTerm.toLowerCase());
+      const matchesCategory = selectedCategory === 'Tout' || product.category === selectedCategory;
+      return matchesSearch && matchesCategory;
+    });
+  }, [products, searchTerm, selectedCategory]);
+
+  // Calculate subtotal, discount, tax, and final total
+  const subtotal = getTotalAmount();
+  const calculatedDiscount = discountPercentage > 0 
+    ? Math.round(subtotal * (discountPercentage / 100) * 100) / 100
+    : discountAmount;
+  const discountedSubtotal = Math.round((subtotal - calculatedDiscount) * 100) / 100;
+  const tax = Math.round(discountedSubtotal * (config.taxRate || 0.19) * 100) / 100;
+  const finalTotal = Math.round((discountedSubtotal + tax) * 100) / 100;
 
   const formatPrice = (price) => {
     if (config.currencyPosition === 'before') {
@@ -227,30 +243,28 @@ const Sales = () => {
   };
 
    const confirmPayment = async (method) => {
-     const startTime = performance.now();
-     console.log(`⏱️ [PAYMENT-SAVE START] Method: ${method} - Items: ${cart.length}`);
-     
-     try {
-       // Calculate totals
-       const totalAmount = getTotalAmount();
-       const discount = 0; // Could be added from UI
-       const tax = Math.round(totalAmount * (config.taxRate || 0.19) * 100) / 100;
-       const finalTotal = Math.round((totalAmount + tax) * 100) / 100;
-       
-       // Save sale to database if Electron API is available
-       if (window.electronAPI && window.electronAPI.addSale) {
-         console.log(`💾 [SAVING-SALE] Total: ${finalTotal}€ - Tax: ${tax}€`);
-         
-         const saleData = {
-           total: finalTotal,
-           tax: tax,
-           discount: discount,
-           payment_method: method
-         };
-         
-         try {
-           const savedSale = await window.electronAPI.addSale(saleData);
-           const dbDuration = performance.now() - startTime;
+      const startTime = performance.now();
+      console.log(`⏱️ [PAYMENT-SAVE START] Method: ${method} - Items: ${cart.length}`);
+      
+      try {
+        // Save sale to database if Electron API is available
+        if (window.electronAPI && window.electronAPI.addSale) {
+          console.log(`💾 [SAVING-SALE] Total: ${finalTotal} - Tax: ${tax} - Discount: ${calculatedDiscount}`);
+          
+          const saleData = {
+            items: cart,
+            subtotal: subtotal,
+            discount: calculatedDiscount,
+            tax: tax,
+            total: finalTotal,
+            payment_method: method,
+            customer_id: selectedCustomer?.id || null,
+            notes: ''
+          };
+          
+          try {
+            const savedSale = await window.electronAPI.addSale(saleData);
+            const dbDuration = performance.now() - startTime;
            console.log(`✅ [SALE-CREATED] ID: ${savedSale?.id} - ${dbDuration.toFixed(2)}ms`);
            
            // Save individual cart items if sale was created
@@ -508,14 +522,65 @@ const Sales = () => {
                 )}
               </div>
 
-              {/* Total & Payment */}
+              {/* Total & Discount & Tax & Payment */}
               <div className="border-t pt-1 space-y-1 flex-shrink-0 px-1" style={{ borderColor: config.cardBorderColor }}>
-                <div className="flex justify-between items-center font-bold text-sm bg-blue-50 p-1 rounded">
-                  <span className="text-[13px]" style={{ color: config.textColor }}>TOTAL:</span>
-                  <span className="text-lg" style={{ color: config.primaryColor }}>
-                    {formatPrice(getTotalAmount())}
-                  </span>
+                {/* Discount Row */}
+                {(calculatedDiscount > 0 || discountPercentage > 0) && (
+                  <div className="bg-orange-50 p-1 rounded border border-orange-200">
+                    <div className="flex items-center gap-1 justify-between text-xs mb-1">
+                      <label className="font-semibold text-orange-700">Réduction:</label>
+                      <div className="flex gap-1 flex-1">
+                        <input
+                          type="number"
+                          value={discountPercentage > 0 ? discountPercentage : discountAmount}
+                          onChange={(e) => {
+                            const val = parseFloat(e.target.value) || 0;
+                            if (e.target.value.includes('%') || val > 100) {
+                              setDiscountPercentage(Math.min(val, 100));
+                              setDiscountAmount(0);
+                            } else {
+                              setDiscountAmount(val);
+                              setDiscountPercentage(0);
+                            }
+                          }}
+                          placeholder="0"
+                          className="w-12 px-1 py-0.5 border rounded text-xs"
+                          style={{ borderColor: config.cardBorderColor }}
+                        />
+                        <span className="text-orange-700 font-bold">
+                          {discountPercentage > 0 ? `${discountPercentage}%` : formatPrice(calculatedDiscount)}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Tax Display */}
+                <div className="space-y-0.5 text-xs bg-blue-50 p-1 rounded">
+                  <div className="flex justify-between" style={{ color: config.textColor }}>
+                    <span>Subtotal:</span>
+                    <span className="font-semibold">{formatPrice(subtotal)}</span>
+                  </div>
+                  {calculatedDiscount > 0 && (
+                    <div className="flex justify-between text-orange-600">
+                      <span>Réduction:</span>
+                      <span className="font-semibold">-{formatPrice(calculatedDiscount)}</span>
+                    </div>
+                  )}
+                  <div className="flex justify-between border-t pt-0.5" style={{ borderColor: config.cardBorderColor }}>
+                    <span>Tax ({(config.taxRate * 100).toFixed(0)}%):</span>
+                    <span className="font-semibold text-green-600">{formatPrice(tax)}</span>
+                  </div>
                 </div>
+
+                {/* TOTAL */}
+                <div className="flex justify-between items-center font-bold text-sm bg-gradient-to-r rounded p-1" 
+                  style={{ background: `linear-gradient(to right, ${config.primaryColor}, ${config.secondaryColor})`, color: 'white' }}>
+                  <span>TOTAL:</span>
+                  <span className="text-lg">{formatPrice(finalTotal)}</span>
+                </div>
+
+                {/* Action Buttons */}
                 <div className="grid grid-cols-2 gap-1">
                   <button
                     onClick={handlePayment}
@@ -625,36 +690,46 @@ const Sales = () => {
               borderColor: config.cardBorderColor
             }}
           >
-            {/* Products Header */}
-            <div className="py-1 px-2 flex-shrink-0 border-b" style={{ borderColor: config.cardBorderColor }}>
-              <div className="flex items-center justify-between text-sm mb-1">
-                <span className="text-sm font-bold flex items-center gap-1" style={{ color: config.textColor }}>
-                  🛍️ Produits
-                </span>
-                <span className="text-[10px] bg-blue-100 px-2 py-0.5 rounded" style={{ color: config.primaryColor }}>
-                  {filteredProducts.length} articles
-                </span>
-              </div>
-              {/* Categories */}
-              <div className="flex gap-0.5 mt-0.5 overflow-x-auto">
-                {categories.map((category) => (
-                  <button
-                    key={category}
-                    onClick={() => setSelectedCategory(category)}
-                    className={`px-2 py-0.5 rounded text-[10px] font-medium transition-all whitespace-nowrap ${
-                      selectedCategory === category
-                        ? "text-white"
-                        : "bg-gray-100 text-gray-600 hover:bg-gray-200"
-                    }`}
-                    style={{
-                      backgroundColor: selectedCategory === category ? config.primaryColor : undefined
-                    }}
-                  >
-                    {category}
-                  </button>
-                ))}
-              </div>
-            </div>
+             {/* Products Header */}
+             <div className="py-2 px-2 flex-shrink-0 border-b space-y-2" style={{ borderColor: config.cardBorderColor }}>
+               {/* Search and Info Row */}
+               <div className="flex items-center justify-between gap-2">
+                 <div className="flex-1 relative">
+                   <Search className="absolute left-2 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
+                   <input
+                     type="text"
+                     placeholder="🔍 Rechercher produit, code..."
+                     value={searchTerm}
+                     onChange={(e) => setSearchTerm(e.target.value)}
+                     className="w-full pl-8 pr-2 py-1.5 text-sm border rounded"
+                     style={{ borderColor: config.cardBorderColor, color: config.textColor }}
+                   />
+                 </div>
+                 <span className="text-xs bg-blue-100 px-2 py-1 rounded whitespace-nowrap font-bold" style={{ color: config.primaryColor }}>
+                   {filteredProducts.length}
+                 </span>
+               </div>
+
+               {/* Categories */}
+               <div className="flex gap-0.5 overflow-x-auto">
+                 {categories.map((category) => (
+                   <button
+                     key={category}
+                     onClick={() => setSelectedCategory(category)}
+                     className={`px-2 py-0.5 rounded text-[10px] font-medium transition-all whitespace-nowrap ${
+                       selectedCategory === category
+                         ? "text-white"
+                         : "bg-gray-100 text-gray-600 hover:bg-gray-200"
+                     }`}
+                     style={{
+                       backgroundColor: selectedCategory === category ? config.primaryColor : undefined
+                     }}
+                   >
+                     {category}
+                   </button>
+                 ))}
+               </div>
+             </div>
 
             {/* Product Grid */}
             <div className="flex-1 p-1 overflow-auto">
@@ -723,38 +798,80 @@ const Sales = () => {
         </div>
       </div>
 
-      {/* Payment Modal */}
+      {/* Payment Modal - Professional Receipt */}
       {showPaymentMethods && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white w-96 rounded-lg shadow-2xl">
-            <div className="p-6 border-b">
-              <h2 className="text-xl font-bold" style={{ color: config.textColor }}>💳 Mode de paiement</h2>
+          <div className="bg-white w-full max-w-md rounded-lg shadow-2xl max-h-[90vh] overflow-y-auto">
+            <div className="p-4 border-b sticky top-0 bg-white" style={{ borderColor: config.cardBorderColor }}>
+              <h2 className="text-lg font-bold" style={{ color: config.textColor }}>💳 Confirmation Paiement</h2>
             </div>
-            <div className="p-6">
-              <div className="text-center text-xl font-bold mb-4 p-3 bg-blue-100 rounded">
-                Total: {formatPrice(getTotalAmount())}
-              </div>
-              <div className="grid grid-cols-2 gap-3 mb-4">
-                {[
-                  { label: '💵 Espèces', color: 'bg-green-500 hover:bg-green-600' },
-                  { label: '💳 Carte', color: 'bg-blue-500 hover:bg-blue-600' },
-                  { label: '📝 Chèque', color: 'bg-purple-500 hover:bg-purple-600' },
-                  { label: '📱 Mobile', color: 'bg-orange-500 hover:bg-orange-600' }
-                ].map(method => (
-                  <button
-                    key={method.label}
-                    onClick={() => confirmPayment(method.label)}
-                    className={`p-3 ${method.color} text-white rounded-lg font-bold transition-all`}
-                  >
-                    {method.label}
-                  </button>
+
+            {/* Receipt Preview */}
+            <div className="p-4 space-y-3">
+              {/* Items List */}
+              <div className="bg-gray-50 p-3 rounded max-h-48 overflow-y-auto">
+                <h3 className="text-xs font-bold mb-2 text-gray-600">ARTICLES:</h3>
+                {cart.map((item) => (
+                  <div key={item.id} className="flex justify-between text-xs mb-1 py-1 border-b" style={{ borderColor: config.cardBorderColor }}>
+                    <div className="flex-1">
+                      <div className="font-semibold" style={{ color: config.textColor }}>{item.name}</div>
+                      <div className="text-gray-500">{item.quantity}x @ {formatPrice(item.price)}</div>
+                    </div>
+                    <div className="text-right font-semibold" style={{ color: config.primaryColor }}>
+                      {formatPrice(item.price * item.quantity)}
+                    </div>
+                  </div>
                 ))}
               </div>
+
+              {/* Totals Breakdown */}
+              <div className="bg-blue-50 p-3 rounded space-y-1 text-xs border border-blue-200">
+                <div className="flex justify-between">
+                  <span className="text-gray-600">Subtotal:</span>
+                  <span className="font-semibold">{formatPrice(subtotal)}</span>
+                </div>
+                {calculatedDiscount > 0 && (
+                  <div className="flex justify-between text-orange-600">
+                    <span>Réduction:</span>
+                    <span className="font-semibold">-{formatPrice(calculatedDiscount)}</span>
+                  </div>
+                )}
+                <div className="flex justify-between border-t pt-1" style={{ borderColor: config.cardBorderColor }}>
+                  <span className="text-gray-600">Tax ({(config.taxRate * 100).toFixed(0)}%):</span>
+                  <span className="font-semibold text-green-600">{formatPrice(tax)}</span>
+                </div>
+                <div className="flex justify-between border-t-2 pt-1 text-sm" style={{ borderColor: config.primaryColor, color: config.primaryColor }}>
+                  <span className="font-bold">TOTAL:</span>
+                  <span className="font-bold text-lg">{formatPrice(finalTotal)}</span>
+                </div>
+              </div>
+
+              {/* Payment Methods */}
+              <div className="space-y-2">
+                <p className="text-xs font-bold text-gray-600">Sélectionner le mode de paiement:</p>
+                <div className="grid grid-cols-2 gap-2">
+                  {[
+                    { label: '💵 Espèces', color: 'bg-green-500 hover:bg-green-600' },
+                    { label: '💳 Carte', color: 'bg-blue-500 hover:bg-blue-600' },
+                    { label: '📝 Chèque', color: 'bg-purple-500 hover:bg-purple-600' },
+                    { label: '📱 Mobile', color: 'bg-orange-500 hover:bg-orange-600' }
+                  ].map(method => (
+                    <button
+                      key={method.label}
+                      onClick={() => confirmPayment(method.label)}
+                      className={`p-2 ${method.color} text-white rounded-lg font-bold text-xs transition-all`}
+                    >
+                      {method.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
               <button
                 onClick={() => setShowPaymentMethods(false)}
-                className="w-full p-2 bg-gray-500 hover:bg-gray-600 text-white rounded-lg"
+                className="w-full p-2 bg-gray-500 hover:bg-gray-600 text-white rounded-lg text-sm font-semibold"
               >
-                Annuler
+                ✖ Annuler
               </button>
             </div>
           </div>
