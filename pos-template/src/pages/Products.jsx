@@ -891,17 +891,16 @@ export default function Products() {
           
           <form onSubmit={handleSubmit}>
             <div className="grid gap-4 py-4 max-h-[400px] overflow-y-auto">
-               {/* Nom du produit */}
-               <div className="grid gap-2">
-                 <Label htmlFor="name">Nom du produit *</Label>
-                 <Input
-                   id="name"
-                   value={formData.name}
-                   {...formInput.bind('name')}
-                   placeholder="Ex: Café Expresso, Croissant..."
-                   required
-                 />
-               </div>
+                {/* Nom du produit */}
+                <div className="grid gap-2">
+                  <Label htmlFor="name">Nom du produit *</Label>
+                  <Input
+                    id="name"
+                    {...formInput.bind('name')}
+                    placeholder="Ex: Café Expresso, Croissant..."
+                    required
+                  />
+                </div>
               
               {/* Famille du produit */}
               <div className="grid gap-2">
@@ -923,64 +922,62 @@ export default function Products() {
                 </Select>
               </div>
               
-               {/* Prix de vente */}
-               <div className="grid gap-2">
-                 <Label htmlFor="price">Prix de vente *</Label>
-                 <div className="relative">
-                   <Input
-                     id="price"
-                     type="number"
-                     step="0.01"
-                     min="0"
-                     value={formData.price}
-                     {...formInput.bind('price')}
-                     placeholder="0.00"
-                     className="pr-8"
-                     required
-                   />
-                   <span className="absolute right-3 top-1/2 transform -translate-y-1/2 text-muted-foreground">
-                     DT
-                   </span>
-                 </div>
-               </div>
-              
-               {/* Code-barres */}
-               <div className="grid gap-2">
-                 <Label htmlFor="barcode">Code-barres</Label>
-                 <div className="flex gap-2">
-                   <Input
-                     id="barcode"
-                     value={formData.barcode}
-                     {...formInput.bind('barcode')}
-                     placeholder="Code-barres du produit"
-                     className="flex-1"
-                   />
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    onClick={startBarcodeScanner}
-                    className="px-3 shrink-0"
-                    title="Scanner un code-barres"
-                    disabled={isScanning}
-                  >
-                    {isScanning ? (
-                      <div className="h-4 w-4 animate-spin rounded-full border-2 border-primary border-r-transparent" />
-                    ) : (
-                      <Scan className="h-4 w-4" />
-                    )}
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    onClick={generateBarcode}
-                    className="px-3 shrink-0"
-                    title="Générer un code-barres automatiquement"
-                  >
-                    <Sparkles className="h-4 w-4" />
-                  </Button>
+                {/* Prix de vente */}
+                <div className="grid gap-2">
+                  <Label htmlFor="price">Prix de vente *</Label>
+                  <div className="relative">
+                    <Input
+                      id="price"
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      {...formInput.bind('price')}
+                      placeholder="0.00"
+                      className="pr-8"
+                      required
+                    />
+                    <span className="absolute right-3 top-1/2 transform -translate-y-1/2 text-muted-foreground">
+                      DT
+                    </span>
+                  </div>
                 </div>
+              
+                {/* Code-barres */}
+                <div className="grid gap-2">
+                  <Label htmlFor="barcode">Code-barres</Label>
+                  <div className="flex gap-2">
+                    <Input
+                      id="barcode"
+                      {...formInput.bind('barcode')}
+                      placeholder="Code-barres du produit"
+                      className="flex-1"
+                    />
+                   <Button
+                     type="button"
+                     variant="outline"
+                     size="sm"
+                     onClick={startBarcodeScanner}
+                     className="px-3 shrink-0"
+                     title="Scanner un code-barres"
+                     disabled={isScanning}
+                   >
+                     {isScanning ? (
+                       <div className="h-4 w-4 animate-spin rounded-full border-2 border-primary border-r-transparent" />
+                     ) : (
+                       <Scan className="h-4 w-4" />
+                     )}
+                   </Button>
+                   <Button
+                     type="button"
+                     variant="outline"
+                     size="sm"
+                     onClick={generateBarcode}
+                     className="px-3 shrink-0"
+                     title="Générer un code-barres automatiquement"
+                   >
+                     <Sparkles className="h-4 w-4" />
+                   </Button>
+                 </div>
                 {formData.barcode && (
                   <div className="flex items-center text-xs text-muted-foreground">
                     <Barcode className="h-3 w-3 mr-1" />
@@ -1044,17 +1041,16 @@ export default function Products() {
                 </div>
               </div>
               
-               {/* Description (optionnelle) */}
-               <div className="grid gap-2">
-                 <Label htmlFor="description">Description (optionnelle)</Label>
-                 <Textarea
-                   id="description"
-                   value={formData.description}
-                   {...formInput.bind('description')}
-                   placeholder="Description du produit, ingrédients, allergènes..."
-                   rows={3}
-                 />
-               </div>
+                {/* Description (optionnelle) */}
+                <div className="grid gap-2">
+                  <Label htmlFor="description">Description (optionnelle)</Label>
+                  <Textarea
+                    id="description"
+                    {...formInput.bind('description')}
+                    placeholder="Description du produit, ingrédients, allergènes..."
+                    rows={3}
+                  />
+                </div>
             </div>
             
             <DialogFooter>
