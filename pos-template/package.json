@@ -165,7 +165,13 @@
         "fr"
       ],
       "language": "2057",
-      "warningsAsErrors": false
+      "warningsAsErrors": false,
+      "installerHeaderIcon": null,
+      "installerIcon": null,
+      "uninstallerIcon": null,
+      "installerSidebar": null,
+      "uninstallerSidebar": null,
+      "include": "nsis-installer.nsh"
     },
     "linux": {
       "target": "AppImage"

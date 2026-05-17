@@ -13,7 +13,19 @@ const DatabaseQueryOptimizer = require('./DatabaseQueryOptimizer.cjs');
 function logToFile(message) {
   try {
     const { app } = require('electron');
-    const logDir = path.join(app.getPath('userData'), 'logs');
+    
+    // Determine log directory based on app context
+    let logDir;
+    if (app.isPackaged) {
+      // In production: logs in installation directory
+      const exePath = app.getPath('exe');
+      const installDir = path.dirname(exePath);
+      logDir = path.join(installDir, 'data', 'logs');
+    } else {
+      // In development: logs in userData
+      logDir = path.join(app.getPath('userData'), 'logs');
+    }
+    
     if (!fs.existsSync(logDir)) {
       fs.mkdirSync(logDir, { recursive: true });
     }
@@ -470,55 +482,50 @@ class ElectronDatabaseManager {
 
   /**
    * Get app installation path (where the exe is installed)
-   * PORTABLE MODE: Store all data in C:\ProgramData\CarthaPos\
-   * This allows Program Files installation with writable data folder
-   * @returns {string} Installation path
+   * SINGLE FOLDER MODE: All data stored in the same directory as the exe
+   * Example: C:\Program Files\CarthaPos-BusinessName\
+   * @returns {string} Installation path with data subfolder
    */
   getAppInstallPath() {
     const { app } = require('electron');
     
     console.log('\n🔍 === DATABASE LOCATION DETECTION ===');
-    console.log('📦 OPERATING IN PORTABLE MODE (All data in one folder)');
+    console.log('📦 OPERATING IN SINGLE FOLDER MODE (All data with exe)');
     
     // In production (packaged app)
     if (app.isPackaged) {
       const exePath = app.getPath('exe');
       const installDir = path.dirname(exePath);
-      
-      // Use C:\ProgramData\CarthaPos\ for all data (writable by all users)
-      const programDataPath = process.env.PROGRAMDATA || 'C:\\ProgramData';
-      const portableDataFolder = path.join(programDataPath, 'CarthaPos');
+      const dataFolder = path.join(installDir, 'data');
       
       console.log(`📍 EXE Path: ${exePath}`);
-      console.log(`📍 Install Directory: ${installDir}`);
-      console.log(`📍 Data Folder: ${portableDataFolder}`);
+      console.log(`📍 Installation Directory: ${installDir}`);
+      console.log(`📍 Data Folder: ${dataFolder}`);
       
-      // Try to use the ProgramData folder
+      // Create data folder if it doesn't exist
       try {
-        // Create directory if it doesn't exist
-        if (!fs.existsSync(portableDataFolder)) {
-          fs.mkdirSync(portableDataFolder, { recursive: true });
-          console.log('✅ Created data folder in ProgramData');
+        if (!fs.existsSync(dataFolder)) {
+          fs.mkdirSync(dataFolder, { recursive: true });
+          console.log('✅ Created data folder at installation location');
         }
         
         // Test if it's writable
-        const testFile = path.join(portableDataFolder, `.test_${Date.now()}`);
+        const testFile = path.join(dataFolder, `.test_${Date.now()}`);
         fs.writeFileSync(testFile, 'test');
         fs.unlinkSync(testFile);
         
-        console.log('✅ ProgramData folder is WRITABLE');
-        console.log('🎯 SELECTED: Portable Mode (ProgramData)');
-        console.log(`   All data will be in: ${portableDataFolder}`);
+        console.log('✅ Data folder is WRITABLE');
+        console.log('🎯 SELECTED: Single Folder Mode (Installation Directory)');
+        console.log(`   EXE Location: ${installDir}`);
+        console.log(`   Data Location: ${dataFolder}`);
+        console.log(`   All files in one place: YES ✅`);
         console.log('═══════════════════════════════════\n');
-        return portableDataFolder;
+        return dataFolder;
       } catch (error) {
-        console.error('❌ Cannot write to ProgramData:', error.message);
-        console.log('⚠️  Falling back to user AppData directory...');
-        const userData = app.getPath('userData');
-        console.log(`📍 User Data Path: ${userData}`);
-        console.log('🎯 FALLBACK: AppData Mode');
-        console.log('═══════════════════════════════════\n');
-        return userData;
+        console.error('❌ Cannot write to installation directory:', error.message);
+        console.log('⚠️  Check that the installation folder is writable!');
+        console.log('⚠️  Installation may need admin rights for write access...');
+        throw error;
       }
     } else {
       // Development: use a local data folder
@@ -548,13 +555,20 @@ class ElectronDatabaseManager {
   }
 
   /**
-   * Get backup directory path (in AppData for safety)
+   * Get backup directory path (in installation folder)
+   * All backups stored in the same place as the database
    * @returns {string} Backup directory path
    */
   getBackupPath() {
-    const businessName = this.getBusinessNameFromConfig();
-    const sanitizedName = this.sanitizeDbName(businessName);
-    return path.join(this.getAppDataPath(), sanitizedName, 'backups');
+    const dataFolder = this.getAppInstallPath();
+    const backupFolder = path.join(dataFolder, 'backups');
+    
+    // Create backup folder if it doesn't exist
+    if (!fs.existsSync(backupFolder)) {
+      fs.mkdirSync(backupFolder, { recursive: true });
+    }
+    
+    return backupFolder;
   }
 
   /**
