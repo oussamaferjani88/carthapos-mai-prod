@@ -118,22 +118,22 @@ function registerDatabaseHandlers(getDatabase) {
        
        console.log(`⏱️ [ADD-PRODUCT START] Adding: "${name}" - Family: "${family}"`);
        
-       return new Promise((resolve, reject) => {
-         db.run(
-           'INSERT INTO products (name, price, category, family, barcode, stock, image, description) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-           [name, price, category || family, family, barcode || '', stock || 0, image || null, description || ''],
-           function(err) {
-             const duration = Date.now() - startTime;
-             if (err) {
-               console.error(`❌ [ADD-PRODUCT FAILED] "${name}" - ${duration}ms - Error:`, err.message);
-               reject(err);
-               return;
-             }
-             console.log(`✅ [ADD-PRODUCT OK] "${name}" - ${duration}ms - ID: ${this.lastID}`);
-             resolve({ id: this.lastID, ...product });
-           }
-         );
-       });
+        return new Promise((resolve, reject) => {
+          db.run(
+            'INSERT INTO products (name, price, category, family, barcode, stock, image, description) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+            [name, price, category || family, family, barcode || null, stock || 0, image || null, description || ''],
+            function(err) {
+              const duration = Date.now() - startTime;
+              if (err) {
+                console.error(`❌ [ADD-PRODUCT FAILED] "${name}" - ${duration}ms - Error:`, err.message);
+                reject(err);
+                return;
+              }
+              console.log(`✅ [ADD-PRODUCT OK] "${name}" - ${duration}ms - ID: ${this.lastID}`);
+              resolve({ id: this.lastID, ...product });
+            }
+          );
+        });
      } catch (error) {
        const duration = Date.now() - startTime;
        console.error(`❌ [ADD-PRODUCT ERROR] ${duration}ms -`, error.message);

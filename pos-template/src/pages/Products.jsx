@@ -471,12 +471,15 @@ export default function Products() {
          alert('Produit créé avec succès');
        }
        
-       setDialogOpen(false);
-       setEditingProduct(null);
-       resetForm();
-       
-       const totalDuration = performance.now() - startTime;
-       console.log(`✅ [PRODUCT-SUBMIT OK] Total: ${totalDuration.toFixed(2)}ms`);
+        setDialogOpen(false);
+        setEditingProduct(null);
+        resetForm();
+        
+        // Reload products to ensure list is fresh and matches database state
+        await loadProducts();
+        
+        const totalDuration = performance.now() - startTime;
+        console.log(`✅ [PRODUCT-SUBMIT OK] Total: ${totalDuration.toFixed(2)}ms`);
      } catch (error) {
        console.error('❌ [PRODUCT-SUBMIT ERROR]', error);
        alert('Erreur lors de la sauvegarde');
