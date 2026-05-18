@@ -515,7 +515,9 @@ class ElectronDatabaseManager {
         const userData = app.getPath('userData');
         const businessName = this.getBusinessNameFromConfig() || 'CarthaPos';
         const sanitizedName = this.sanitizeDbName(businessName);
-        const appDataFolder = path.join(userData, sanitizedName, 'data');
+        // Note: userData is already user-specific (e.g., .../carthapos-test-behi)
+        // Just add 'data' folder, don't add businessName again to avoid nesting
+        const appDataFolder = path.join(userData, 'data');
         
         try {
           if (!fs.existsSync(appDataFolder)) {

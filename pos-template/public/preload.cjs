@@ -29,6 +29,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
   deleteProduct: (id) => createIpcHandler('delete-product', id),
   getProductsData: () => createIpcHandler('get-products-data'),
   
+  // Familles de produits (Product Families)
+  getFamilies: () => createIpcHandler('get-families'),
+  addFamily: (family) => createIpcHandler('add-family', family),
+  deleteFamily: (familyName) => createIpcHandler('delete-family', familyName),
+  
   // Ventes
   getSales: () => createIpcHandler('get-sales'),
   addSale: (sale) => createIpcHandler('add-sale', sale),
