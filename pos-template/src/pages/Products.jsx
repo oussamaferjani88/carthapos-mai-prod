@@ -429,14 +429,11 @@ export default function Products() {
       
       const totalDuration = performance.now() - startTime;
       console.log(`✅ [PRODUCT-SUBMIT OK] Total: ${totalDuration.toFixed(2)}ms`);
-    } catch (error) {
-      console.error('❌ [PRODUCT-SUBMIT ERROR]', error);
-      throw error;
-    }
-  }, [editingProduct, products, loadProducts]);
-    }
-    setDialogOpen(true);
-  };
+     } catch (error) {
+       console.error('❌ [PRODUCT-SUBMIT ERROR]', error);
+       throw error;
+     }
+   }, [editingProduct, products, loadProducts]);
 
   const handleDelete = async (product) => {
     if (!confirm(`Êtes-vous sûr de vouloir supprimer "${product.name}" ?`)) {
