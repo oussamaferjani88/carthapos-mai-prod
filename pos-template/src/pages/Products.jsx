@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useMemo } from 'react';
+import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { Button } from '../components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
 import { Input } from '../components/ui/input';
@@ -6,11 +6,10 @@ import { Label } from '../components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '../components/ui/dialog';
 import { Badge } from '../components/ui/badge';
-import { Textarea } from '../components/ui/textarea';
 import { POSConfiguration } from '../lib/POSConfiguration';
 import { useAppConfig } from '../hooks/useAppConfig';
-import { useDebouncedFormInput } from '../hooks/usePerformance'; // ⚡ Import optimized hook
 import { isPreviewMode, getPreviewData, logEnvironment } from '../utils/environment';
+import ProductFormDialog from '../components/ProductFormDialog'; // ⚡ Memoized form component
 import { 
   Plus, 
   Edit, 
@@ -18,13 +17,7 @@ import {
   Package, 
   Search, 
   Barcode, 
-  Sparkles, 
   AlertTriangle, 
-  Camera,
-  Upload,
-  Scan,
-  Image as ImageIcon,
-  X,
   Settings
 } from 'lucide-react';
 
@@ -62,21 +55,6 @@ export default function Products() {
   const [selectedFamily, setSelectedFamily] = useState('all');
   const [families, setFamilies] = useState([]);
   const [newFamily, setNewFamily] = useState('');
-  const [formData, setFormData] = useState({
-    name: '',
-    family: '', // Famille du produit
-    price: '',
-    barcode: '',
-    image: null, // Image du produit (optionnelle)
-    description: ''
-  });
-
-  // ⚡ PERFORMANCE FIX: Use debounced form input to prevent lag when typing
-  const formInput = useDebouncedFormInput(formData, setFormData, 150);
-  
-  const fileInputRef = useRef(null);
-  const [imagePreview, setImagePreview] = useState(null);
-  const [isScanning, setIsScanning] = useState(false);
 
   // Generate a unique barcode using the backend API
   const generateBarcode = async () => {
@@ -378,156 +356,84 @@ export default function Products() {
     });
   }, [products, searchTerm, selectedFamily]);
 
-   const handleSubmit = async (e) => {
-     e.preventDefault();
-     
-     const startTime = performance.now();
-     console.log(`⏱️ [PRODUCT-SUBMIT START] Adding/Editing product`);
-     
-     if (!formData.name || !formData.price || !formData.family) {
-       console.warn('❌ Form validation failed - missing required fields');
-       alert('Le nom, prix et famille sont obligatoires');
-       return;
-     }
-
-     try {
-       const imageConvertStart = performance.now();
-       console.log(`⏱️ [IMAGE-CONVERT START]`);
-       
-       const productData = {
-         name: formData.name,
-         family: formData.family,
-         price: parseFloat(formData.price),
-         barcode: formData.barcode,
-         image: formData.image ? await convertImageToBase64(formData.image) : null,
-         description: formData.description || ''
-       };
-       
-       const imageConvertDuration = performance.now() - imageConvertStart;
-       console.log(`✅ [IMAGE-CONVERT OK] ${imageConvertDuration.toFixed(2)}ms`);
-
-       if (editingProduct) {
-         console.log(`⏱️ [PRODUCT-UPDATE] ID: ${editingProduct.id}`);
-         // ⚡ OPTIMISTIC UPDATE: Update UI immediately without waiting for DB
-         const updatedProducts = products.map(p => 
-           p.id === editingProduct.id 
-             ? { ...p, ...productData }
-             : p
-         );
-         setProducts(updatedProducts);
-         console.log(`✅ [UI-UPDATE] Product updated in UI immediately`);
-         
-         // Save to database in background
-         if (window.electronAPI) {
-           const dbStart = performance.now();
-           try {
-             console.log(`⏱️ [IPC-CALL] Sending updateProduct to Electron...`);
-             await window.electronAPI.updateProduct(editingProduct.id, productData);
-             const dbDuration = performance.now() - dbStart;
-             console.log(`✅ [DB-SAVED] Update persisted - ${dbDuration.toFixed(2)}ms`);
-           } catch (error) {
-             console.error('❌ [DB-ERROR] Database save error:', error);
-             // On error, reload products to ensure consistency
-             await loadProducts();
-             alert('Erreur lors de la sauvegarde: ' + error.message);
-             return;
-           }
-         }
-         alert('Produit mis à jour avec succès');
-       } else {
-         console.log(`⏱️ [PRODUCT-ADD] Creating new product`);
-         // ⚡ OPTIMISTIC UPDATE: Add product to UI immediately
-         const newProduct = {
-           id: Date.now(),
-           ...productData,
-           created_at: new Date().toISOString()
-         };
-         setProducts([...products, newProduct]);
-         console.log(`✅ [UI-UPDATE] New product added to UI immediately`);
-         
-         // Save to database in background
-         if (window.electronAPI) {
-           const dbStart = performance.now();
-           try {
-             console.log(`⏱️ [IPC-CALL] Sending addProduct to Electron...`);
-             const savedProduct = await window.electronAPI.addProduct(productData);
-             const dbDuration = performance.now() - dbStart;
-             console.log(`✅ [DB-SAVED] Product persisted - ${dbDuration.toFixed(2)}ms`);
-             
-             // Update with server-assigned ID if different
-             if (savedProduct && savedProduct.id !== newProduct.id) {
-               setProducts(products.map(p => 
-                 p.id === newProduct.id ? { ...p, id: savedProduct.id } : p
-               ));
-             }
-           } catch (error) {
-             console.error('❌ [DB-ERROR] Database save error:', error);
-             // On error, remove from UI and reload
-             setProducts(products.filter(p => p.id !== newProduct.id));
-             alert('Erreur lors de la sauvegarde: ' + error.message);
-             return;
-           }
-         } else {
-           // Fallback for web mode
-           alert('Produit créé avec succès');
-         }
-         alert('Produit créé avec succès');
-       }
-       
-        setDialogOpen(false);
+  // ⚡ PERFORMANCE: Handle form submission from ProductFormDialog
+  const handleFormSubmit = useCallback(async (productData) => {
+    const startTime = performance.now();
+    console.log(`⏱️ [PRODUCT-SUBMIT START] Adding/Editing product`);
+    
+    try {
+      if (editingProduct) {
+        console.log(`⏱️ [PRODUCT-UPDATE] ID: ${editingProduct.id}`);
+        // ⚡ OPTIMISTIC UPDATE: Update UI immediately
+        const updatedProducts = products.map(p => 
+          p.id === editingProduct.id 
+            ? { ...p, ...productData }
+            : p
+        );
+        setProducts(updatedProducts);
+        console.log(`✅ [UI-UPDATE] Product updated in UI immediately`);
+        
+        // Save to database in background
+        if (window.electronAPI) {
+          const dbStart = performance.now();
+          try {
+            console.log(`⏱️ [IPC-CALL] Sending updateProduct to Electron...`);
+            await window.electronAPI.updateProduct(editingProduct.id, productData);
+            const dbDuration = performance.now() - dbStart;
+            console.log(`✅ [DB-SAVED] Update persisted - ${dbDuration.toFixed(2)}ms`);
+          } catch (error) {
+            console.error('❌ [DB-ERROR] Database save error:', error);
+            await loadProducts();
+            throw error;
+          }
+        }
+        alert('Produit mis à jour avec succès');
         setEditingProduct(null);
-        resetForm();
+      } else {
+        console.log(`⏱️ [PRODUCT-ADD] Creating new product`);
+        // ⚡ OPTIMISTIC UPDATE: Add product to UI immediately
+        const newProduct = {
+          id: Date.now(),
+          ...productData,
+          created_at: new Date().toISOString()
+        };
+        setProducts([...products, newProduct]);
+        console.log(`✅ [UI-UPDATE] New product added to UI immediately`);
         
-        // Reload products to ensure list is fresh and matches database state
-        await loadProducts();
-        
-        const totalDuration = performance.now() - startTime;
-        console.log(`✅ [PRODUCT-SUBMIT OK] Total: ${totalDuration.toFixed(2)}ms`);
-     } catch (error) {
-       console.error('❌ [PRODUCT-SUBMIT ERROR]', error);
-       alert('Erreur lors de la sauvegarde');
-     }
-    };
-  
-  // Fonction pour convertir l'image en base64
-  const convertImageToBase64 = (file) => {
-    return new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = () => resolve(reader.result);
-      reader.onerror = reject;
-      reader.readAsDataURL(file);
-    });
-  };
-  
-  // Fonction pour réinitialiser le formulaire
-  const resetForm = () => {
-    setFormData({
-      name: '',
-      family: '',
-      price: '',
-      barcode: '',
-      image: null,
-      description: ''
-    });
-    setImagePreview(null);
-    if (fileInputRef.current) {
-      fileInputRef.current.value = '';
+        // Save to database in background
+        if (window.electronAPI) {
+          const dbStart = performance.now();
+          try {
+            console.log(`⏱️ [IPC-CALL] Sending addProduct to Electron...`);
+            const savedProduct = await window.electronAPI.addProduct(productData);
+            const dbDuration = performance.now() - dbStart;
+            console.log(`✅ [DB-SAVED] Product persisted - ${dbDuration.toFixed(2)}ms`);
+            
+            // Update with server-assigned ID if different
+            if (savedProduct && savedProduct.id !== newProduct.id) {
+              setProducts(prev => prev.map(p => 
+                p.id === newProduct.id ? { ...p, id: savedProduct.id } : p
+              ));
+            }
+          } catch (error) {
+            console.error('❌ [DB-ERROR] Database save error:', error);
+            setProducts(prev => prev.filter(p => p.id !== newProduct.id));
+            throw error;
+          }
+        }
+        alert('Produit créé avec succès');
+      }
+      
+      // Reload products to ensure list is fresh
+      await loadProducts();
+      
+      const totalDuration = performance.now() - startTime;
+      console.log(`✅ [PRODUCT-SUBMIT OK] Total: ${totalDuration.toFixed(2)}ms`);
+    } catch (error) {
+      console.error('❌ [PRODUCT-SUBMIT ERROR]', error);
+      throw error;
     }
-  };
-
-  const handleEdit = (product) => {
-    setEditingProduct(product);
-    setFormData({
-      name: product.name,
-      family: product.family || product.category || '',
-      price: product.price.toString(),
-      barcode: product.barcode || '',
-      image: null, // L'image sera chargée séparément
-      description: product.description || ''
-    });
-    // Si le produit a une image, la charger pour l'aperçu
-    if (product.image) {
-      setImagePreview(product.image);
+  }, [editingProduct, products, loadProducts]);
     }
     setDialogOpen(true);
   };
@@ -559,11 +465,15 @@ export default function Products() {
     }
   };
 
-  const openCreateDialog = () => {
+  const openCreateDialog = useCallback(() => {
     setEditingProduct(null);
-    resetForm();
     setDialogOpen(true);
-  };
+  }, []);
+
+  const handleEdit = useCallback((product) => {
+    setEditingProduct(product);
+    setDialogOpen(true);
+  }, []);
 
   // Generate barcode for existing product
   const generateBarcodeForProduct = async (product) => {
@@ -880,196 +790,14 @@ export default function Products() {
         </div>
       )}
 
-      {/* Dialog pour créer/modifier un produit */}
-      <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DialogContent className="sm:max-w-[425px]">
-          <DialogHeader>
-            <DialogTitle>
-              {editingProduct ? 'Modifier le produit' : 'Nouveau produit'}
-            </DialogTitle>
-            <DialogDescription>
-              {editingProduct 
-                ? 'Modifiez les informations du produit'
-                : 'Ajoutez un nouveau produit à votre catalogue'
-              }
-            </DialogDescription>
-          </DialogHeader>
-          
-          <form onSubmit={handleSubmit}>
-            <div className="grid gap-4 py-4 max-h-[400px] overflow-y-auto">
-                {/* Nom du produit */}
-                <div className="grid gap-2">
-                  <Label htmlFor="name">Nom du produit *</Label>
-                  <Input
-                    id="name"
-                    {...formInput.bind('name')}
-                    placeholder="Ex: Café Expresso, Croissant..."
-                    required
-                  />
-                </div>
-              
-              {/* Famille du produit */}
-              <div className="grid gap-2">
-                <Label htmlFor="family">Famille du produit *</Label>
-                <Select 
-                  value={formData.family} 
-                  onValueChange={(value) => setFormData({ ...formData, family: value })}
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Sélectionnez une famille" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {families.map((family) => (
-                      <SelectItem key={family} value={family}>
-                        {family}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              
-                {/* Prix de vente */}
-                <div className="grid gap-2">
-                  <Label htmlFor="price">Prix de vente *</Label>
-                  <div className="relative">
-                    <Input
-                      id="price"
-                      type="number"
-                      step="0.01"
-                      min="0"
-                      {...formInput.bind('price')}
-                      placeholder="0.00"
-                      className="pr-8"
-                      required
-                    />
-                    <span className="absolute right-3 top-1/2 transform -translate-y-1/2 text-muted-foreground">
-                      DT
-                    </span>
-                  </div>
-                </div>
-              
-                {/* Code-barres */}
-                <div className="grid gap-2">
-                  <Label htmlFor="barcode">Code-barres</Label>
-                  <div className="flex gap-2">
-                    <Input
-                      id="barcode"
-                      {...formInput.bind('barcode')}
-                      placeholder="Code-barres du produit"
-                      className="flex-1"
-                    />
-                   <Button
-                     type="button"
-                     variant="outline"
-                     size="sm"
-                     onClick={startBarcodeScanner}
-                     className="px-3 shrink-0"
-                     title="Scanner un code-barres"
-                     disabled={isScanning}
-                   >
-                     {isScanning ? (
-                       <div className="h-4 w-4 animate-spin rounded-full border-2 border-primary border-r-transparent" />
-                     ) : (
-                       <Scan className="h-4 w-4" />
-                     )}
-                   </Button>
-                   <Button
-                     type="button"
-                     variant="outline"
-                     size="sm"
-                     onClick={generateBarcode}
-                     className="px-3 shrink-0"
-                     title="Générer un code-barres automatiquement"
-                   >
-                     <Sparkles className="h-4 w-4" />
-                   </Button>
-                 </div>
-                {formData.barcode && (
-                  <div className="flex items-center text-xs text-muted-foreground">
-                    <Barcode className="h-3 w-3 mr-1" />
-                    Code-barres: {formData.barcode}
-                  </div>
-                )}
-              </div>
-              
-              {/* Image du produit (optionnelle) */}
-              <div className="grid gap-2">
-                <Label htmlFor="image">Image du produit (optionnelle)</Label>
-                <div className="space-y-2">
-                  <div className="flex gap-2">
-                    <input
-                      ref={fileInputRef}
-                      type="file"
-                      accept="image/*"
-                      onChange={handleImageUpload}
-                      className="hidden"
-                    />
-                    <Button
-                      type="button"
-                      variant="outline"
-                      onClick={() => fileInputRef.current?.click()}
-                      className="flex-1"
-                    >
-                      <Upload className="h-4 w-4 mr-2" />
-                      Choisir une image
-                    </Button>
-                    {imagePreview && (
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        onClick={removeImage}
-                        className="px-3"
-                      >
-                        <X className="h-4 w-4" />
-                      </Button>
-                    )}
-                  </div>
-                  
-                  {imagePreview && (
-                    <div className="relative w-full h-32 bg-muted rounded-lg overflow-hidden">
-                      <img
-                        src={imagePreview}
-                        alt="Aperçu du produit"
-                        className="w-full h-full object-cover"
-                      />
-                    </div>
-                  )}
-                  
-                  {!imagePreview && (
-                    <div className="w-full h-32 bg-muted rounded-lg flex items-center justify-center text-muted-foreground">
-                      <div className="text-center">
-                        <ImageIcon className="h-8 w-8 mx-auto mb-2" />
-                        <p className="text-sm">Aucune image sélectionnée</p>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              </div>
-              
-                {/* Description (optionnelle) */}
-                <div className="grid gap-2">
-                  <Label htmlFor="description">Description (optionnelle)</Label>
-                  <Textarea
-                    id="description"
-                    {...formInput.bind('description')}
-                    placeholder="Description du produit, ingrédients, allergènes..."
-                    rows={3}
-                  />
-                </div>
-            </div>
-            
-            <DialogFooter>
-              <Button type="button" variant="outline" onClick={() => setDialogOpen(false)}>
-                Annuler
-              </Button>
-              <Button type="submit">
-                {editingProduct ? 'Mettre à jour' : 'Créer'}
-              </Button>
-            </DialogFooter>
-          </form>
-        </DialogContent>
-      </Dialog>
+      {/* ⚡ Memoized Product Form Dialog - Isolated from parent re-renders */}
+      <ProductFormDialog
+        open={dialogOpen}
+        onOpenChange={setDialogOpen}
+        editingProduct={editingProduct}
+        families={families}
+        onSubmit={handleFormSubmit}
+      />
 
       {/* Dialogue de gestion des familles */}
       <Dialog open={familyDialogOpen} onOpenChange={setFamilyDialogOpen}>
