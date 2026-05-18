@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import { Button } from '../components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
 import { Input } from '../components/ui/input';
@@ -368,12 +368,15 @@ export default function Products() {
     }
   };
 
-  const filteredProducts = products.filter(product => {
-    const matchesSearch = product.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                         product.barcode.includes(searchTerm);
-    const matchesFamily = selectedFamily === 'all' || product.family === selectedFamily || product.category === selectedFamily;
-    return matchesSearch && matchesFamily;
-  });
+  // ⚡ PERFORMANCE FIX: Memoize filtered products to avoid O(n) filter on every render
+  const filteredProducts = useMemo(() => {
+    return products.filter(product => {
+      const matchesSearch = product.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                           (product.barcode && product.barcode.includes(searchTerm));
+      const matchesFamily = selectedFamily === 'all' || product.family === selectedFamily || product.category === selectedFamily;
+      return matchesSearch && matchesFamily;
+    });
+  }, [products, searchTerm, selectedFamily]);
 
    const handleSubmit = async (e) => {
      e.preventDefault();
