@@ -8,6 +8,7 @@ const ThemeCustomizer = require('./ThemeCustomizer');
 const DependencyManager = require('./DependencyManager');
 const AssetManager = require('./AssetManager');
 const FilePatcher = require('./FilePatcher');
+const ModuleFilter = require('./ModuleFilter');
 const BuildSystemManager = require('./BuildSystemManager');
 const { validateLicense } = require('../config/license-validator');
 const { createLogger } = require('../common/logger');
@@ -45,19 +46,27 @@ async function generatePOSApplication(license, outputPath = null, options = {}) 
     await assetManager.createConfigFile(validatedLicense); // Create config.json with businessName
     logger.info('📋 Template and assets processed');
 
-    // 4. Install dependencies with extracted components
+    // 4. Filter modules - remove disabled module files
+    const moduleFilter = new ModuleFilter(projectInfo.projectPath);
+    const moduleFilterStats = await moduleFilter.filterModules(validatedLicense.modules);
+    await moduleFilter.filterNavbarModules(validatedLicense.modules);
+    await moduleFilter.cleanupRoutes(validatedLicense.modules);
+    logger.info(`✅ Module filtering completed - removed ${moduleFilterStats.removed} files`);
+    logger.info(`📦 Enabled modules: ${moduleFilterStats.modules.join(', ') || 'all'}`);
+
+    // 5. Install dependencies with extracted components
     const dependencyManager = new DependencyManager(projectInfo.projectPath, validatedLicense);
     await dependencyManager.installDependencies({
       skipNodeModulesInstall: Boolean(options.skipNodeModulesInstall || options.fastMode)
     });
     logger.info('📦 Dependencies installed using modular approach');
 
-    // 5. Apply theme customization
+    // 6. Apply theme customization
     const themeCustomizer = new ThemeCustomizer(projectInfo.projectPath, validatedLicense);
     await themeCustomizer.applyCustomization();
     logger.info('🎨 Theme customization applied');
 
-     // 6. Apply file patches
+     // 7. Apply file patches
      const filePatcher = new FilePatcher(projectInfo.projectPath);
      const businessName = validatedLicense.configuration?.businessName || 
                          validatedLicense.client?.name || 
@@ -65,7 +74,7 @@ async function generatePOSApplication(license, outputPath = null, options = {}) 
      await filePatcher.applyAllPatches(businessName);
      logger.info('🔧 File patches applied');
 
-    // 7. Build application
+    // 9. Build application
     let buildStats = {};
     const buildManager = new BuildSystemManager(projectInfo.projectPath);
 
