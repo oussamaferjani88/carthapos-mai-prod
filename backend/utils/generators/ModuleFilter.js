@@ -60,9 +60,9 @@ class ModuleFilter {
     try {
       logger.info(`🔍 Starting module filtering`);
       
-      // Get enabled module codes
+      // Get enabled module names
       const enabledCodes = enabledModules
-        .map(m => m.module?.code || m.code)
+        .map(m => m.module?.name || m.name)
         .filter(Boolean);
 
       logger.info(`📦 Enabled modules: ${enabledCodes.join(', ') || 'none'}`);
@@ -133,7 +133,7 @@ class ModuleFilter {
       logger.info('🗂️ Filtering POSNavbar for disabled modules');
 
       const enabledCodes = enabledModules
-        .map(m => m.module?.code || m.code)
+        .map(m => m.module?.name || m.name)
         .filter(Boolean);
 
       const navbarPath = path.join(this.projectPath, 'src', 'components', 'POSNavbar.jsx');
@@ -184,7 +184,7 @@ class ModuleFilter {
       logger.info('🚦 Cleaning up unused route imports');
 
       const enabledCodes = enabledModules
-        .map(m => m.module?.code || m.code)
+        .map(m => m.module?.name || m.name)
         .filter(Boolean);
 
       // Find routing configuration file
@@ -233,11 +233,11 @@ class ModuleFilter {
   }
 
   /**
-   * Summary of what was filtered
-   */
+    * Summary of what was filtered
+    */
   getSummary(enabledModules) {
     const enabledCodes = enabledModules
-      .map(m => m.module?.code || m.code)
+      .map(m => m.module?.name || m.name)
       .filter(Boolean);
 
     const disabledModules = Object.keys(this.moduleFileMapping)

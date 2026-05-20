@@ -1,0 +1,9 @@
+
+> pos-system-backend@1.0.0 start
+> node server.js
+
+DEBUG: About to export functions
+DEBUG: Functions exported successfully
+🚀 Server running on http://0.0.0.0:3001
+📊 Environment: undefined
+✅ Database already seeded (Modules exist).
