@@ -47,10 +47,13 @@ class AssetManager {
         fs.mkdirSync(this.projectPath, { recursive: true });
       }
 
-      // Copy all template files
-      await this.copyDirectoryRecursive(this.templatePath, this.projectPath);
-      
-      logger.info('Template files copied successfully');
+       // Copy all template files
+       await this.copyDirectoryRecursive(this.templatePath, this.projectPath);
+       
+       logger.info('Template files copied successfully');
+       
+       // DEFENSIVE: Ensure essential component files exist (in case they were missed)
+       await this.ensureEssentialFiles();
     } catch (error) {
       logger.error('Failed to copy template files:', error);
       throw error;
@@ -498,6 +501,58 @@ window.addEventListener('DOMContentLoaded', () => {
 
     return count;
   }
+
+  /**
+   * Ensure essential component files exist (defensive check)
+   * Sometimes parallel copy operations may miss files - this ensures they're all present
+   */
+  async ensureEssentialFiles() {
+    try {
+      // List of essential component files that must be copied
+      const essentialComponents = [
+        'ProductFormDialog.jsx',
+        'POSNavbar.jsx',
+        'POSContent.jsx',
+        'POSHeader.jsx',
+        'Layout.jsx',
+        'ThemeWrapper.jsx',
+        'SetupWizard.jsx'
+      ];
+
+      const componentsDir = path.join(this.projectPath, 'src', 'components');
+      const templateComponentsDir = path.join(this.templatePath, 'src', 'components');
+
+      if (!fs.existsSync(componentsDir)) {
+        logger.warn('Components directory does not exist yet');
+        return;
+      }
+
+      let copiedCount = 0;
+      for (const componentFile of essentialComponents) {
+        const destPath = path.join(componentsDir, componentFile);
+        const sourcePath = path.join(templateComponentsDir, componentFile);
+
+        // If file doesn't exist in destination, copy from template
+        if (!fs.existsSync(destPath) && fs.existsSync(sourcePath)) {
+          try {
+            fs.copyFileSync(sourcePath, destPath);
+            logger.info(`📋 Recovered missing component: ${componentFile}`);
+            copiedCount++;
+          } catch (err) {
+            logger.warn(`Could not recover ${componentFile}: ${err.message}`);
+          }
+        }
+      }
+
+      if (copiedCount > 0) {
+        logger.info(`✅ Recovered ${copiedCount} missing component files`);
+      }
+    } catch (error) {
+      logger.warn('Error ensuring essential files:', error.message);
+      // Don't throw - this is defensive and shouldn't block the build
+    }
+  }
 }
+
 
 module.exports = AssetManager;
