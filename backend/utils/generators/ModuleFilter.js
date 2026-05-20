@@ -187,26 +187,36 @@ class ModuleFilter {
         .map(m => m.module?.name || m.name)
         .filter(Boolean);
 
-      // Find routing configuration file
+      // Find routing configuration files AND component registry
       const possibleRouteFiles = [
         path.join(this.projectPath, 'src', 'routes', 'index.js'),
         path.join(this.projectPath, 'src', 'App.jsx'),
-        path.join(this.projectPath, 'src', 'pages', 'index.js')
+        path.join(this.projectPath, 'src', 'pages', 'index.js'),
+        path.join(this.projectPath, 'src', 'lib', 'POSComponentRegistry.jsx')
       ];
 
       for (const routeFile of possibleRouteFiles) {
         if (fs.existsSync(routeFile)) {
           let content = fs.readFileSync(routeFile, 'utf8');
+          let wasModified = false;
           
           // Comment out imports for disabled modules
           for (const [moduleCode, files] of Object.entries(this.moduleFileMapping)) {
             if (!enabledCodes.includes(moduleCode)) {
               for (const file of files) {
                 const fileNameWithoutExt = file.replace('.jsx', '');
+                const componentName = fileNameWithoutExt; // e.g., "Inventory" for Inventory.jsx
+                
                 // Match various import patterns
                 const patterns = [
+                  // Direct imports: import Inventory from './pages/Inventory'
                   new RegExp(`import\\s+\\w+\\s+from\\s+['\`].*${fileNameWithoutExt}['\`]`, 'g'),
-                  new RegExp(`const\\s+\\w+\\s*=\\s*lazy\\(\\(\\)\\s*=>\\s*import\\(['\`].*${fileNameWithoutExt}['\`]\\)`, 'g')
+                  // Lazy imports: const Inventory = lazy(() => import('./pages/Inventory'))
+                  new RegExp(`const\\s+\\w+\\s*=\\s*lazy\\(\\(\\)\\s*=>\\s*import\\(['\`].*${fileNameWithoutExt}['\`]\\)`, 'g'),
+                  // Component registration: this.register('inventory', Inventory, {...})
+                  new RegExp(`this\\.register\\(['"]${moduleCode}['"]\\s*,\\s*${componentName}\\s*,`, 'g'),
+                  // Component usage in JSX: <Inventory /> or <ProtectedRoute><Inventory /></ProtectedRoute>
+                  new RegExp(`<${componentName}\\s*\\/?>`, 'g')
                 ];
 
                 for (const pattern of patterns) {
@@ -214,15 +224,17 @@ class ModuleFilter {
                     content = content.replace(pattern, (match) => {
                       return `/* DISABLED: ${moduleCode} */\n// ${match}`;
                     });
+                    wasModified = true;
                   }
                 }
               }
             }
           }
 
-          fs.writeFileSync(routeFile, content, 'utf8');
-          logger.info(`✅ Cleaned up: ${path.basename(routeFile)}`);
-          break;
+          if (wasModified) {
+            fs.writeFileSync(routeFile, content, 'utf8');
+            logger.info(`✅ Cleaned up: ${path.basename(routeFile)}`);
+          }
         }
       }
 
