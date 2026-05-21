@@ -118,6 +118,19 @@ function registerAppHandlers(loadAppConfig) {
     console.log(`📢 Notification: ${title} - ${body}`);
     return { success: true };
   });
+
+  // Error logging from renderer
+  ipcMain.handle('log-error', async (_event, errorData) => {
+    console.error('═══════════════════════════════════════════════════════════');
+    console.error('🚨 ERROR LOGGED FROM RENDERER PROCESS');
+    console.error('═══════════════════════════════════════════════════════════');
+    console.error('Timestamp:', errorData?.timestamp);
+    console.error('Message:', errorData?.message);
+    console.error('Stack:', errorData?.stack);
+    console.error('Component Stack:', errorData?.componentStack);
+    console.error('═══════════════════════════════════════════════════════════');
+    return { logged: true };
+  });
   
   console.log('✅ App IPC handlers registered');
 }

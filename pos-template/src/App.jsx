@@ -11,6 +11,11 @@ import LicenseCheck from './components/LicenseCheck';
 import POSWithAuth from './components/POSWithAuth';
 import SetupWizard from './components/SetupWizard';
 import Layout from './components/Layout';
+import ErrorBoundary from './components/ErrorBoundary';
+import { DebugPanel } from './components/DebugPanel';
+
+// Debug utilities
+import './utils/debug';
 
 // Lazy load page components for better performance
 const Dashboard = lazy(() => import('./pages/Dashboard'));
@@ -57,9 +62,12 @@ const PageLoadingFallback = () => (
 
 function App() {
   return (
-    <AuthProvider>
-      <AppContent />
-    </AuthProvider>
+    <ErrorBoundary>
+      <AuthProvider>
+        <AppContent />
+      </AuthProvider>
+      <DebugPanel />
+    </ErrorBoundary>
   );
 }
 
