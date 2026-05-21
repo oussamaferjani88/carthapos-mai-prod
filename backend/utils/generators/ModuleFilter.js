@@ -209,12 +209,21 @@ class ModuleFilter {
     try {
       logger.info('🚦 Cleaning up unused route imports');
 
+      // Extract enabled module codes with better handling
       const enabledCodes = enabledModules
         .filter((moduleItem) => this.isModuleEnabled(moduleItem))
         .map((moduleItem) => this.getModuleName(moduleItem))
         .filter(Boolean);
 
       logger.info(`📋 Enabled module codes for route cleanup: ${enabledCodes.join(', ') || 'NONE'}`);
+
+      // Get list of actual .jsx files that exist in pages/ to double-check
+      const pagesDir = path.join(this.projectPath, 'src', 'pages');
+      const existingFiles = fs.existsSync(pagesDir)
+        ? fs.readdirSync(pagesDir).filter(f => f.endsWith('.jsx'))
+        : [];
+
+      logger.info(`📂 Existing page files: ${existingFiles.join(', ')}`);
 
       // Find routing configuration files AND component registry
       const possibleRouteFiles = [
@@ -230,52 +239,59 @@ class ModuleFilter {
           let content = fs.readFileSync(routeFile, 'utf8');
           let wasModified = false;
           
-          // Comment out imports for disabled modules
+          // Comment out imports ONLY for modules whose files DON'T exist
           for (const [moduleCode, files] of Object.entries(this.moduleFileMapping)) {
             if (!enabledCodes.includes(moduleCode)) {
               for (const file of files) {
-                const fileNameWithoutExt = file.replace('.jsx', '');
-                const componentName = fileNameWithoutExt; // e.g., "Inventory" for Inventory.jsx
-                
-                // STEP 1: Comment out Route definitions FIRST (before component replacement)
-                // This ensures we don't break Routes by replacing components inside them
-                const routePattern = new RegExp(
-                  `<Route[^>]*path=['\"]\\/${moduleCode}['\"][^>]*(?:/>|>.*?</Route>)`,
-                  'g'
-                );
-                
-                if (routePattern.test(content)) {
-                  logger.debug(`  ✓ Found Route for ${moduleCode} (${file})`);
-                  const matchCount = (content.match(routePattern) || []).length;
-                  logger.debug(`    Route matches: ${matchCount}`);
-                  content = content.replace(routePattern, (match) => {
-                    logger.debug(`    Commenting out Route: ${match.substring(0, 60)}...`);
-                    return `/* DISABLED: ${moduleCode} */\n// ${match}`;
-                  });
-                  wasModified = true;
-                }
-                
-                // STEP 2: Comment out other patterns (after Route handling)
-                const patterns = [
-                  // Direct imports: import Inventory from './pages/Inventory'
-                  new RegExp(`import\\s+\\w+\\s+from\\s+['\`].*${fileNameWithoutExt}['\`]`, 'g'),
-                  // Lazy imports: const Inventory = lazy(() => import('./pages/Inventory'))
-                  new RegExp(`const\\s+\\w+\\s*=\\s*lazy\\(\\(\\)\\s*=>\\s*import\\(['\`].*${fileNameWithoutExt}['\`]\\)\\)`, 'g'),
-                  // Component registration: this.register('inventory', Inventory, {...})
-                  new RegExp(`this\\.register\\(['"]${moduleCode}['"]\\s*,\\s*${componentName}\\s*,`, 'g')
-                ];
-
-                for (const pattern of patterns) {
-                  if (pattern.test(content)) {
-                    logger.debug(`  ✓ Found import/registration for ${moduleCode} (${file})`);
-                    const matchCount = (content.match(pattern) || []).length;
-                    logger.debug(`    Matches: ${matchCount}`);
-                    content = content.replace(pattern, (match) => {
-                      logger.debug(`    Commenting out: ${match.substring(0, 50)}...`);
+                // Only comment out if file was actually deleted
+                if (!existingFiles.includes(file)) {
+                  const fileNameWithoutExt = file.replace('.jsx', '');
+                  const componentName = fileNameWithoutExt; // e.g., "Inventory" for Inventory.jsx
+                  
+                  logger.debug(`  🗑️  File deleted - cleaning up imports: ${file}`);
+                  
+                  // STEP 1: Comment out Route definitions FIRST (before component replacement)
+                  // This ensures we don't break Routes by replacing components inside them
+                  const routePattern = new RegExp(
+                    `<Route[^>]*path=['\"]\\/${moduleCode}['\"][^>]*(?:/>|>.*?</Route>)`,
+                    'g'
+                  );
+                  
+                  if (routePattern.test(content)) {
+                    logger.debug(`  ✓ Found Route for ${moduleCode} (${file})`);
+                    const matchCount = (content.match(routePattern) || []).length;
+                    logger.debug(`    Route matches: ${matchCount}`);
+                    content = content.replace(routePattern, (match) => {
+                      logger.debug(`    Commenting out Route: ${match.substring(0, 60)}...`);
                       return `/* DISABLED: ${moduleCode} */\n// ${match}`;
                     });
                     wasModified = true;
                   }
+                  
+                  // STEP 2: Comment out other patterns (after Route handling)
+                  const patterns = [
+                    // Direct imports: import Inventory from './pages/Inventory'
+                    new RegExp(`import\\s+\\w+\\s+from\\s+['\`].*${fileNameWithoutExt}['\`]`, 'g'),
+                    // Lazy imports: const Inventory = lazy(() => import('./pages/Inventory'))
+                    new RegExp(`const\\s+\\w+\\s*=\\s*lazy\\(\\(\\)\\s*=>\\s*import\\(['\`][^'`]*${fileNameWithoutExt}['\`]\\)\\)`, 'g'),
+                    // Component registration: this.register('inventory', Inventory, {...})
+                    new RegExp(`this\\.register\\(['"]${moduleCode}['"]\\s*,\\s*${componentName}\\s*,`, 'g')
+                  ];
+
+                  for (const pattern of patterns) {
+                    if (pattern.test(content)) {
+                      logger.debug(`  ✓ Found import/registration for ${moduleCode} (${file})`);
+                      const matchCount = (content.match(pattern) || []).length;
+                      logger.debug(`    Matches: ${matchCount}`);
+                      content = content.replace(pattern, (match) => {
+                        logger.debug(`    Commenting out: ${match.substring(0, 50)}...`);
+                        return `/* DISABLED: ${moduleCode} */\n// ${match}`;
+                      });
+                      wasModified = true;
+                    }
+                  }
+                } else {
+                  logger.debug(`  ✅ File exists - NOT cleaning up: ${file}`);
                 }
               }
             }
@@ -294,6 +310,43 @@ class ModuleFilter {
       logger.warn('Could not clean up routes:', error.message);
       // Don't throw - route cleanup is optional
     }
+  }
+
+  /**
+    * Check if module is enabled (handle multiple formats)
+    */
+  isModuleEnabled(moduleItem) {
+    if (moduleItem === null || moduleItem === undefined) return false;
+    
+    // Format 1: { name: 'inventory', isEnabled: true }
+    if (moduleItem.isEnabled !== undefined) return moduleItem.isEnabled === true;
+    
+    // Format 2: { module: { name: 'inventory' }, enabled: true }
+    if (moduleItem.enabled !== undefined) return moduleItem.enabled === true;
+    
+    // Format 3: Direct structure from features object
+    if (moduleItem.enabled !== undefined) return moduleItem.enabled === true;
+    
+    // Default: assume enabled if present
+    return true;
+  }
+
+  /**
+    * Get module name (handle multiple formats)
+    */
+  getModuleName(moduleItem) {
+    if (!moduleItem) return null;
+    
+    // Format 1: { name: 'inventory' }
+    if (moduleItem.name) return moduleItem.name;
+    
+    // Format 2: { module: { name: 'inventory' } }
+    if (moduleItem.module?.name) return moduleItem.module.name;
+    
+    // Format 3: string directly
+    if (typeof moduleItem === 'string') return moduleItem;
+    
+    return null;
   }
 
   /**
