@@ -156,31 +156,6 @@ class ModuleFilter {
     }
   }
 
-      // Remove the files
-      let removedCount = 0;
-      for (const file of filesToRemove) {
-        const filePath = path.join(this.projectPath, 'src', 'pages', file);
-        if (fs.existsSync(filePath)) {
-          fs.unlinkSync(filePath);
-          logger.debug(`  ✓ Removed: ${file}`);
-          removedCount++;
-        }
-      }
-
-      logger.info(`✅ Module filtering completed - removed ${removedCount} module files`);
-      
-      return {
-        removed: removedCount,
-        modules: enabledCodes,
-        filesRemoved: filesToRemove
-      };
-
-    } catch (error) {
-      logger.error('❌ Module filtering failed:', error);
-      throw new Error(`Module filtering failed: ${error.message}`);
-    }
-  }
-
   /**
    * Get list of files to remove based on disabled modules
    * @param {Array} enabledCodes - Array of enabled module codes
