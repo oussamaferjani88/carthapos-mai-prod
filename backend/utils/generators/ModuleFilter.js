@@ -81,13 +81,15 @@ class ModuleFilter {
 
   /**
    * Normalize module name for comparison (kebab-case, lowercase)
+   * Handles: PascalCase, camelCase, kebab-case, snake_case, space separated
    */
   normalizeModuleName(name) {
     if (!name) return '';
     return name
       .toString()
+      .replace(/([A-Z])/g, '-$1')
       .toLowerCase()
-      .replace(/\s+/g, '-')
+      .replace(/[\s_]+/g, '-')
       .replace(/[^a-z0-9-]/g, '')
       .replace(/-+/g, '-')
       .replace(/^-|-$/g, '');
