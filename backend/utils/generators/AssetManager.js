@@ -349,6 +349,25 @@ window.addEventListener('DOMContentLoaded', () => {
 
       // Filter to only include ENABLED modules
       const enabledModules = (license.modules || []).filter(m => m.isEnabled === true);
+      
+      // IMPORTANT: If no modules or very few, check if features object exists in configuration
+      // and use that as a fallback source of truth
+      let modulesForConfig = enabledModules;
+      if (enabledModules.length === 0 && license.configuration?.features) {
+        logger.warn(`⚠️  No enabled modules found in license.modules, checking license.configuration.features`);
+        logger.info(`Features object found: ${JSON.stringify(license.configuration.features)}`);
+        
+        // Convert features object to modules array format
+        const featuresModules = Object.entries(license.configuration.features || {})
+          .filter(([_key, enabled]) => enabled === true)
+          .map(([key, _value]) => ({
+            name: key,
+            isEnabled: true
+          }));
+        
+        logger.info(`Converted features to modules array: ${featuresModules.map(m => m.name).join(', ')}`);
+        modulesForConfig = featuresModules;
+      }
 
       // Create app config with embedded license data
       const appConfig = {
@@ -358,10 +377,11 @@ window.addEventListener('DOMContentLoaded', () => {
           clientId: license.clientId,
           clientName: license.client?.name || businessName,
           isActive: license.isActive,
-          modules: enabledModules,
+          modules: modulesForConfig,
           configuration: license.configuration || {}
         },
-        modules: enabledModules,
+        modules: modulesForConfig,
+        features: license.configuration?.features || {},  // Include features for reference
         theme: {
           // Ensure businessName is prominently set in theme
           businessName: businessName,
@@ -390,13 +410,13 @@ window.addEventListener('DOMContentLoaded', () => {
         logger.info(`📝 Business name: ${businessName}`);
         logger.info(`🗄️ Database filename: ${databaseFilename}`);
         logger.info(`🔑 License key: ${license.licenseKey}`);
-        logger.info(`📦 Enabled modules: ${enabledModules.length}/${license.modules?.length || 0}`);
+        logger.info(`📦 Enabled modules: ${modulesForConfig.length}/${license.modules?.length || '?'}`);
         logger.info(`🎯 Portable mode: ${forcePortableMode ? 'FORCED' : 'AUTO (install dir if writable)'}`);
         logger.info(`🔒 USB License required: ${requireUSB ? 'YES (anti-piracy protection)' : 'NO (trusted client)'}`);
        
-       // Log the actual config being written
-       logger.info(`📋 App config content:`);
-       logger.info(JSON.stringify(appConfig, null, 2));
+        // Log the actual config being written
+        logger.info(`📋 App config content:`);
+        logger.info(JSON.stringify(appConfig, null, 2));
 
       return appConfigPath;
     } catch (error) {

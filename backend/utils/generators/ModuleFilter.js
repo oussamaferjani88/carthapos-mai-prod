@@ -77,28 +77,84 @@ class ModuleFilter {
   }
 
   /**
-    * Filter modules - remove files for disabled modules
-    * @param {Array} enabledModules - Array of module objects with 'isEnabled' and 'module.name' properties
-    */
+   * Filter modules - remove files for disabled modules
+   * @param {Array} enabledModules - Array of enabled module objects with 'code' property
+   */
   async filterModules(enabledModules) {
     try {
       logger.info(`🔍 Starting module filtering`);
       
-      // Get enabled module names - ONLY include modules where isEnabled === true
+      // Get enabled module names - be flexible with formats
       const enabledCodes = enabledModules
-        .filter((moduleItem) => this.isModuleEnabled(moduleItem))
-        .map((moduleItem) => this.getModuleName(moduleItem))
+        .map(m => m.module?.name || m.name)
         .filter(Boolean);
 
-      logger.info(`📦 Enabled modules: ${enabledCodes.join(', ') || 'none'}`);
+      logger.info(`📦 Enabled modules from license: ${enabledCodes.join(', ') || 'NONE'}`);
 
-      // Get all module files that should be removed
-      const filesToRemove = this.getFilesToRemove(enabledCodes);
+      // SAFETY CHECK: If enabledCodes is very small or empty, be very conservative
+      if (enabledCodes.length === 0 || enabledCodes.length < 3) {
+        logger.warn(`⚠️  WARNING: Only ${enabledCodes.length} enabled modules detected`);
+        logger.warn(`⚠️  This might be a parsing error. Checking file existence to be safe...`);
+      }
+
+      // Check which files ACTUALLY exist in pages/
+      const pagesDir = path.join(this.projectPath, 'src', 'pages');
+      let actualFiles = [];
+      if (fs.existsSync(pagesDir)) {
+        actualFiles = fs.readdirSync(pagesDir)
+          .filter(f => f.endsWith('.jsx'));
+        logger.info(`📂 Files found in pages/: ${actualFiles.join(', ')}`);
+      }
+
+      // Get files that should be removed based on moduleFileMapping
+      // BUT: Be conservative - only remove files that:
+      // 1. Are in the moduleFileMapping (known modules)
+      // 2. Are NOT core modules
+      // 3. The module is NOT in enabledCodes (explicitly disabled)
+      const filesToRemove = [];
+
+      for (const [moduleCode, files] of Object.entries(this.moduleFileMapping)) {
+        if (!enabledCodes.includes(moduleCode)) {
+          // This module is NOT enabled
+          for (const file of files) {
+            // Only remove if file actually exists and it's not a core module
+            if (actualFiles.includes(file) && !this.coreModules.includes(file)) {
+              filesToRemove.push(file);
+              logger.info(`  🗑️  Mark for deletion: ${file} (module "${moduleCode}" not enabled)`);
+            }
+          }
+        }
+      }
 
       if (filesToRemove.length === 0) {
-        logger.info('✅ All modules enabled or no files to remove');
+        logger.info('✅ No files to remove - all modules are enabled or core');
         return { removed: 0, modules: enabledCodes };
       }
+
+      // Remove the files
+      let removedCount = 0;
+      for (const file of filesToRemove) {
+        const filePath = path.join(pagesDir, file);
+        if (fs.existsSync(filePath)) {
+          fs.unlinkSync(filePath);
+          logger.debug(`  ✓ Deleted: ${file}`);
+          removedCount++;
+        }
+      }
+
+      logger.info(`✅ Module filtering completed - removed ${removedCount} module files`);
+      
+      return {
+        removed: removedCount,
+        modules: enabledCodes,
+        filesRemoved: filesToRemove
+      };
+
+    } catch (error) {
+      logger.error('❌ Module filtering failed:', error);
+      throw new Error(`Module filtering failed: ${error.message}`);
+    }
+  }
 
       // Remove the files
       let removedCount = 0;
@@ -271,9 +327,9 @@ class ModuleFilter {
                   // STEP 2: Comment out other patterns (after Route handling)
                   const patterns = [
                     // Direct imports: import Inventory from './pages/Inventory'
-                    new RegExp(`import\\s+\\w+\\s+from\\s+['\`].*${fileNameWithoutExt}['\`]`, 'g'),
+                    new RegExp(`import\\s+\\w+\\s+from\\s+['"\`].*${fileNameWithoutExt}['"\`]`, 'g'),
                     // Lazy imports: const Inventory = lazy(() => import('./pages/Inventory'))
-                    new RegExp(`const\\s+\\w+\\s*=\\s*lazy\\(\\(\\)\\s*=>\\s*import\\(['\`][^'`]*${fileNameWithoutExt}['\`]\\)\\)`, 'g'),
+                    new RegExp(`const\\s+\\w+\\s*=\\s*lazy\\(\\(\\)\\s*=>\\s*import\\(['"\`][^'"]*${fileNameWithoutExt}['"\`]\\)\\)`, 'g'),
                     // Component registration: this.register('inventory', Inventory, {...})
                     new RegExp(`this\\.register\\(['"]${moduleCode}['"]\\s*,\\s*${componentName}\\s*,`, 'g')
                   ];

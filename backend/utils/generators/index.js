@@ -48,9 +48,23 @@ async function generatePOSApplication(license, outputPath = null, options = {}) 
 
     // 4. Filter modules - remove disabled module files
     const moduleFilter = new ModuleFilter(projectInfo.projectPath);
-    const moduleFilterStats = await moduleFilter.filterModules(validatedLicense.modules);
-    await moduleFilter.filterNavbarModules(validatedLicense.modules);
-    await moduleFilter.cleanupRoutes(validatedLicense.modules);
+    
+    // Build complete modules list - if modules array is incomplete, use features
+    let modulesToFilter = validatedLicense.modules || [];
+    if (modulesToFilter.length === 0 && validatedLicense.configuration?.features) {
+      logger.warn(`⚠️  No modules in license.modules, building from features object`);
+      const features = validatedLicense.configuration.features;
+      modulesToFilter = Object.entries(features)
+        .map(([name, enabled]) => ({
+          name,
+          isEnabled: enabled === true
+        }));
+      logger.info(`✅ Built modules array from features: ${modulesToFilter.filter(m => m.isEnabled).map(m => m.name).join(', ')}`);
+    }
+    
+    const moduleFilterStats = await moduleFilter.filterModules(modulesToFilter);
+    await moduleFilter.filterNavbarModules(modulesToFilter);
+    await moduleFilter.cleanupRoutes(modulesToFilter);
     logger.info(`✅ Module filtering completed - removed ${moduleFilterStats.removed} files`);
     logger.info(`📦 Enabled modules: ${moduleFilterStats.modules.join(', ') || 'all'}`);
 
