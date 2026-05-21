@@ -80,6 +80,28 @@ class ModuleFilter {
   }
 
   /**
+   * Normalize module name for comparison (kebab-case, lowercase)
+   */
+  normalizeModuleName(name) {
+    if (!name) return '';
+    return name
+      .toString()
+      .toLowerCase()
+      .replace(/\s+/g, '-')
+      .replace(/[^a-z0-9-]/g, '')
+      .replace(/-+/g, '-')
+      .replace(/^-|-$/g, '');
+  }
+
+  /**
+   * Check if a module code is enabled using fuzzy match
+   */
+  isModuleCodeEnabled(moduleCode, enabledCodes) {
+    const normalized = this.normalizeModuleName(moduleCode);
+    return enabledCodes.some(code => this.normalizeModuleName(code) === normalized);
+  }
+
+  /**
    * Filter modules - remove files for disabled modules
    * @param {Array} enabledModules - Array of enabled module objects
    */
@@ -117,7 +139,7 @@ class ModuleFilter {
       const filesToRemove = [];
 
       for (const [moduleCode, files] of Object.entries(this.moduleFileMapping)) {
-        if (!enabledCodes.includes(moduleCode)) {
+        if (!this.isModuleCodeEnabled(moduleCode, enabledCodes)) {
           // This module is NOT enabled
           for (const file of files) {
             // Only remove if file actually exists and it's not a core module
@@ -185,7 +207,7 @@ class ModuleFilter {
       // For each disabled module, comment out or remove its menu item
       // This is a safety net in case the file filtering doesn't work
       for (const [moduleCode, _] of Object.entries(this.moduleFileMapping)) {
-        if (!enabledCodes.includes(moduleCode)) {
+        if (!this.isModuleCodeEnabled(moduleCode, enabledCodes)) {
           // Create regex to find and comment out menu items for this module
           const regexPattern = new RegExp(
             `\\{[^}]*?id:\\s*['"]${moduleCode}['"][^}]*?\\}`,
@@ -251,7 +273,7 @@ class ModuleFilter {
           
           // Comment out imports ONLY for modules whose files DON'T exist
           for (const [moduleCode, files] of Object.entries(this.moduleFileMapping)) {
-            if (!enabledCodes.includes(moduleCode)) {
+            if (!this.isModuleCodeEnabled(moduleCode, enabledCodes)) {
               for (const file of files) {
                 // Only comment out if file was actually deleted
                 if (!existingFiles.includes(file)) {
@@ -332,7 +354,7 @@ class ModuleFilter {
       .filter(Boolean);
 
     const disabledModules = Object.keys(this.moduleFileMapping)
-      .filter(code => !enabledCodes.includes(code));
+      .filter(code => !this.isModuleCodeEnabled(code, enabledCodes));
 
     return {
       enabledCount: enabledCodes.length,
