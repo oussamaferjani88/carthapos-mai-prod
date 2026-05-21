@@ -48,7 +48,11 @@ class ModuleFilter {
       'Dashboard.jsx',
       'Settings.jsx',
       'UserAdmin.jsx',
-      'Login.jsx'
+      'Login.jsx',
+      'Inventory.jsx',
+      'Barcode.jsx',
+      'Customers.jsx',
+      'Reports.jsx'
     ];
   }
 
