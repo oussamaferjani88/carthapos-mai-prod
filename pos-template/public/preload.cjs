@@ -2,10 +2,16 @@ const { contextBridge, ipcRenderer } = require('electron');
 
 // Helper to wrap IPC calls with error logging
 function createIpcHandler(channel, ...args) {
-  return ipcRenderer.invoke(channel, ...args).catch((error) => {
-    console.error(`❌ IPC Error on channel '${channel}':`, error.message);
-    throw error;
-  });
+  console.log(`📡 IPC Call: ${channel}`, args.length > 0 ? `with args:` : '', args);
+  return ipcRenderer.invoke(channel, ...args)
+    .then((result) => {
+      console.log(`✅ IPC Success: ${channel}`, result);
+      return result;
+    })
+    .catch((error) => {
+      console.error(`❌ IPC Error on channel '${channel}':`, error.message, error);
+      throw error;
+    });
 }
 
 // Exposer les API sécurisées au renderer process
@@ -96,3 +102,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.on('database-location', (event, dbPath) => callback(dbPath));
   }
 });
+
+console.log('═══════════════════════════════════════════════════════════');
+console.log('✅ Preload script loaded successfully');
+console.log('🔐 electronAPI exposed to renderer process');
+console.log('═══════════════════════════════════════════════════════════');

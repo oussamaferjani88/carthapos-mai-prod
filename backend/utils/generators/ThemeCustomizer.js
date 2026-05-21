@@ -317,17 +317,38 @@ class ThemeCustomizer {
     const databaseFilename = `${sanitizedBusinessName}.db`;
     
     // Enhanced app configuration matching useAppConfig expectations
+    const normalizeModules = (moduleItems, fallbackModules) => {
+      if (Array.isArray(moduleItems) && moduleItems.length > 0) {
+        return moduleItems.map((moduleItem) => {
+          const moduleData = moduleItem?.module || moduleItem;
+          const isEnabled = moduleItem?.isEnabled ?? moduleItem?.enabled ?? moduleData?.isEnabled ?? moduleData?.enabled ?? true;
+          return {
+            name: moduleData?.name || moduleItem?.name || 'unknown',
+            displayName: moduleData?.displayName || moduleItem?.displayName || moduleData?.name || moduleItem?.name || 'Module',
+            isEnabled: isEnabled === true,
+            description: moduleData?.description || moduleItem?.description || ''
+          };
+        });
+      }
+
+      return fallbackModules;
+    };
+
+    const defaultModules = [
+      { name: "pos-core", displayName: "Caisse de base", isEnabled: true, description: "Fonctionnalites de base de la caisse" },
+      { name: "inventory", displayName: "Gestion des stocks", isEnabled: true, description: "Gestion des produits et stocks" },
+      { name: "reports", displayName: "Rapports", isEnabled: true, description: "Rapports de ventes et analyses" }
+    ];
+
+    const normalizedModules = normalizeModules(this.license.selectedModules || this.license.modules, defaultModules);
+
     const appConfig = {
       license: {
         id: this.license.id || null,
         key: this.license.licenseKey || null,
         client: this.license.client?.name || null
       },
-      modules: this.license.selectedModules || [
-        { name: "pos-core", displayName: "Caisse de base", isEnabled: true, description: "Fonctionnalités de base de la caisse" },
-        { name: "inventory", displayName: "Gestion des stocks", isEnabled: true, description: "Gestion des produits et stocks" },
-        { name: "reports", displayName: "Rapports", isEnabled: true, description: "Rapports de ventes et analyses" }
-      ],
+      modules: normalizedModules,
       theme: {
         businessName: businessName,
         colors: {

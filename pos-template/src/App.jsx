@@ -72,6 +72,29 @@ function AppContent() {
   const [checkingSetup, setCheckingSetup] = useState(!isPreviewMode()); // Only check in production
   const { user, loading: authLoading, setUserDirectly } = useAuth(); // Use setUserDirectly for auto-login
 
+  console.log('═══════════════════════════════════════════════════════════');
+  console.log('[APP DEBUG] AppContent Render State:');
+  console.log('  configLoading:', configLoading);
+  console.log('  licenseLoading:', licenseLoading);
+  console.log('  authLoading:', authLoading);
+  console.log('  checkingSetup:', checkingSetup);
+  console.log('  isInitialized:', isInitialized);
+  console.log('  user:', user?.username || 'none');
+  console.log('  config.modules:', config?.modules?.map(m => ({ name: m.name, enabled: m.isEnabled })));
+  console.log('═══════════════════════════════════════════════════════════');
+
+  // DEBUG: Log enabled modules
+  useEffect(() => {
+    if (config) {
+      console.log('═══════════════════════════════════════════════════════════');
+      console.log('📦 [DEBUG] AppContent - CONFIG LOADED');
+      console.log('Enabled Modules:', config.modules?.map((m) => m.name || m.module?.name).join(', ') || 'NONE');
+      console.log('Module Count:', config.modules?.length || 0);
+      console.log('Full Config:', JSON.stringify(config, null, 2));
+      console.log('═══════════════════════════════════════════════════════════');
+    }
+  }, [config]);
+
   // Check if first-time setup is needed (production mode only)
   useEffect(() => {
     if (!isPreviewMode()) {
@@ -113,6 +136,7 @@ function AppContent() {
 
   const checkFirstTimeSetup = async () => {
     try {
+      console.log('🔍 [APP DEBUG] Checking first-time setup...');
       if (window.electronAPI) {
         console.log('🔍 Checking if first-time setup is needed...');
         const needsSetup = await window.electronAPI.needsFirstTimeSetup();
@@ -244,7 +268,13 @@ function AppContent() {
     return <LicenseCheck />;
   }
 
-  const MainPOSApp = () => (
+  const MainPOSApp = () => {
+    console.log('═══════════════════════════════════════════════════════════');
+    console.log('🚀 [DEBUG] MainPOSApp - Rendering routes');
+    console.log('Config modules:', config?.modules?.map((m) => m.name || m.module?.name).join(', ') || 'NONE');
+    console.log('═══════════════════════════════════════════════════════════');
+    
+    return (
     <Router>
       <div className="pos-app pos-application min-h-screen bg-gradient-to-br from-background via-muted/20 to-background">
         <Layout config={config} license={license}>
@@ -254,6 +284,7 @@ function AppContent() {
                 <Route path="/" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
                 <Route path="/sales" element={<ProtectedRoute><Sales /></ProtectedRoute>} />
                 <Route path="/products" element={<ProtectedRoute><Products /></ProtectedRoute>} />
+                {/* DEBUG: Inventory route below - should be commented out for disabled inventory */}
                 <Route path="/inventory" element={<ProtectedRoute><Inventory /></ProtectedRoute>} />
                 <Route path="/barcode" element={<ProtectedRoute><Barcode /></ProtectedRoute>} />
                 <Route path="/quick-service" element={<ProtectedRoute><QuickService /></ProtectedRoute>} />
@@ -285,6 +316,7 @@ function AppContent() {
       </div>
     </Router>
   );
+  };
 
   return !user ? (
     <POSWithAuth config={config} />

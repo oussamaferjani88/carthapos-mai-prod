@@ -18,7 +18,13 @@ export function useAppConfig() {
       if (window.electronAPI) {
         console.log('[POS DEBUG] [React] loadConfig: Using Electron API');
         const appConfig = await window.electronAPI.getAppConfig();
-        console.log('[POS DEBUG] [React] loadConfig: Received config from Electron:', JSON.stringify(appConfig, null, 2));
+        console.log('═══════════════════════════════════════════════════════════');
+        console.log('📋 [POS DEBUG] CONFIG LOADED FROM ELECTRON');
+        console.log('Modules array:', appConfig?.modules);
+        console.log('Enabled modules:', appConfig?.modules?.map(m => ({name: m.name, enabled: m.isEnabled})));
+        console.log('Module count:', appConfig?.modules?.length);
+        console.log('Full config:', JSON.stringify(appConfig, null, 2));
+        console.log('═══════════════════════════════════════════════════════════');
         setConfig(appConfig);
         // Debug: Print the config after setting
         setTimeout(() => {
@@ -33,7 +39,13 @@ export function useAppConfig() {
         const response = await fetch('app-config.json');
         if (response.ok) {
           const appConfig = await response.json();
-          console.log('[POS DEBUG] [React] loadConfig: Received config from fetch:', JSON.stringify(appConfig, null, 2));
+          console.log('═══════════════════════════════════════════════════════════');
+          console.log('📋 [POS DEBUG] CONFIG LOADED FROM FETCH');
+          console.log('Modules array:', appConfig?.modules);
+          console.log('Enabled modules:', appConfig?.modules?.map(m => ({name: m.name, enabled: m.isEnabled})));
+          console.log('Module count:', appConfig?.modules?.length);
+          console.log('Full config:', JSON.stringify(appConfig, null, 2));
+          console.log('═══════════════════════════════════════════════════════════');
           setConfig(appConfig);
           // Debug: Print the config after setting
           setTimeout(() => {

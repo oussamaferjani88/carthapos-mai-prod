@@ -91,12 +91,17 @@ export const POSNavbar = ({
       return navigationConfig.filter(item => !item.modules || item.modules.length === 0);
     }
 
-    // Extract enabled modules from config.modules array
-    const enabledModules = (config.modules || [])
-      .filter(m => m.isEnabled !== false)
-      .map(m => m.name);
-    
-    console.log('[POSNavbar] Enabled modules:', enabledModules);
+   // Extract enabled modules from config.modules array
+     const enabledModules = (config.modules || [])
+       .filter(m => m.isEnabled !== false)
+       .map(m => m.name);
+     
+     console.log('═══════════════════════════════════════════════════════════');
+     console.log('[POSNavbar] Module Filter Summary:');
+     console.log('Total modules in config:', config.modules?.length);
+     console.log('Module details:', config.modules?.map(m => ({name: m.name, enabled: m.isEnabled})));
+     console.log('Enabled modules for navbar:', enabledModules);
+     console.log('═══════════════════════════════════════════════════════════');
     
     return navigationConfig.filter(item => {
       // Always show items without module requirements

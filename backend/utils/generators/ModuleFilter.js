@@ -52,17 +52,42 @@ class ModuleFilter {
     ];
   }
 
+  getModuleName(moduleItem) {
+    return moduleItem?.module?.name || moduleItem?.name;
+  }
+
+  isModuleEnabled(moduleItem) {
+    if (moduleItem?.isEnabled !== undefined) {
+      return moduleItem.isEnabled === true;
+    }
+
+    if (moduleItem?.enabled !== undefined) {
+      return moduleItem.enabled === true;
+    }
+
+    if (moduleItem?.module?.isEnabled !== undefined) {
+      return moduleItem.module.isEnabled === true;
+    }
+
+    if (moduleItem?.module?.enabled !== undefined) {
+      return moduleItem.module.enabled === true;
+    }
+
+    return true;
+  }
+
   /**
-   * Filter modules - remove files for disabled modules
-   * @param {Array} enabledModules - Array of enabled module objects with 'code' property
-   */
+    * Filter modules - remove files for disabled modules
+    * @param {Array} enabledModules - Array of module objects with 'isEnabled' and 'module.name' properties
+    */
   async filterModules(enabledModules) {
     try {
       logger.info(`🔍 Starting module filtering`);
       
-      // Get enabled module names
+      // Get enabled module names - ONLY include modules where isEnabled === true
       const enabledCodes = enabledModules
-        .map(m => m.module?.name || m.name)
+        .filter((moduleItem) => this.isModuleEnabled(moduleItem))
+        .map((moduleItem) => this.getModuleName(moduleItem))
         .filter(Boolean);
 
       logger.info(`📦 Enabled modules: ${enabledCodes.join(', ') || 'none'}`);
@@ -125,15 +150,16 @@ class ModuleFilter {
   }
 
   /**
-   * Update POSNavbar to hide disabled module menu items
-   * This ensures disabled modules don't appear in the navigation even if somehow the file exists
-   */
+    * Update POSNavbar to hide disabled module menu items
+    * This ensures disabled modules don't appear in the navigation even if somehow the file exists
+    */
   async filterNavbarModules(enabledModules) {
     try {
       logger.info('🗂️ Filtering POSNavbar for disabled modules');
 
       const enabledCodes = enabledModules
-        .map(m => m.module?.name || m.name)
+        .filter((moduleItem) => this.isModuleEnabled(moduleItem))
+        .map((moduleItem) => this.getModuleName(moduleItem))
         .filter(Boolean);
 
       const navbarPath = path.join(this.projectPath, 'src', 'components', 'POSNavbar.jsx');
@@ -177,15 +203,18 @@ class ModuleFilter {
   }
 
   /**
-   * Clean up unused imports in pages/index.js or routing config
-   */
+    * Clean up unused imports in pages/index.js or routing config
+    */
   async cleanupRoutes(enabledModules) {
     try {
       logger.info('🚦 Cleaning up unused route imports');
 
       const enabledCodes = enabledModules
-        .map(m => m.module?.name || m.name)
+        .filter((moduleItem) => this.isModuleEnabled(moduleItem))
+        .map((moduleItem) => this.getModuleName(moduleItem))
         .filter(Boolean);
+
+      logger.info(`📋 Enabled module codes for route cleanup: ${enabledCodes.join(', ') || 'NONE'}`);
 
       // Find routing configuration files AND component registry
       const possibleRouteFiles = [
@@ -197,6 +226,7 @@ class ModuleFilter {
 
       for (const routeFile of possibleRouteFiles) {
         if (fs.existsSync(routeFile)) {
+          logger.info(`\n🔍 Processing route file: ${path.basename(routeFile)}`);
           let content = fs.readFileSync(routeFile, 'utf8');
           let wasModified = false;
           
@@ -207,21 +237,41 @@ class ModuleFilter {
                 const fileNameWithoutExt = file.replace('.jsx', '');
                 const componentName = fileNameWithoutExt; // e.g., "Inventory" for Inventory.jsx
                 
-                // Match various import patterns
+                // STEP 1: Comment out Route definitions FIRST (before component replacement)
+                // This ensures we don't break Routes by replacing components inside them
+                const routePattern = new RegExp(
+                  `<Route[^>]*path=['\"]\\/${moduleCode}['\"][^>]*(?:/>|>.*?</Route>)`,
+                  'g'
+                );
+                
+                if (routePattern.test(content)) {
+                  logger.debug(`  ✓ Found Route for ${moduleCode} (${file})`);
+                  const matchCount = (content.match(routePattern) || []).length;
+                  logger.debug(`    Route matches: ${matchCount}`);
+                  content = content.replace(routePattern, (match) => {
+                    logger.debug(`    Commenting out Route: ${match.substring(0, 60)}...`);
+                    return `/* DISABLED: ${moduleCode} */\n// ${match}`;
+                  });
+                  wasModified = true;
+                }
+                
+                // STEP 2: Comment out other patterns (after Route handling)
                 const patterns = [
                   // Direct imports: import Inventory from './pages/Inventory'
                   new RegExp(`import\\s+\\w+\\s+from\\s+['\`].*${fileNameWithoutExt}['\`]`, 'g'),
                   // Lazy imports: const Inventory = lazy(() => import('./pages/Inventory'))
-                  new RegExp(`const\\s+\\w+\\s*=\\s*lazy\\(\\(\\)\\s*=>\\s*import\\(['\`].*${fileNameWithoutExt}['\`]\\)`, 'g'),
+                  new RegExp(`const\\s+\\w+\\s*=\\s*lazy\\(\\(\\)\\s*=>\\s*import\\(['\`].*${fileNameWithoutExt}['\`]\\)\\)`, 'g'),
                   // Component registration: this.register('inventory', Inventory, {...})
-                  new RegExp(`this\\.register\\(['"]${moduleCode}['"]\\s*,\\s*${componentName}\\s*,`, 'g'),
-                  // Component usage in JSX: <Inventory /> or <ProtectedRoute><Inventory /></ProtectedRoute>
-                  new RegExp(`<${componentName}\\s*\\/?>`, 'g')
+                  new RegExp(`this\\.register\\(['"]${moduleCode}['"]\\s*,\\s*${componentName}\\s*,`, 'g')
                 ];
 
                 for (const pattern of patterns) {
                   if (pattern.test(content)) {
+                    logger.debug(`  ✓ Found import/registration for ${moduleCode} (${file})`);
+                    const matchCount = (content.match(pattern) || []).length;
+                    logger.debug(`    Matches: ${matchCount}`);
                     content = content.replace(pattern, (match) => {
+                      logger.debug(`    Commenting out: ${match.substring(0, 50)}...`);
                       return `/* DISABLED: ${moduleCode} */\n// ${match}`;
                     });
                     wasModified = true;
@@ -234,6 +284,8 @@ class ModuleFilter {
           if (wasModified) {
             fs.writeFileSync(routeFile, content, 'utf8');
             logger.info(`✅ Cleaned up: ${path.basename(routeFile)}`);
+          } else {
+            logger.debug(`  No changes needed for ${path.basename(routeFile)}`);
           }
         }
       }
@@ -249,6 +301,7 @@ class ModuleFilter {
     */
   getSummary(enabledModules) {
     const enabledCodes = enabledModules
+      .filter(m => m.isEnabled === true)
       .map(m => m.module?.name || m.name)
       .filter(Boolean);
 

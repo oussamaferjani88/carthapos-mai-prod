@@ -68,6 +68,10 @@ export class POSComponentRegistry {
   static components = new Map();
 
   static init() {
+    console.log('═══════════════════════════════════════════════════════════');
+    console.log('🔧 [REGISTRY DEBUG] Initializing POSComponentRegistry...');
+    console.log('═══════════════════════════════════════════════════════════');
+    
     // Register all components with their configurations
     this.register('dashboard', Dashboard, {
       navigationItem: { 
@@ -292,15 +296,30 @@ export class POSComponentRegistry {
         href: '/hardware-settings'
       }
     });
+    
+    console.log(`═══════════════════════════════════════════════════════════`);
+    console.log(`✅ Registry initialization complete`);
+    console.log(`📊 Total components registered: ${this.components.size}`);
+    console.log(`📋 Components: ${Array.from(this.components.keys()).join(', ')}`);
+    console.log(`═══════════════════════════════════════════════════════════`);
   }
 
   static register(id, component, config = {}) {
-    this.components.set(id, { component, ...config });
+    try {
+      this.components.set(id, { component, ...config });
+      console.log(`  ✅ Registered: ${id} => ${component?.displayName || component?.name || 'Component'}`);
+    } catch (error) {
+      console.error(`  ❌ Failed to register ${id}:`, error.message);
+      throw error;
+    }
   }
 
   static getPageRenderer(pageId, modules = []) {
     const entry = this.components.get(pageId);
-    if (!entry) return null;
+    if (!entry) {
+      console.warn(`⚠️ [REGISTRY] Page not found: ${pageId}`);
+      return null;
+    }
 
     // Check if page requires specific modules and if they're enabled
     const navigationItem = entry.navigationItem;
@@ -315,14 +334,17 @@ export class POSComponentRegistry {
       );
       
       if (!hasRequiredModule) {
+        console.log(`🚫 [REGISTRY] Page disabled (module not enabled): ${pageId}, required: ${navigationItem.modules.join(',')}`);
         return null;
       }
     }
 
+    console.log(`✅ [REGISTRY] Page renderer granted: ${pageId}`);
     return entry.component;
   }
 
   static getNavigationItems(modules = []) {
+    console.log(`📱 [REGISTRY] Building navigation items for modules:`, modules.map(m => m.name || m).join(', ') || 'NONE');
     const items = [];
     
     for (const [id, entry] of this.components.entries()) {
@@ -341,9 +363,13 @@ export class POSComponentRegistry {
           })
         );
         
-        if (!hasRequiredModule) continue;
+        if (!hasRequiredModule) {
+          console.log(`  🚫 Hidden nav item: ${navItem.label} (${id}) - requires: ${navItem.modules.join(',')}`);
+          continue;
+        }
       }
       
+      console.log(`  ✅ Visible nav item: ${navItem.label} (${id})`);
       items.push({
         id,
         label: navItem.label,
@@ -354,7 +380,9 @@ export class POSComponentRegistry {
     }
     
     // Sort by order
-    return items.sort((a, b) => a.order - b.order);
+    const sorted = items.sort((a, b) => a.order - b.order);
+    console.log(`📊 [REGISTRY] Total nav items: ${sorted.length}`);
+    return sorted;
   }
 
   static getAllComponents() {
@@ -367,6 +395,8 @@ export class POSComponentRegistry {
 }
 
 // Initialize the registry
+console.log('[REGISTRY] Calling POSComponentRegistry.init()...');
 POSComponentRegistry.init();
+console.log('[REGISTRY] POSComponentRegistry initialization completed');
 
 export default POSComponentRegistry;

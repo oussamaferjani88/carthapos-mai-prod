@@ -89,9 +89,14 @@ function loadAppConfig() {
     const raw = fs.readFileSync(configPath, 'utf8');
     cachedAppConfig = JSON.parse(raw);
 
+    console.log('═══════════════════════════════════════════════════════════');
     console.log('✅ App configuration loaded successfully');
     console.log('📊 Database filename:', cachedAppConfig?.database?.filename);
     console.log('📝 Business name:', cachedAppConfig?.theme?.businessName);
+    console.log('📦 Modules:', cachedAppConfig?.modules?.map(m => ({name: m.name, enabled: m.isEnabled})));
+    console.log('📦 Module count:', cachedAppConfig?.modules?.length);
+    console.log('🔍 Full config:', JSON.stringify(cachedAppConfig, null, 2));
+    console.log('═══════════════════════════════════════════════════════════');
     
     return cachedAppConfig;
   } catch (error) {

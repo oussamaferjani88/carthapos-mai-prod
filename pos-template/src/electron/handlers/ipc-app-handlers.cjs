@@ -87,8 +87,14 @@ function registerAppHandlers(loadAppConfig) {
   
   // Get app configuration
   ipcMain.handle('get-app-config', () => {
-    console.log('⚙️ Getting app configuration');
-    return loadAppConfig();
+    console.log('═══════════════════════════════════════════════════════════');
+    console.log('⚙️ [IPC] get-app-config: Getting app configuration from main process');
+    const config = loadAppConfig();
+    console.log('📦 [IPC] Modules:', config?.modules?.map(m => ({name: m.name, enabled: m.isEnabled})));
+    console.log('📦 [IPC] Module count:', config?.modules?.length);
+    console.log('🔍 [IPC] Sending config to renderer:', JSON.stringify(config, null, 2));
+    console.log('═══════════════════════════════════════════════════════════');
+    return config;
   });
 
   // Settings (placeholder)

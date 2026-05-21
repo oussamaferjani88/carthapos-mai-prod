@@ -347,6 +347,9 @@ window.addEventListener('DOMContentLoaded', () => {
       // Default: true (USB required) unless explicitly set to false in license configuration
       const requireUSB = license.configuration?.requireUSBLicense !== false;
 
+      // Filter to only include ENABLED modules
+      const enabledModules = (license.modules || []).filter(m => m.isEnabled === true);
+
       // Create app config with embedded license data
       const appConfig = {
         license: {
@@ -355,10 +358,10 @@ window.addEventListener('DOMContentLoaded', () => {
           clientId: license.clientId,
           clientName: license.client?.name || businessName,
           isActive: license.isActive,
-          modules: license.modules || [],
+          modules: enabledModules,
           configuration: license.configuration || {}
         },
-        modules: license.modules || [],
+        modules: enabledModules,
         theme: {
           // Ensure businessName is prominently set in theme
           businessName: businessName,
@@ -383,13 +386,13 @@ window.addEventListener('DOMContentLoaded', () => {
       const appConfigPath = path.join(publicDir, 'app-config.json');
       fs.writeFileSync(appConfigPath, JSON.stringify(appConfig, null, 2), 'utf8');
       
-       logger.info(`✅ App config created at: ${appConfigPath}`);
-       logger.info(`📝 Business name: ${businessName}`);
-       logger.info(`🗄️ Database filename: ${databaseFilename}`);
-       logger.info(`🔑 License key: ${license.licenseKey}`);
-       logger.info(`📦 Modules: ${license.modules?.length || 0}`);
-       logger.info(`🎯 Portable mode: ${forcePortableMode ? 'FORCED' : 'AUTO (install dir if writable)'}`);
-       logger.info(`🔒 USB License required: ${requireUSB ? 'YES (anti-piracy protection)' : 'NO (trusted client)'}`);
+        logger.info(`✅ App config created at: ${appConfigPath}`);
+        logger.info(`📝 Business name: ${businessName}`);
+        logger.info(`🗄️ Database filename: ${databaseFilename}`);
+        logger.info(`🔑 License key: ${license.licenseKey}`);
+        logger.info(`📦 Enabled modules: ${enabledModules.length}/${license.modules?.length || 0}`);
+        logger.info(`🎯 Portable mode: ${forcePortableMode ? 'FORCED' : 'AUTO (install dir if writable)'}`);
+        logger.info(`🔒 USB License required: ${requireUSB ? 'YES (anti-piracy protection)' : 'NO (trusted client)'}`);
        
        // Log the actual config being written
        logger.info(`📋 App config content:`);
