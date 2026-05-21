@@ -52,49 +52,48 @@ class ModuleFilter {
     ];
   }
 
+  /**
+   * Get module name from various formats
+   */
   getModuleName(moduleItem) {
-    return moduleItem?.module?.name || moduleItem?.name;
+    if (!moduleItem) return null;
+    if (typeof moduleItem === 'string') return moduleItem;
+    return moduleItem?.module?.name || moduleItem?.name || null;
   }
 
+  /**
+   * Check if module is enabled using isEnabled/enabled flags
+   */
   isModuleEnabled(moduleItem) {
-    if (moduleItem?.isEnabled !== undefined) {
+    if (!moduleItem) return false;
+    if (typeof moduleItem === 'object' && moduleItem.isEnabled !== undefined) {
       return moduleItem.isEnabled === true;
     }
-
-    if (moduleItem?.enabled !== undefined) {
+    if (typeof moduleItem === 'object' && moduleItem.enabled !== undefined) {
       return moduleItem.enabled === true;
     }
-
-    if (moduleItem?.module?.isEnabled !== undefined) {
-      return moduleItem.module.isEnabled === true;
-    }
-
-    if (moduleItem?.module?.enabled !== undefined) {
-      return moduleItem.module.enabled === true;
-    }
-
     return true;
   }
 
   /**
    * Filter modules - remove files for disabled modules
-   * @param {Array} enabledModules - Array of enabled module objects with 'code' property
+   * @param {Array} enabledModules - Array of enabled module objects
    */
   async filterModules(enabledModules) {
     try {
       logger.info(`🔍 Starting module filtering`);
       
-      // Get enabled module names - be flexible with formats
+      // Get enabled module names - use helper methods
       const enabledCodes = enabledModules
-        .map(m => m.module?.name || m.name)
+        .map(m => this.getModuleName(m))
         .filter(Boolean);
 
       logger.info(`📦 Enabled modules from license: ${enabledCodes.join(', ') || 'NONE'}`);
 
-      // SAFETY CHECK: If enabledCodes is very small or empty, be very conservative
-      if (enabledCodes.length === 0 || enabledCodes.length < 3) {
-        logger.warn(`⚠️  WARNING: Only ${enabledCodes.length} enabled modules detected`);
-        logger.warn(`⚠️  This might be a parsing error. Checking file existence to be safe...`);
+      // SAFETY CHECK: If enabledCodes is very small or empty, warn but still proceed
+      if (enabledCodes.length === 0) {
+        logger.warn(`⚠️  WARNING: No enabled modules detected - no files will be removed`);
+        return { removed: 0, modules: [], filesRemoved: [] };
       }
 
       // Check which files ACTUALLY exist in pages/
@@ -154,30 +153,6 @@ class ModuleFilter {
       logger.error('❌ Module filtering failed:', error);
       throw new Error(`Module filtering failed: ${error.message}`);
     }
-  }
-
-  /**
-   * Get list of files to remove based on disabled modules
-   * @param {Array} enabledCodes - Array of enabled module codes
-   * @returns {Array} Files to remove
-   */
-  getFilesToRemove(enabledCodes) {
-    const filesToRemove = [];
-
-    // Iterate through all possible modules
-    for (const [moduleCode, files] of Object.entries(this.moduleFileMapping)) {
-      // If this module is NOT enabled, mark its files for removal
-      if (!enabledCodes.includes(moduleCode)) {
-        for (const file of files) {
-          // Never remove core files
-          if (!this.coreModules.includes(file) && !filesToRemove.includes(file)) {
-            filesToRemove.push(file);
-          }
-        }
-      }
-    }
-
-    return filesToRemove;
   }
 
   /**
@@ -344,49 +319,12 @@ class ModuleFilter {
   }
 
   /**
-    * Check if module is enabled (handle multiple formats)
-    */
-  isModuleEnabled(moduleItem) {
-    if (moduleItem === null || moduleItem === undefined) return false;
-    
-    // Format 1: { name: 'inventory', isEnabled: true }
-    if (moduleItem.isEnabled !== undefined) return moduleItem.isEnabled === true;
-    
-    // Format 2: { module: { name: 'inventory' }, enabled: true }
-    if (moduleItem.enabled !== undefined) return moduleItem.enabled === true;
-    
-    // Format 3: Direct structure from features object
-    if (moduleItem.enabled !== undefined) return moduleItem.enabled === true;
-    
-    // Default: assume enabled if present
-    return true;
-  }
-
-  /**
-    * Get module name (handle multiple formats)
-    */
-  getModuleName(moduleItem) {
-    if (!moduleItem) return null;
-    
-    // Format 1: { name: 'inventory' }
-    if (moduleItem.name) return moduleItem.name;
-    
-    // Format 2: { module: { name: 'inventory' } }
-    if (moduleItem.module?.name) return moduleItem.module.name;
-    
-    // Format 3: string directly
-    if (typeof moduleItem === 'string') return moduleItem;
-    
-    return null;
-  }
-
-  /**
     * Summary of what was filtered
     */
   getSummary(enabledModules) {
     const enabledCodes = enabledModules
-      .filter(m => m.isEnabled === true)
-      .map(m => m.module?.name || m.name)
+      .filter(m => this.isModuleEnabled(m))
+      .map(m => this.getModuleName(m))
       .filter(Boolean);
 
     const disabledModules = Object.keys(this.moduleFileMapping)

@@ -49,18 +49,25 @@ async function generatePOSApplication(license, outputPath = null, options = {}) 
     // 4. Filter modules - remove disabled module files
     const moduleFilter = new ModuleFilter(projectInfo.projectPath);
     
-    // Build complete modules list - if modules array is incomplete, use features
+    // Build complete modules list from BOTH modules array AND features
     let modulesToFilter = validatedLicense.modules || [];
-    if (modulesToFilter.length === 0 && validatedLicense.configuration?.features) {
-      logger.warn(`⚠️  No modules in license.modules, building from features object`);
+
+    // ALWAYS merge with features if available (features is the authoritative source)
+    if (validatedLicense.configuration?.features) {
       const features = validatedLicense.configuration.features;
-      modulesToFilter = Object.entries(features)
-        .map(([name, enabled]) => ({
-          name,
-          isEnabled: enabled === true
-        }));
-      logger.info(`✅ Built modules array from features: ${modulesToFilter.filter(m => m.isEnabled).map(m => m.name).join(', ')}`);
+      const existingNames = modulesToFilter
+        .map(m => m.module?.name || m.name)
+        .filter(Boolean);
+
+      Object.entries(features)
+        .filter(([name, enabled]) => enabled === true && !existingNames.includes(name))
+        .forEach(([name]) => {
+          logger.info(`➕ Adding module from features: ${name}`);
+          modulesToFilter.push({ name, isEnabled: true });
+        });
     }
+
+    logger.info(`📦 Final modules to filter (${modulesToFilter.length}): ${modulesToFilter.map(m => m.module?.name || m.name).join(', ')}`);
     
     const moduleFilterStats = await moduleFilter.filterModules(modulesToFilter);
     await moduleFilter.filterNavbarModules(modulesToFilter);

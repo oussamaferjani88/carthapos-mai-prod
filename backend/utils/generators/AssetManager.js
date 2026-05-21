@@ -350,23 +350,19 @@ window.addEventListener('DOMContentLoaded', () => {
       // Filter to only include ENABLED modules
       const enabledModules = (license.modules || []).filter(m => m.isEnabled === true);
       
-      // IMPORTANT: If no modules or very few, check if features object exists in configuration
-      // and use that as a fallback source of truth
-      let modulesForConfig = enabledModules;
-      if (enabledModules.length === 0 && license.configuration?.features) {
-        logger.warn(`⚠️  No enabled modules found in license.modules, checking license.configuration.features`);
-        logger.info(`Features object found: ${JSON.stringify(license.configuration.features)}`);
-        
-        // Convert features object to modules array format
-        const featuresModules = Object.entries(license.configuration.features || {})
-          .filter(([_key, enabled]) => enabled === true)
-          .map(([key, _value]) => ({
-            name: key,
-            isEnabled: true
-          }));
-        
-        logger.info(`Converted features to modules array: ${featuresModules.map(m => m.name).join(', ')}`);
-        modulesForConfig = featuresModules;
+      // ALWAYS merge with features if available (features is the authoritative source)
+      let modulesForConfig = [...enabledModules];
+      if (license.configuration?.features) {
+        const existingNames = modulesForConfig
+          .map(m => m.module?.name || m.name)
+          .filter(Boolean);
+
+        Object.entries(license.configuration.features)
+          .filter(([name, enabled]) => enabled === true && !existingNames.includes(name))
+          .forEach(([name]) => {
+            logger.info(`➕ Adding module from features: ${name}`);
+            modulesForConfig.push({ name, isEnabled: true });
+          });
       }
 
       // Create app config with embedded license data
