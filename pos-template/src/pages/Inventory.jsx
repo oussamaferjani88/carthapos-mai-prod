@@ -59,7 +59,9 @@ export default function Inventory() {
   const [filterLowStock, setFilterLowStock] = useState(false);
   const [selectedProduct, setSelectedProduct] = useState(null);
   const [stockAdjustment, setStockAdjustment] = useState('');
+  const [stockSetValue, setStockSetValue] = useState('');
   const [adjustmentReason, setAdjustmentReason] = useState('');
+  const [stockMode, setStockMode] = useState('adjust'); // 'adjust' or 'set'
 
   useEffect(() => {
     loadProducts();
@@ -88,26 +90,37 @@ export default function Inventory() {
   const totalValue = products.reduce((sum, p) => sum + (p.price * p.stock), 0);
 
   const handleStockAdjustment = async () => {
-    if (!selectedProduct || !stockAdjustment) return;
+    if (!selectedProduct) return;
 
     try {
-      const newStock = selectedProduct.stock + parseInt(stockAdjustment);
+      let newStock;
+      if (stockMode === 'adjust') {
+        if (!stockAdjustment) return;
+        newStock = selectedProduct.stock + parseInt(stockAdjustment);
+      } else {
+        if (stockSetValue === '') return;
+        newStock = parseInt(stockSetValue);
+      }
+      newStock = Math.max(0, isNaN(newStock) ? selectedProduct.stock : newStock);
       
       await window.electronAPI.updateProduct(selectedProduct.id, {
         ...selectedProduct,
-        stock: Math.max(0, newStock)
+        stock: newStock
       });
 
-      // Record stock movement
-      // TODO: Add stock movement recording functionality
-
       await loadProducts();
-      setSelectedProduct(null);
-      setStockAdjustment('');
-      setAdjustmentReason('');
+      closeStockDialog();
     } catch (error) {
       console.error('Error adjusting stock:', error);
     }
+  };
+
+  const closeStockDialog = () => {
+    setSelectedProduct(null);
+    setStockAdjustment('');
+    setStockSetValue('');
+    setAdjustmentReason('');
+    setStockMode('adjust');
   };
 
   const getStockStatus = (stock) => {
@@ -243,7 +256,7 @@ export default function Inventory() {
                         </DialogTrigger>
                         <DialogContent>
                           <DialogHeader>
-                            <DialogTitle>Ajustement de stock</DialogTitle>
+                            <DialogTitle>Gestion du stock</DialogTitle>
                             <DialogDescription>
                               Modifier le stock pour {selectedProduct?.name}
                             </DialogDescription>
@@ -253,26 +266,63 @@ export default function Inventory() {
                               <Label>Stock actuel</Label>
                               <Input value={selectedProduct?.stock || 0} disabled />
                             </div>
-                            <div>
-                              <Label>Ajustement (+/-)</Label>
-                              <Input
-                                type="number"
-                                placeholder="Ex: +10 ou -5"
-                                value={stockAdjustment}
-                                onChange={(e) => setStockAdjustment(e.target.value)}
-                              />
+                            <div className="flex gap-1 bg-muted p-1 rounded-lg">
+                              <button
+                                type="button"
+                                onClick={() => setStockMode('adjust')}
+                                className={`flex-1 py-1 px-3 text-sm rounded-md transition-all ${
+                                  stockMode === 'adjust'
+                                    ? 'bg-white shadow font-medium'
+                                    : 'text-muted-foreground hover:text-foreground'
+                                }`}
+                              >
+                                Ajuster (+/-)
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setStockMode('set')}
+                                className={`flex-1 py-1 px-3 text-sm rounded-md transition-all ${
+                                  stockMode === 'set'
+                                    ? 'bg-white shadow font-medium'
+                                    : 'text-muted-foreground hover:text-foreground'
+                                }`}
+                              >
+                                Définir
+                              </button>
                             </div>
+                            {stockMode === 'adjust' ? (
+                              <div>
+                                <Label>Ajustement (+/-)</Label>
+                                <Input
+                                  type="number"
+                                  placeholder="Ex: +10 ou -5"
+                                  value={stockAdjustment}
+                                  onChange={(e) => setStockAdjustment(e.target.value)}
+                                />
+                              </div>
+                            ) : (
+                              <div>
+                                <Label>Nouveau stock</Label>
+                                <Input
+                                  type="number"
+                                  min="0"
+                                  placeholder="Ex: 50"
+                                  value={stockSetValue}
+                                  onChange={(e) => setStockSetValue(e.target.value)}
+                                />
+                              </div>
+                            )}
                             <div>
                               <Label>Raison</Label>
                               <Input
-                                placeholder="Raison de l'ajustement..."
+                                placeholder="Raison du changement..."
                                 value={adjustmentReason}
                                 onChange={(e) => setAdjustmentReason(e.target.value)}
                               />
                             </div>
                           </div>
                           <DialogFooter>
-                            <Button variant="outline" onClick={() => setSelectedProduct(null)}>
+                            <Button variant="outline" onClick={closeStockDialog}>
                               Annuler
                             </Button>
                             <Button onClick={handleStockAdjustment}>

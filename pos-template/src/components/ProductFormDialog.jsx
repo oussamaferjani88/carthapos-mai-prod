@@ -1,11 +1,10 @@
-import { useState, useRef, useCallback, memo } from 'react';
+import { useState, useRef, useCallback, memo, useEffect } from 'react';
 import { Button } from './ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from './ui/dialog';
 import { Input } from './ui/input';
 import { Label } from './ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 import { Textarea } from './ui/textarea';
-import { useDebouncedFormInput } from '../hooks/usePerformance';
 import { 
   Upload,
   Scan,
@@ -15,33 +14,73 @@ import {
   X
 } from 'lucide-react';
 
+const RENDER_WARN_THRESHOLD = 10;
+
 /**
- * ⚡ PERFORMANCE: Memoized product form dialog
- * Isolated from parent component to prevent re-renders when typing
- * Only re-renders when dialog open/close state changes, not on parent updates
+ * ⚡ PERFORMANCE: Memoized product form dialog with fully uncontrolled inputs
+ * Zero React re-renders on keystroke — browser manages input values natively
  */
 const ProductFormDialog = memo(function ProductFormDialog({
   open,
   onOpenChange,
   editingProduct,
   families,
-  onSubmit
+  onSubmit,
+  showBarcode = true
 }) {
-  const [formData, setFormData] = useState({
-    name: editingProduct?.name || '',
-    family: editingProduct?.family || editingProduct?.category || '',
-    price: editingProduct?.price?.toString() || '',
-    barcode: editingProduct?.barcode || '',
-    image: null,
-    description: editingProduct?.description || ''
-  });
-
-  // ⚡ Debounced form input for responsive typing
-  const formInput = useDebouncedFormInput(formData, setFormData, 150);
-  
+  // ⚡ UNCONTROLLED INPUTS: Browser manages value, zero React re-render on keystroke
+  const formRef = useRef(null);
   const fileInputRef = useRef(null);
+  const imageFileRef = useRef(null);
+
+  // Family Select is a controlled dropdown (no keystroke lag concern)
+  const [family, setFamily] = useState(editingProduct?.family || editingProduct?.category || '');
+  const [barcodeDisplay, setBarcodeDisplay] = useState(editingProduct?.barcode || '');
   const [imagePreview, setImagePreview] = useState(editingProduct?.image || null);
   const [isScanning, setIsScanning] = useState(false);
+  const [formError, setFormError] = useState('');
+
+  // ⚡ Performance monitoring
+  const renderCountRef = useRef(0);
+  useEffect(() => {
+    renderCountRef.current++;
+    console.log(`⚡ [PRODUCT_FORM] Render #${renderCountRef.current} (open=${open}, edit=${!!editingProduct})`);
+    if (renderCountRef.current > RENDER_WARN_THRESHOLD) {
+      console.warn(`⚠️ [PRODUCT_FORM] High render count: ${renderCountRef.current} — investigate`);
+    }
+  });
+
+  // Handle dialog open/close — initialize or reset the form
+  const handleDialogChange = useCallback((newOpen) => {
+    const startTime = Date.now();
+    if (newOpen) {
+      // Opening — set ref values from editingProduct
+      if (formRef.current) {
+        const form = formRef.current;
+        form.querySelector('[name="name"]') && (form.querySelector('[name="name"]').value = editingProduct?.name || '');
+        form.querySelector('[name="price"]') && (form.querySelector('[name="price"]').value = editingProduct?.price?.toString() || '');
+        form.querySelector('[name="barcode"]') && (form.querySelector('[name="barcode"]').value = editingProduct?.barcode || '');
+        form.querySelector('[name="description"]') && (form.querySelector('[name="description"]').value = editingProduct?.description || '');
+        form.querySelector('[name="stock"]') && (form.querySelector('[name="stock"]').value = editingProduct?.stock?.toString() || '0');
+      }
+      setFamily(editingProduct?.family || editingProduct?.category || '');
+      setBarcodeDisplay(editingProduct?.barcode || '');
+      setFormError('');
+      setImagePreview(editingProduct?.image || null);
+      imageFileRef.current = null;
+      console.log(`⏱️ [PRODUCT_FORM] Dialog opened in ${Date.now() - startTime}ms`);
+    } else {
+      // Closing — reset form
+      if (formRef.current) formRef.current.reset();
+      setFamily('');
+      setBarcodeDisplay('');
+      setFormError('');
+      setImagePreview(null);
+      imageFileRef.current = null;
+      renderCountRef.current = 0;
+    }
+    onOpenChange(newOpen);
+  }, [editingProduct, onOpenChange]);
 
   const handleImageUpload = useCallback((event) => {
     const file = event.target.files[0];
@@ -56,7 +95,7 @@ const ProductFormDialog = memo(function ProductFormDialog({
         return;
       }
       
-      setFormData(prev => ({ ...prev, image: file }));
+      imageFileRef.current = file;
       
       const reader = new FileReader();
       reader.onload = (e) => {
@@ -67,7 +106,7 @@ const ProductFormDialog = memo(function ProductFormDialog({
   }, []);
 
   const removeImage = useCallback(() => {
-    setFormData(prev => ({ ...prev, image: null }));
+    imageFileRef.current = null;
     setImagePreview(null);
     if (fileInputRef.current) {
       fileInputRef.current.value = '';
@@ -78,95 +117,89 @@ const ProductFormDialog = memo(function ProductFormDialog({
     setIsScanning(true);
     setTimeout(() => {
       const scannedCode = '1234567890123';
-      setFormData(prev => ({ ...prev, barcode: scannedCode }));
+      if (formRef.current) {
+        const barcodeInput = formRef.current.querySelector('[name="barcode"]');
+        if (barcodeInput) barcodeInput.value = scannedCode;
+      }
+      setBarcodeDisplay(scannedCode);
       setIsScanning(false);
       alert(`Code-barres scanné: ${scannedCode}`);
     }, 2000);
   }, []);
 
   const generateBarcode = useCallback(async () => {
-    try {
-      const response = await fetch('/api/barcode/generate', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          productName: formData.name || 'New Product',
-          category: formData.family || 'General'
-        })
-      });
+    const form = formRef.current;
 
-      if (response.ok) {
-        const data = await response.json();
-        setFormData(prev => ({ ...prev, barcode: data.barcode }));
-        if (window.electronAPI && window.electronAPI.showNotification) {
-          window.electronAPI.showNotification('Code-barres généré avec succès!', `Nouveau code: ${data.barcode}`);
-        } else {
-          alert(`Code-barres généré: ${data.barcode}`);
-        }
-      } else {
-        throw new Error('Failed to generate barcode');
-      }
-    } catch (error) {
-      console.error('Error generating barcode:', error);
-      const randomDigits = Math.floor(Math.random() * 1000000000000).toString().padStart(12, '0');
-      let sum = 0;
-      for (let i = 0; i < 12; i++) {
-        const digit = parseInt(randomDigits[i]);
-        sum += (i % 2 === 0) ? digit : digit * 3;
-      }
-      const checkDigit = (10 - (sum % 10)) % 10;
-      const fullBarcode = randomDigits + checkDigit;
-      setFormData(prev => ({ ...prev, barcode: fullBarcode }));
-      if (window.electronAPI && window.electronAPI.showNotification) {
-        window.electronAPI.showNotification('Code-barres généré (mode hors ligne)', `Nouveau code: ${fullBarcode}`);
-      } else {
-        alert(`Code-barres généré (mode hors ligne): ${fullBarcode}`);
-      }
+    const randomDigits = Math.floor(Math.random() * 1000000000000).toString().padStart(12, '0');
+    let sum = 0;
+    for (let i = 0; i < 12; i++) {
+      const digit = parseInt(randomDigits[i]);
+      sum += (i % 2 === 0) ? digit : digit * 3;
     }
-  }, [formData.name, formData.family]);
+    const checkDigit = (10 - (sum % 10)) % 10;
+    const fullBarcode = randomDigits + checkDigit;
+
+    const barcodeInput = form?.querySelector('[name="barcode"]');
+    if (barcodeInput) barcodeInput.value = fullBarcode;
+    setBarcodeDisplay(fullBarcode);
+  }, []);
 
   const handleSubmit = useCallback(async (e) => {
     e.preventDefault();
+    const startTime = Date.now();
     
-    if (!formData.name || !formData.price || !formData.family) {
-      alert('Le nom, prix et famille sont obligatoires');
+    const form = formRef.current;
+    if (!form) return;
+
+    const fd = new FormData(form);
+    const name = fd.get('name') || '';
+    const price = fd.get('price') || '';
+    const barcode = fd.get('barcode') || '';
+    const description = fd.get('description') || '';
+    const stock = parseInt(fd.get('stock')) || 0;
+
+    console.log(`⏱️ [PRODUCT_FORM] Refs read in ${Date.now() - startTime}ms`);
+
+    if (!name || !price || !family) {
+      setFormError('Le nom, prix et famille sont obligatoires');
       return;
     }
 
     try {
+      let imageData = imagePreview;
+      if (imageFileRef.current) {
+        imageData = await convertImageToBase64(imageFileRef.current);
+      }
+
       const productData = {
-        name: formData.name,
-        family: formData.family,
-        price: parseFloat(formData.price),
-        barcode: formData.barcode,
-        image: formData.image ? await convertImageToBase64(formData.image) : null,
-        description: formData.description || ''
+        name,
+        family,
+        price: parseFloat(price),
+        barcode,
+        stock,
+        image: imageData,
+        description
       };
 
+      const submitStart = Date.now();
       await onSubmit(productData);
+      const submitElapsed = Date.now() - submitStart;
+      console.log(`⏱️ [PRODUCT_FORM] onSubmit resolved in ${submitElapsed}ms — ${submitElapsed > 100 ? '⚠️ BACKEND LAG' : '✅ OK'}`);
+      console.log(`⏱️ [PRODUCT_FORM] Total submit: ${Date.now() - startTime}ms`);
       
-      // Reset form
-      setFormData({
-        name: '',
-        family: '',
-        price: '',
-        barcode: '',
-        image: null,
-        description: ''
-      });
+      // Reset on success
+      form.reset();
+      setFamily('');
       setImagePreview(null);
-      if (fileInputRef.current) {
-        fileInputRef.current.value = '';
-      }
+      imageFileRef.current = null;
+      renderCountRef.current = 0;
       
       onOpenChange(false);
     } catch (error) {
       console.error('Error submitting form:', error);
-      alert('Erreur lors de la sauvegarde: ' + error.message);
+      setFormError('Erreur lors de la sauvegarde: ' + error.message);
     }
-  }, [formData, onSubmit, onOpenChange]);
+  }, [family, imagePreview, onSubmit, onOpenChange]);
 
   const convertImageToBase64 = (file) => {
     return new Promise((resolve, reject) => {
@@ -176,22 +209,6 @@ const ProductFormDialog = memo(function ProductFormDialog({
       reader.readAsDataURL(file);
     });
   };
-
-  const handleDialogChange = useCallback((newOpen) => {
-    if (!newOpen) {
-      // Reset form when dialog closes
-      setFormData({
-        name: editingProduct?.name || '',
-        family: editingProduct?.family || editingProduct?.category || '',
-        price: editingProduct?.price?.toString() || '',
-        barcode: editingProduct?.barcode || '',
-        image: null,
-        description: editingProduct?.description || ''
-      });
-      setImagePreview(editingProduct?.image || null);
-    }
-    onOpenChange(newOpen);
-  }, [editingProduct, onOpenChange]);
 
   return (
     <Dialog open={open} onOpenChange={handleDialogChange}>
@@ -208,14 +225,15 @@ const ProductFormDialog = memo(function ProductFormDialog({
           </DialogDescription>
         </DialogHeader>
         
-        <form onSubmit={handleSubmit}>
+        <form ref={formRef} onSubmit={handleSubmit}>
           <div className="grid gap-4 py-4 max-h-[400px] overflow-y-auto">
             {/* Nom du produit */}
             <div className="grid gap-2">
               <Label htmlFor="name">Nom du produit *</Label>
               <Input
                 id="name"
-                {...formInput.bind('name')}
+                name="name"
+                defaultValue={editingProduct?.name || ''}
                 placeholder="Ex: Café Expresso, Croissant..."
                 required
                 autoFocus
@@ -226,8 +244,8 @@ const ProductFormDialog = memo(function ProductFormDialog({
             <div className="grid gap-2">
               <Label htmlFor="family">Famille du produit *</Label>
               <Select 
-                value={formData.family} 
-                onValueChange={(value) => setFormData(prev => ({ ...prev, family: value }))}
+                value={family} 
+                onValueChange={(value) => setFamily(value)}
               >
                 <SelectTrigger>
                   <SelectValue placeholder="Sélectionnez une famille" />
@@ -248,10 +266,11 @@ const ProductFormDialog = memo(function ProductFormDialog({
               <div className="relative">
                 <Input
                   id="price"
+                  name="price"
                   type="number"
                   step="0.01"
                   min="0"
-                  {...formInput.bind('price')}
+                  defaultValue={editingProduct?.price?.toString() || ''}
                   placeholder="0.00"
                   className="pr-8"
                   required
@@ -262,49 +281,65 @@ const ProductFormDialog = memo(function ProductFormDialog({
               </div>
             </div>
           
-            {/* Code-barres */}
+            {/* Stock */}
             <div className="grid gap-2">
-              <Label htmlFor="barcode">Code-barres</Label>
-              <div className="flex gap-2">
-                <Input
-                  id="barcode"
-                  {...formInput.bind('barcode')}
-                  placeholder="Code-barres du produit"
-                  className="flex-1"
-                />
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={startBarcodeScanner}
-                  className="px-3 shrink-0"
-                  title="Scanner un code-barres"
-                  disabled={isScanning}
-                >
-                  {isScanning ? (
-                    <div className="h-4 w-4 animate-spin rounded-full border-2 border-primary border-r-transparent" />
-                  ) : (
-                    <Scan className="h-4 w-4" />
-                  )}
-                </Button>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={generateBarcode}
-                  className="px-3 shrink-0"
-                  title="Générer un code-barres automatiquement"
-                >
-                  <Sparkles className="h-4 w-4" />
-                </Button>
-              </div>
-              {formData.barcode && (
-                <div className="flex items-center text-xs text-muted-foreground">
-                  <Barcode className="h-3 w-3 mr-1" />
-                  Code-barres: {formData.barcode}
-                </div>
-              )}
+              <Label htmlFor="stock">Stock initial</Label>
+              <Input
+                id="stock"
+                name="stock"
+                type="number"
+                min="0"
+                step="1"
+                defaultValue={editingProduct?.stock?.toString() || '0'}
+                placeholder="0"
+              />
             </div>
+
+            {showBarcode && (
+              <div className="grid gap-2">
+                <Label htmlFor="barcode">Code-barres</Label>
+                <div className="flex gap-2">
+                  <Input
+                    id="barcode"
+                    name="barcode"
+                    defaultValue={editingProduct?.barcode || ''}
+                    placeholder="Code-barres du produit"
+                    className="flex-1"
+                  />
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={startBarcodeScanner}
+                    className="px-3 shrink-0"
+                    title="Scanner un code-barres"
+                    disabled={isScanning}
+                  >
+                    {isScanning ? (
+                      <div className="h-4 w-4 animate-spin rounded-full border-2 border-primary border-r-transparent" />
+                    ) : (
+                      <Scan className="h-4 w-4" />
+                    )}
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={generateBarcode}
+                    className="px-3 shrink-0"
+                    title="Générer un code-barres automatiquement"
+                  >
+                    <Sparkles className="h-4 w-4" />
+                  </Button>
+                </div>
+                {barcodeDisplay && (
+                  <div className="flex items-center text-xs text-muted-foreground">
+                    <Barcode className="h-3 w-3 mr-1" />
+                    Code-barres: {barcodeDisplay}
+                  </div>
+                )}
+              </div>
+            )}
             
             {/* Image du produit (optionnelle) */}
             <div className="grid gap-2">
@@ -366,20 +401,26 @@ const ProductFormDialog = memo(function ProductFormDialog({
               <Label htmlFor="description">Description (optionnelle)</Label>
               <Textarea
                 id="description"
-                {...formInput.bind('description')}
+                name="description"
+                defaultValue={editingProduct?.description || ''}
                 placeholder="Description du produit, ingrédients, allergènes..."
                 rows={3}
               />
             </div>
           </div>
           
-          <DialogFooter>
-            <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
-              Annuler
-            </Button>
-            <Button type="submit">
-              {editingProduct ? 'Mettre à jour' : 'Créer'}
-            </Button>
+          <DialogFooter className="flex-col gap-2 sm:flex-col">
+            {formError && (
+              <p className="text-sm text-red-500 text-center w-full">{formError}</p>
+            )}
+            <div className="flex gap-2 justify-end">
+              <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
+                Annuler
+              </Button>
+              <Button type="submit">
+                {editingProduct ? 'Mettre à jour' : 'Créer'}
+              </Button>
+            </div>
           </DialogFooter>
         </form>
       </DialogContent>

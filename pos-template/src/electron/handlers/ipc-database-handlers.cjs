@@ -155,7 +155,7 @@ function registerDatabaseHandlers(getDatabase) {
        return new Promise((resolve, reject) => {
          db.run(
            'UPDATE products SET name = ?, price = ?, category = ?, family = ?, barcode = ?, stock = ?, image = ?, description = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
-           [name, price, category || family, family, barcode || '', stock || 0, image || null, description || '', id],
+            [name, price, category || family, family, barcode || null, stock || 0, image || null, description || '', id],
            function(err) {
              const duration = Date.now() - startTime;
              if (err) {
@@ -308,7 +308,7 @@ function registerDatabaseHandlers(getDatabase) {
 
        return new Promise((resolve, reject) => {
          db.all(
-           'SELECT id, name, description FROM product_families ORDER BY name ASC',
+            'SELECT id, name, description, icon FROM product_families ORDER BY name ASC',
            [],
            (err, rows) => {
              const duration = Date.now() - startTime;
@@ -331,7 +331,7 @@ function registerDatabaseHandlers(getDatabase) {
    });
 
    // Add a family (if not already existing)
-   ipcMain.handle('add-family', async (event, name, description = null) => {
+    ipcMain.handle('add-family', async (event, name, description = null, icon = '') => {
      const startTime = Date.now();
      try {
        const db = getDatabase();
@@ -348,8 +348,8 @@ function registerDatabaseHandlers(getDatabase) {
          // Use db.serialize to ensure proper transaction handling
          db.serialize(() => {
            db.run(
-             'INSERT OR IGNORE INTO product_families (name, description) VALUES (?, ?)',
-             [trimmed, description],
+              'INSERT OR IGNORE INTO product_families (name, description, icon) VALUES (?, ?, ?)',
+              [trimmed, description, icon],
              function(err) {
                if (err) {
                  const duration = Date.now() - startTime;

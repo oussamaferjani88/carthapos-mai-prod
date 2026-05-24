@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useRef, useCallback, useEffect } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
@@ -9,6 +9,8 @@ import { Eye, EyeOff } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { isPreviewMode, isProductionMode } from '../utils/environment';
 
+const RENDER_WARN_THRESHOLD = 10;
+
 const POSWithAuth = ({ config, children }) => {
   const [showPassword, setShowPassword] = useState(false);
   const { user, login, logout, loading: authLoading } = useAuth();
@@ -16,15 +18,24 @@ const POSWithAuth = ({ config, children }) => {
   const previewMode = isPreviewMode();
 
   // Two-step login for preview only: Step 1 = role selection, Step 2 = password entry
-  const [loginStep, setLoginStep] = useState(1); // 1 = role selection, 2 = password entry
-  const [selectedRole, setSelectedRole] = useState(null); // 'admin' or 'caissier'
+  const [loginStep, setLoginStep] = useState(1);
+  const [selectedRole, setSelectedRole] = useState(null);
   
-  const [credentials, setCredentials] = useState({ 
-    username: '', 
-    password: '' 
-  });
+  // ⚡ UNCONTROLLED FORM: Browser manages input values natively, zero React re-render on keystroke
+  const formRef = useRef(null);
+  
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+
+  // ⚡ Performance monitoring
+  const renderCountRef = useRef(0);
+  useEffect(() => {
+    renderCountRef.current++;
+    console.log(`⚡ [AUTH] Render #${renderCountRef.current} (user=${!!user}, step=${loginStep})`);
+    if (renderCountRef.current > RENDER_WARN_THRESHOLD) {
+      console.warn(`⚠️ [AUTH] High render count: ${renderCountRef.current} — investigate unnecessary re-renders`);
+    }
+  });
 
   // Utilisateurs prédéfinis avec rôles (pour la démo)
   const defaultUsers = [
@@ -54,27 +65,44 @@ const POSWithAuth = ({ config, children }) => {
   // Handle role selection (Step 1)
   const handleRoleSelect = (role) => {
     setSelectedRole(role);
-    setCredentials({ username: role, password: '' });
-    setLoginStep(2); // Move to password entry
-    setError(''); // Clear any previous errors
+    setLoginStep(2);
+    setError('');
+    console.log(`⚡ [AUTH] Role selected: ${role}`);
   };
 
   // Handle back to role selection
   const handleBack = () => {
     setLoginStep(1);
     setSelectedRole(null);
-    setCredentials({ username: '', password: '' });
+    if (formRef.current) formRef.current.reset();
     setError('');
   };
 
   const handleLogin = async (e) => {
     e.preventDefault();
+    const startTime = Date.now();
+    
+    const form = formRef.current;
+    if (!form) return;
+    
+    const fd = new FormData(form);
+    const creds = {
+      username: previewMode ? selectedRole : (fd.get('username') || ''),
+      password: fd.get('password') || ''
+    };
+    console.log(`⏱️ [AUTH] Credentials read from FormData in ${Date.now() - startTime}ms`);
+
     setLoading(true);
     setError('');
 
     try {
-      await login(credentials);
-      setCredentials({ username: '', password: '' });
+      const ipcStart = Date.now();
+      await login(creds);
+      const ipcElapsed = Date.now() - ipcStart;
+      console.log(`⏱️ [AUTH] login() resolved in ${ipcElapsed}ms — ${ipcElapsed > 100 ? '⚠️ BACKEND LAG' : '✅ OK'}`);
+      console.log(`⏱️ [AUTH] Total handleLogin: ${Date.now() - startTime}ms`);
+      
+      form.reset();
     } catch (err) {
       setError('Mot de passe incorrect');
     } finally {
@@ -83,9 +111,11 @@ const POSWithAuth = ({ config, children }) => {
   };
 
   const handleLogout = () => {
+    const startTime = Date.now();
     logout();
-    setCredentials({ username: '', password: '' });
+    if (formRef.current) formRef.current.reset();
     setError('');
+    console.log(`⏱️ [AUTH] logout completed in ${Date.now() - startTime}ms`);
   };
 
   const getRoleIcon = (role) => {
@@ -220,7 +250,7 @@ const POSWithAuth = ({ config, children }) => {
 
             {/* STEP 2: Password Entry */}
             {((previewMode && loginStep === 2) || !previewMode) && (
-              <form onSubmit={handleLogin} className="space-y-4">
+              <form ref={formRef} onSubmit={handleLogin} className="space-y-4">
                 {/* Selected Role Display (preview mode only) */}
                 {previewMode ? (
                   <div className="bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200 rounded-lg p-4">
@@ -268,9 +298,9 @@ const POSWithAuth = ({ config, children }) => {
                     </Label>
                     <Input
                       id="username"
+                      name="username"
                       type="text"
-                      value={credentials.username}
-                      onChange={(e) => setCredentials(prev => ({ ...prev, username: e.target.value }))}
+                      defaultValue=""
                       placeholder="admin"
                       className="h-11"
                       required
@@ -288,9 +318,9 @@ const POSWithAuth = ({ config, children }) => {
                   <div className="relative">
                     <Input
                       id="password"
+                      name="password"
                       type={showPassword ? "text" : "password"}
-                      value={credentials.password}
-                      onChange={(e) => setCredentials(prev => ({ ...prev, password: e.target.value }))}
+                      defaultValue=""
                       placeholder="••••••••"
                       className="h-11 pr-10"
                       required

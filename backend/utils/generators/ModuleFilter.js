@@ -117,66 +117,10 @@ class ModuleFilter {
         .filter(Boolean);
 
       logger.info(`📦 Enabled modules from license: ${enabledCodes.join(', ') || 'NONE'}`);
-
-      // SAFETY CHECK: If enabledCodes is very small or empty, warn but still proceed
-      if (enabledCodes.length === 0) {
-        logger.warn(`⚠️  WARNING: No enabled modules detected - no files will be removed`);
-        return { removed: 0, modules: [], filesRemoved: [] };
-      }
-
-      // Check which files ACTUALLY exist in pages/
-      const pagesDir = path.join(this.projectPath, 'src', 'pages');
-      let actualFiles = [];
-      if (fs.existsSync(pagesDir)) {
-        actualFiles = fs.readdirSync(pagesDir)
-          .filter(f => f.endsWith('.jsx'));
-        logger.info(`📂 Files found in pages/: ${actualFiles.join(', ')}`);
-      }
-
-      // Get files that should be removed based on moduleFileMapping
-      // BUT: Be conservative - only remove files that:
-      // 1. Are in the moduleFileMapping (known modules)
-      // 2. Are NOT core modules
-      // 3. The module is NOT in enabledCodes (explicitly disabled)
-      const filesToRemove = [];
-
-      for (const [moduleCode, files] of Object.entries(this.moduleFileMapping)) {
-        if (!this.isModuleCodeEnabled(moduleCode, enabledCodes)) {
-          // This module is NOT enabled
-          for (const file of files) {
-            // Only remove if file actually exists and it's not a core module
-            if (actualFiles.includes(file) && !this.coreModules.includes(file)) {
-              filesToRemove.push(file);
-              logger.info(`  🗑️  Mark for deletion: ${file} (module "${moduleCode}" not enabled)`);
-            }
-          }
-        }
-      }
-
-      if (filesToRemove.length === 0) {
-        logger.info('✅ No files to remove - all modules are enabled or core');
-        return { removed: 0, modules: enabledCodes };
-      }
-
-      // Remove the files
-      let removedCount = 0;
-      for (const file of filesToRemove) {
-        const filePath = path.join(pagesDir, file);
-        if (fs.existsSync(filePath)) {
-          fs.unlinkSync(filePath);
-          logger.debug(`  ✓ Deleted: ${file}`);
-          removedCount++;
-        }
-      }
-
-      logger.info(`✅ Module filtering completed - removed ${removedCount} module files`);
+      logger.info(`✅ SKIPPING file deletion - keeping all page files to prevent ReferenceError`);
+      logger.info(`ℹ️  Disabled modules will only have routes/navbar items hidden`);
       
-      return {
-        removed: removedCount,
-        modules: enabledCodes,
-        filesRemoved: filesToRemove
-      };
-
+      return { removed: 0, modules: enabledCodes, filesRemoved: [] };
     } catch (error) {
       logger.error('❌ Module filtering failed:', error);
       throw new Error(`Module filtering failed: ${error.message}`);

@@ -136,6 +136,10 @@ yarn.lock
 # Local examples and tests
 examples/test-*
 examples/generated-*
+CarthaPos qs/
+
+# Windows reserved device names
+nul
 
 POS System/ 
 generated-pos/ 

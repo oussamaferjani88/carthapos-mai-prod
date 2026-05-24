@@ -26,6 +26,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   detectUSBDrives: () => createIpcHandler('detect-usb-drives'),
   
   // Base de données
+  getDatabasePath: () => createIpcHandler('get-db-path'),
   getDatabaseStats: () => createIpcHandler('get-database-stats'),
   
   // Produits
@@ -37,7 +38,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   
   // Familles de produits (Product Families)
   getFamilies: () => createIpcHandler('get-families'),
-  addFamily: (family) => createIpcHandler('add-family', family),
+  addFamily: (family, description, icon) => createIpcHandler('add-family', family, description, icon),
   deleteFamily: (familyName) => createIpcHandler('delete-family', familyName),
   
   // Ventes

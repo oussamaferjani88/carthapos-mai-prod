@@ -82,7 +82,7 @@ class IPCAppHandlers {
 }
 
 // Functional export for electron-modular.cjs
-function registerAppHandlers(loadAppConfig) {
+function registerAppHandlers(loadAppConfig, databaseManager) {
   const { ipcMain } = require('electron');
   
   // Get app configuration
@@ -95,6 +95,16 @@ function registerAppHandlers(loadAppConfig) {
     console.log('🔍 [IPC] Sending config to renderer:', JSON.stringify(config, null, 2));
     console.log('═══════════════════════════════════════════════════════════');
     return config;
+  });
+
+  // Get database file path
+  ipcMain.handle('get-db-path', () => {
+    if (databaseManager && typeof databaseManager.getDatabasePath === 'function') {
+      const dbPath = databaseManager.getDatabasePath();
+      console.log('🗄️ [IPC] get-db-path:', dbPath);
+      return dbPath;
+    }
+    return null;
   });
 
   // Settings (placeholder)

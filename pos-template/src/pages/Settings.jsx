@@ -23,6 +23,7 @@ import { POSConfiguration } from '../lib/POSConfiguration';
 export default function Settings() {
   const { config } = useAppConfig();
   const { license } = useLicense();
+  const [dbPath, setDbPath] = useState('');
 
   // Integration: POSConfiguration styling
   const getThemeConfig = () => {
@@ -51,6 +52,12 @@ export default function Settings() {
     soundEnabled: true
   });
   const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    if (window.electronAPI?.getDatabasePath) {
+      window.electronAPI.getDatabasePath().then(setDbPath).catch(() => {});
+    }
+  }, []);
 
   useEffect(() => {
     if (config) {
@@ -425,6 +432,13 @@ export default function Settings() {
               <div>
                 <Label className="text-sm font-medium">Base de données</Label>
                 <p className="text-sm text-muted-foreground">SQLite</p>
+              </div>
+
+              <div>
+                <Label className="text-sm font-medium">Emplacement du fichier DB</Label>
+                <p className="text-xs text-muted-foreground break-all font-mono" title={dbPath}>
+                  {dbPath || 'Indisponible'}
+                </p>
               </div>
 
               <div>

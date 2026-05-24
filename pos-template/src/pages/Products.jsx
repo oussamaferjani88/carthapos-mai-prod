@@ -9,7 +9,9 @@ import { Badge } from '../components/ui/badge';
 import { POSConfiguration } from '../lib/POSConfiguration';
 import { useAppConfig } from '../hooks/useAppConfig';
 import { isPreviewMode, getPreviewData, logEnvironment } from '../utils/environment';
+import { AppConfig } from '../config/AppConfig';
 import ProductFormDialog from '../components/ProductFormDialog'; // ⚡ Memoized form component
+import CategoryIconPicker, { getIconComponent } from '../components/CategoryIconPicker';
 import { 
   Plus, 
   Edit, 
@@ -18,8 +20,15 @@ import {
   Search, 
   Barcode, 
   AlertTriangle, 
-  Settings
+  Settings,
+  ImageIcon
 } from 'lucide-react';
+
+const FamilyIcon = ({ iconName, className = 'w-4 h-4' }) => {
+  const IconComponent = getIconComponent(iconName);
+  if (!IconComponent) return null;
+  return <IconComponent className={className} />;
+};
 
 export default function Products() {
   // Log environment on component mount
@@ -55,63 +64,30 @@ export default function Products() {
   const [selectedFamily, setSelectedFamily] = useState('all');
   const [families, setFamilies] = useState([]);
   const [newFamily, setNewFamily] = useState('');
+  const [newFamilyIcon, setNewFamilyIcon] = useState('');
+  const [familyError, setFamilyError] = useState('');
+  const [confirmDelete, setConfirmDelete] = useState(null);
+  const familyInputRef = useRef(null);
+  const familyErrorTimerRef = useRef(null);
 
-  // Generate a unique barcode using the backend API
-  const generateBarcode = async () => {
-    try {
-      // Call the backend API to generate a unique barcode
-      const response = await fetch('/api/barcode/generate', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          productName: formData.name || 'New Product',
-          category: formData.category || 'General'
-        })
-      });
-
-      if (response.ok) {
-        const data = await response.json();
-        
-        // Update form data with generated barcode
-        setFormData({ ...formData, barcode: data.barcode });
-        
-        // Show success message
-        if (window.electronAPI && window.electronAPI.showNotification) {
-          window.electronAPI.showNotification('Code-barres généré avec succès!', `Nouveau code: ${data.barcode}`);
-        } else {
-          alert(`Code-barres généré: ${data.barcode}`);
-        }
-      } else {
-        throw new Error('Failed to generate barcode');
-      }
-    } catch (error) {
-      console.error('Error generating barcode:', error);
-      
-      // Fallback to local generation if API fails
-      const randomDigits = Math.floor(Math.random() * 1000000000000).toString().padStart(12, '0');
-      
-      // Calculate check digit using EAN-13 algorithm
-      let sum = 0;
-      for (let i = 0; i < 12; i++) {
-        const digit = parseInt(randomDigits[i]);
-        sum += (i % 2 === 0) ? digit : digit * 3;
-      }
-      const checkDigit = (10 - (sum % 10)) % 10;
-      
-      const fullBarcode = randomDigits + checkDigit;
-      
-      // Update form data with generated barcode
-      setFormData({ ...formData, barcode: fullBarcode });
-      
-      if (window.electronAPI && window.electronAPI.showNotification) {
-        window.electronAPI.showNotification('Code-barres généré (mode hors ligne)', `Nouveau code: ${fullBarcode}`);
-      } else {
-        alert(`Code-barres généré (mode hors ligne): ${fullBarcode}`);
-      }
+  // ⚡ Focus family input when dialog opens and after successful add
+  useEffect(() => {
+    if (familyDialogOpen) {
+      requestAnimationFrame(() => familyInputRef.current?.focus());
     }
-  };
+  }, [familyDialogOpen]);
+
+  // Generate a valid EAN-13 barcode locally (no HTTP server needed)
+const generateLocalBarcode = () => {
+  const randomDigits = Math.floor(Math.random() * 1000000000000).toString().padStart(12, '0');
+  let sum = 0;
+  for (let i = 0; i < 12; i++) {
+    const digit = parseInt(randomDigits[i]);
+    sum += (i % 2 === 0) ? digit : digit * 3;
+  }
+  const checkDigit = (10 - (sum % 10)) % 10;
+  return randomDigits + checkDigit;
+};
 
    // Charger les familles depuis la base de données
    const loadFamilies = async () => {
@@ -123,19 +99,19 @@ export default function Products() {
            console.log(`📡 [IPC-CALL] getFamilies...`);
            const rows = await window.electronAPI.getFamilies();
            console.log(`✅ [IPC-RETURN] Got ${rows?.length || 0} families:`, rows);
-           const familyList = (rows || []).map(row => row.name).filter(Boolean);
-           console.log(`📊 [FAMILIES-MAPPED] ${familyList.length} families:`, familyList);
-           setFamilies(familyList);
-         } else if (window.electronAPI.query) {
-           // Fallback: derive from products table
-           console.log(`📡 [FALLBACK-QUERY] Getting families from products table...`);
-           const data = await window.electronAPI.query(
-             'SELECT DISTINCT family FROM products WHERE family IS NOT NULL AND family != ""'
-           );
-           console.log(`✅ [FALLBACK-RETURN] Got ${data?.length || 0} families from products`);
-           const familyList = data.map(row => row.family).filter(Boolean);
-           console.log(`📊 [FAMILIES-MAPPED] ${familyList.length} families:`, familyList);
-           setFamilies(familyList);
+            const familyList = (rows || []).map(row => ({ name: row.name, icon: row.icon || '' })).filter(f => f.name);
+            console.log(`📊 [FAMILIES-MAPPED] ${familyList.length} families:`, familyList);
+            setFamilies(familyList);
+          } else if (window.electronAPI.query) {
+            // Fallback: derive from products table
+            console.log(`📡 [FALLBACK-QUERY] Getting families from products table...`);
+            const data = await window.electronAPI.query(
+              'SELECT DISTINCT family FROM products WHERE family IS NOT NULL AND family != ""'
+            );
+            console.log(`✅ [FALLBACK-RETURN] Got ${data?.length || 0} families from products`);
+            const familyList = data.map(row => ({ name: row.family, icon: '' })).filter(f => f.name);
+            console.log(`📊 [FAMILIES-MAPPED] ${familyList.length} families:`, familyList);
+            setFamilies(familyList);
          }
        } else {
          console.warn('⚠️ [LOAD-FAMILIES] ElectronAPI not available');
@@ -153,22 +129,28 @@ export default function Products() {
      
      console.log(`⏱️ [FAMILY-ADD START] Name: "${trimmed}"`);
      
+     if (familyErrorTimerRef.current) clearTimeout(familyErrorTimerRef.current);
+     
      if (!trimmed) {
-       alert('Veuillez entrer un nom de famille');
+       setFamilyError('Veuillez entrer un nom de famille');
+       familyErrorTimerRef.current = setTimeout(() => setFamilyError(''), 3000);
+       familyInputRef.current?.focus();
        return;
      }
      
-     if (families.includes(trimmed)) {
-       alert('Cette famille existe déjà');
-       return;
-     }
+      if (families.some(f => f.name === trimmed)) {
+        setFamilyError('Cette famille existe déjà');
+        familyErrorTimerRef.current = setTimeout(() => setFamilyError(''), 3000);
+        familyInputRef.current?.focus();
+        return;
+      }
      
      try {
        if (window.electronAPI && window.electronAPI.addFamily) {
          const addStart = performance.now();
          console.log(`⏱️ [IPC-CALL] Sending addFamily to Electron...`);
          
-         await window.electronAPI.addFamily(trimmed, null);
+          await window.electronAPI.addFamily(trimmed, null, newFamilyIcon || '');
          const addDuration = performance.now() - addStart;
          console.log(`✅ [IPC-RETURN] addFamily returned - ${addDuration.toFixed(2)}ms`);
          
@@ -177,36 +159,47 @@ export default function Products() {
          const reloadDuration = performance.now() - reloadStart;
          console.log(`✅ [FAMILIES-RELOADED] - ${reloadDuration.toFixed(2)}ms`);
        } else {
-         // Fallback: update local state only
-         setFamilies([...families, trimmed]);
-       }
-       setNewFamily('');
-       setFamilyDialogOpen(false);
-       alert('Famille ajoutée avec succès');
-       const totalDuration = performance.now() - startTime;
-       console.log(`✅ [FAMILY-ADD OK] Total: ${totalDuration.toFixed(2)}ms`);
-     } catch (error) {
-       console.error('❌ [FAMILY-ADD ERROR]', error);
-       alert('Erreur lors de l\'ajout de la famille');
-     }
-   };
+          // Fallback: update local state only
+          setFamilies([...families, { name: trimmed, icon: newFamilyIcon || '' }]);
+        }
+        setNewFamily('');
+        setNewFamilyIcon('');
+        familyInputRef.current?.focus();
+        const totalDuration = performance.now() - startTime;
+        console.log(`✅ [FAMILY-ADD OK] Total: ${totalDuration.toFixed(2)}ms`);
+      } catch (error) {
+        console.error('❌ [FAMILY-ADD ERROR]', error);
+        setFamilyError('Erreur lors de l\'ajout de la famille');
+        familyErrorTimerRef.current = setTimeout(() => setFamilyError(''), 3000);
+      }
+    };
 
   // Supprimer une famille
   const handleDeleteFamily = async (familyToDelete) => {
-    if (confirm(`Voulez-vous vraiment supprimer la famille "${familyToDelete}" ?`)) {
-      try {
-        if (window.electronAPI && window.electronAPI.deleteFamily) {
-          await window.electronAPI.deleteFamily(familyToDelete);
-          await loadFamilies();
-        } else {
-          // Fallback: update local state only
-          setFamilies(families.filter(f => f !== familyToDelete));
-        }
-      } catch (error) {
-        console.error('Erreur lors de la suppression de la famille:', error);
-        alert('Erreur lors de la suppression de la famille');
+    setConfirmDelete(familyToDelete);
+  };
+
+  const confirmDeleteFamily = async () => {
+    if (!confirmDelete) return;
+    const familyToDelete = confirmDelete;
+    setConfirmDelete(null);
+    try {
+      if (window.electronAPI && window.electronAPI.deleteFamily) {
+        await window.electronAPI.deleteFamily(familyToDelete);
+        await loadFamilies();
+      } else {
+        // Fallback: update local state only
+        setFamilies(families.filter(f => f.name !== familyToDelete));
       }
+    } catch (error) {
+      console.error('Erreur lors de la suppression de la famille:', error);
+      setFamilyError('Erreur lors de la suppression');
+      familyErrorTimerRef.current = setTimeout(() => setFamilyError(''), 3000);
     }
+  };
+
+  const cancelDeleteFamily = () => {
+    setConfirmDelete(null);
   };
   
   // Fonction pour gérer l'upload d'image
@@ -387,7 +380,6 @@ export default function Products() {
             throw error;
           }
         }
-        alert('Produit mis à jour avec succès');
         setEditingProduct(null);
       } else {
         console.log(`⏱️ [PRODUCT-ADD] Creating new product`);
@@ -421,7 +413,6 @@ export default function Products() {
             throw error;
           }
         }
-        alert('Produit créé avec succès');
       }
       
       // Reload products to ensure list is fresh
@@ -474,43 +465,20 @@ export default function Products() {
 
   // Generate barcode for existing product
   const generateBarcodeForProduct = async (product) => {
+    const fullBarcode = generateLocalBarcode();
+    const updatedProduct = { ...product, barcode: fullBarcode };
+    
     try {
-      const response = await fetch('/api/barcode/generate', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          productName: product.name,
-          category: product.category
-        })
-      });
-
-      if (response.ok) {
-        const data = await response.json();
-        
-        // Update the product with the new barcode
-        const updatedProduct = { ...product, barcode: data.barcode };
-        
-        if (window.electronAPI) {
-          await window.electronAPI.updateProduct(product.id, updatedProduct);
-          await loadProducts();
-        } else {
-          // Fallback for web development
-          setProducts(products.map(p => 
-            p.id === product.id ? updatedProduct : p
-          ));
-        }
-        
-        if (window.electronAPI && window.electronAPI.showNotification) {
-          window.electronAPI.showNotification('Code-barres généré!', `${product.name}: ${data.barcode}`);
-        } else {
-          alert(`Code-barres généré pour ${product.name}: ${data.barcode}`);
-        }
+      if (window.electronAPI) {
+        await window.electronAPI.updateProduct(product.id, updatedProduct);
+        await loadProducts();
+      } else {
+        setProducts(products.map(p => 
+          p.id === product.id ? updatedProduct : p
+        ));
       }
     } catch (error) {
-      console.error('Error generating barcode for product:', error);
-      alert('Erreur lors de la génération du code-barres');
+      console.error('Error saving barcode for product:', error);
     }
   };
 
@@ -519,68 +487,31 @@ export default function Products() {
     const productsWithoutBarcodes = products.filter(p => !p.barcode);
     
     if (productsWithoutBarcodes.length === 0) {
-      alert('Tous les produits ont déjà un code-barres');
       return;
     }
 
-    const confirmed = confirm(`Générer des codes-barres pour ${productsWithoutBarcodes.length} produit(s) ?`);
-    if (!confirmed) return;
-
     try {
       let successCount = 0;
-      let failCount = 0;
 
       for (const product of productsWithoutBarcodes) {
         try {
-          const response = await fetch('/api/barcode/generate', {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-              productName: product.name,
-              category: product.category
-            })
-          });
+          const fullBarcode = generateLocalBarcode();
+          const updatedProduct = { ...product, barcode: fullBarcode };
 
-          if (response.ok) {
-            const data = await response.json();
-            const updatedProduct = { ...product, barcode: data.barcode };
-            
-            if (window.electronAPI) {
-              await window.electronAPI.updateProduct(product.id, updatedProduct);
-            } else {
-              // Update local state for web development
-              setProducts(prev => prev.map(p => 
-                p.id === product.id ? updatedProduct : p
-              ));
-            }
-            successCount++;
+          if (window.electronAPI) {
+            await window.electronAPI.updateProduct(product.id, updatedProduct);
           } else {
-            failCount++;
+            setProducts(prev => prev.map(p => p.id === product.id ? updatedProduct : p));
           }
-        } catch (error) {
-          console.error(`Error generating barcode for ${product.name}:`, error);
-          failCount++;
+          successCount++;
+        } catch (err) {
+          console.error(`Failed to generate barcode for ${product.name}:`, err);
         }
       }
 
-      // Reload products if using Electron API
-      if (window.electronAPI) {
-        await loadProducts();
-      }
-
-      if (window.electronAPI && window.electronAPI.showNotification) {
-        window.electronAPI.showNotification(
-          'Génération terminée!', 
-          `${successCount} codes-barres générés avec succès${failCount > 0 ? `, ${failCount} échecs` : ''}`
-        );
-      } else {
-        alert(`Génération terminée: ${successCount} succès${failCount > 0 ? `, ${failCount} échecs` : ''}`);
-      }
+      await loadProducts();
     } catch (error) {
-      console.error('Error in bulk barcode generation:', error);
-      alert('Erreur lors de la génération en masse');
+      console.error('Error generating bulk barcodes:', error);
     }
   };
 
@@ -676,8 +607,8 @@ export default function Products() {
                 <SelectContent>
                   <SelectItem value="all">Toutes les familles</SelectItem>
                   {families.map((family) => (
-                    <SelectItem key={family} value={family}>
-                      {family}
+                    <SelectItem key={family.name} value={family.name}>
+                      {family.name}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -792,8 +723,9 @@ export default function Products() {
         open={dialogOpen}
         onOpenChange={setDialogOpen}
         editingProduct={editingProduct}
-        families={families}
+        families={families.map(f => f.name)}
         onSubmit={handleFormSubmit}
+        showBarcode={AppConfig.getConfig().enabledModules.includes('barcode')}
       />
 
       {/* Dialogue de gestion des familles */}
@@ -809,13 +741,30 @@ export default function Products() {
           <div className="space-y-4">
             {/* Ajouter une nouvelle famille */}
             <div className="flex gap-2">
-              <Input
-                placeholder="Nom de la nouvelle famille"
-                value={newFamily}
-                onChange={(e) => setNewFamily(e.target.value)}
-                onKeyPress={(e) => e.key === 'Enter' && handleAddFamily()}
-              />
-              <Button onClick={handleAddFamily}>
+              <div className="flex-1 space-y-2">
+                <Input
+                  ref={familyInputRef}
+                  placeholder="Nom de la nouvelle famille"
+                  value={newFamily}
+                  onChange={(e) => {
+                    setNewFamily(e.target.value);
+                    if (familyError) setFamilyError('');
+                  }}
+                  onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), handleAddFamily())}
+                />
+                {familyError && (
+                  <p className="text-xs text-red-500">{familyError}</p>
+                )}
+                {/* Icône optionnelle */}
+                <div>
+                  <Label className="text-xs text-muted-foreground">Icône (optionnelle)</Label>
+                  <CategoryIconPicker
+                    selectedIcon={newFamilyIcon}
+                    onSelect={setNewFamilyIcon}
+                  />
+                </div>
+              </div>
+              <Button onClick={handleAddFamily} className="self-start mt-0">
                 <Plus className="h-4 w-4 mr-2" />
                 Ajouter
               </Button>
@@ -834,15 +783,40 @@ export default function Products() {
                 <div className="border rounded-lg divide-y max-h-64 overflow-y-auto">
                   {families.map((family, index) => (
                     <div key={index} className="flex items-center justify-between p-3 hover:bg-muted/50">
-                      <span className="font-medium">{family}</span>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => handleDeleteFamily(family)}
-                        className="text-destructive hover:text-destructive"
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
+                      <div className="flex items-center gap-2">
+                        <FamilyIcon iconName={family.icon} />
+                        <span className="font-medium">{family.name}</span>
+                      </div>
+                      {confirmDelete === family.name ? (
+                        <div className="flex items-center gap-1">
+                          <span className="text-xs text-red-600">Supprimer ?</span>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={confirmDeleteFamily}
+                            className="text-destructive hover:text-destructive h-7 px-1"
+                          >
+                            Oui
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={cancelDeleteFamily}
+                            className="h-7 px-1"
+                          >
+                            Non
+                          </Button>
+                        </div>
+                      ) : (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => handleDeleteFamily(family.name)}
+                          className="text-destructive hover:text-destructive"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      )}
                     </div>
                   ))}
                 </div>

@@ -470,6 +470,83 @@ class ElectronDatabaseManager {
   }
 
   /**
+   * Attempt to fix permissions on a folder using icacls (Windows only)
+   * Tries direct call first, then elevated via PowerShell UAC prompt.
+   * @param {string} folderPath - The folder to fix permissions on
+   * @returns {boolean} True if permissions were fixed successfully
+   */
+  attemptPermissionFix(folderPath) {
+    if (process.platform !== 'win32') return false;
+
+    const childProcess = require('child_process');
+    const groups = ['Everyone', 'Users', 'BUILTIN\\Users'];
+    const elevatedCommands = [
+      `icacls.exe "${folderPath}" /grant:r "Users:(OI)(CI)F" /T`,
+      `icacls.exe "${folderPath}" /grant:r "Everyone:(OI)(CI)F" /T`,
+      `icacls.exe "${folderPath}" /grant:r "CREATOR OWNER:(OI)(CI)F" /T`
+    ];
+
+    // Try 1: Direct icacls without elevation (works if user has admin rights)
+    for (const group of groups) {
+      try {
+        console.log(`🔧 [direct] Granting "${group}" full access to: ${folderPath}`);
+        childProcess.execSync(
+          `icacls.exe "${folderPath}" /grant:r "${group}:(OI)(CI)F" /T /Q`,
+          { timeout: 10000, windowsHide: true, stdio: 'pipe' }
+        );
+        console.log('  ✅ Direct icacls succeeded');
+        return true;
+      } catch (err) {
+        console.log(`  ⚠️ Direct icacls failed for "${group}": ${err.message.slice(0, 60)}`);
+      }
+    }
+
+    // Try 2: Elevated via PowerShell Start-Process -Verb RunAs (shows UAC prompt)
+    // This writes a temp .bat file and asks PowerShell to run it elevated.
+    console.log('🔧 [elevated] Showing UAC prompt to fix data folder permissions...');
+    for (const cmd of elevatedCommands) {
+      try {
+        const fs = require('fs');
+        const path = require('path');
+        const os = require('os');
+        const batPath = path.join(os.tmpdir(), `carthapos-fix-perms-${Date.now()}-${Math.random().toString(36).slice(2, 6)}.bat`);
+        fs.writeFileSync(batPath, `@echo off\n${cmd}\nexit /b %errorlevel%\n`, 'utf8');
+
+        try {
+          childProcess.execSync(
+            `powershell -NoProfile -Command "Start-Process -WindowStyle Hidden -FilePath '${batPath}' -Verb RunAs -Wait"`,
+            { timeout: 120000, windowsHide: true, stdio: 'pipe' }
+          );
+          console.log('  ✅ Elevated icacls succeeded');
+          return true;
+        } finally {
+          try { fs.unlinkSync(batPath); } catch {}
+        }
+      } catch (err) {
+        console.log(`  ⚠️ Elevated icacls failed: ${err.message.slice(0, 80)}`);
+      }
+    }
+
+    return false;
+  }
+
+  /**
+   * Test if a folder is writable by writing and deleting a temp file
+   * @param {string} folderPath - The folder to test
+   * @returns {boolean} True if the folder is writable
+   */
+  testFolderWritable(folderPath) {
+    try {
+      const testFile = path.join(folderPath, `.test_${Date.now()}`);
+      fs.writeFileSync(testFile, 'test');
+      fs.unlinkSync(testFile);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  /**
    * Get data folder path (where database, backups, and logs go)
    * With fallback to AppData if Program Files isn't writable
    * @returns {string} Data folder path
@@ -496,27 +573,32 @@ class ElectronDatabaseManager {
         }
         
         // Test if it's writable
-        const testFile = path.join(dataFolder, `.test_${Date.now()}`);
-        fs.writeFileSync(testFile, 'test');
-        fs.unlinkSync(testFile);
+        if (this.testFolderWritable(dataFolder)) {
+          console.log('✅ Data folder is WRITABLE');
+          console.log('🎯 SELECTED: Single Folder Mode (Installation Directory)');
+          console.log(`   Installation Root: ${installRoot}`);
+          console.log(`   Data Location: ${dataFolder}`);
+          console.log(`   All files in one place: YES ✅`);
+          console.log('═══════════════════════════════════\n');
+          return dataFolder;
+        }
         
-        console.log('✅ Data folder is WRITABLE');
-        console.log('🎯 SELECTED: Single Folder Mode (Installation Directory)');
-        console.log(`   Installation Root: ${installRoot}`);
-        console.log(`   Data Location: ${dataFolder}`);
-        console.log(`   All files in one place: YES ✅`);
-        console.log('═══════════════════════════════════\n');
-        return dataFolder;
-      } catch (error) {
-        console.error('❌ Cannot write to installation directory:', error.message);
+        console.error('❌ Cannot write to installation directory');
+        console.log('🔧 Attempting to fix data folder permissions...');
+        
+        if (this.attemptPermissionFix(dataFolder) && this.testFolderWritable(dataFolder)) {
+          console.log('✅ Data folder permissions FIXED and now WRITABLE');
+          console.log('🎯 SELECTED: Single Folder Mode (Installation Directory)');
+          console.log(`   Installation Root: ${installRoot}`);
+          console.log(`   Data Location: ${dataFolder}`);
+          console.log('═══════════════════════════════════\n');
+          return dataFolder;
+        }
+        
         console.log('⚠️  Installation folder not writable - falling back to AppData');
         
         // Fallback to AppData if Program Files isn't writable
         const userData = app.getPath('userData');
-        const businessName = this.getBusinessNameFromConfig() || 'CarthaPos';
-        const sanitizedName = this.sanitizeDbName(businessName);
-        // Note: userData is already user-specific (e.g., .../carthapos-test-behi)
-        // Just add 'data' folder, don't add businessName again to avoid nesting
         const appDataFolder = path.join(userData, 'data');
         
         try {
@@ -525,9 +607,9 @@ class ElectronDatabaseManager {
           }
           
           // Test if AppData is writable
-          const testFile = path.join(appDataFolder, `.test_${Date.now()}`);
-          fs.writeFileSync(testFile, 'test');
-          fs.unlinkSync(testFile);
+          if (!this.testFolderWritable(appDataFolder)) {
+            throw new Error('AppData folder not writable');
+          }
           
           console.log('✅ AppData folder is WRITABLE');
           console.log('🎯 FALLBACK: AppData Mode');
@@ -539,6 +621,9 @@ class ElectronDatabaseManager {
           console.error('❌ Cannot write to AppData either:', appDataError.message);
           throw new Error('No writable location found for database');
         }
+      } catch (error) {
+        console.error('❌ Critical error determining data folder:', error.message);
+        throw error;
       }
     } else {
       // Development: use a local data folder
@@ -864,6 +949,16 @@ class ElectronDatabaseManager {
       }
     }
     console.log('✅ Database indexes created');
+
+    // Migration: Add icon column to product_families if not exists
+    try {
+      await this.runQuery("ALTER TABLE product_families ADD COLUMN icon TEXT DEFAULT ''");
+      console.log('✅ Migration: Added icon column to product_families');
+    } catch (migrateError) {
+      if (!migrateError.message.includes('duplicate column')) {
+        console.warn(`⚠️ Migration note: ${migrateError.message}`);
+      }
+    }
 
     // Insert default data
     await this.insertDefaultData();

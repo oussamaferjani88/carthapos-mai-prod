@@ -145,7 +145,7 @@ function registerAllHandlers() {
     // Functional export expects a getter function returning the raw sqlite3 db instance
     registerDatabaseHandlers(() => databaseManager.getDatabase());
     registerLicenseHandlers(detectUSBDrives, loadAppConfig);
-    registerAppHandlers(loadAppConfig);
+    registerAppHandlers(loadAppConfig, databaseManager);
     registerSalesHandlers(ipcMain, databaseManager);
     registerCustomerHandlers(ipcMain, databaseManager);
     registerSupplierHandlers(ipcMain, databaseManager);
