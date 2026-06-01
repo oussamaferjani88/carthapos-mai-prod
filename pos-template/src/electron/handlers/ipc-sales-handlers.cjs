@@ -18,7 +18,7 @@ function registerSalesHandlers(ipcMainInstance, databaseManager) {
   ipcMain.handle('get-sales', () => {
     return new Promise((resolve, reject) => {
       db.all(
-        'SELECT * FROM sales ORDER BY date DESC',
+        'SELECT * FROM sales ORDER BY created_at DESC',
         [],
         (err, rows) => {
           if (err) {
@@ -34,43 +34,64 @@ function registerSalesHandlers(ipcMainInstance, databaseManager) {
 
   ipcMain.handle('add-sale', (event, sale) => {
     return new Promise((resolve, reject) => {
-      const { items, total, paymentMethod, customerId } = sale;
+      const { items, total, tax, discount, payment_method, customer_id } = sale;
       
       db.run(
-        `INSERT INTO sales (date, items, total, payment_method, customer_id)
+        `INSERT INTO sales (total, tax, discount, payment_method, customer_id)
          VALUES (?, ?, ?, ?, ?)`,
         [
-          new Date().toISOString(),
-          JSON.stringify(items),
           total,
-          paymentMethod || 'cash',
-          customerId || null
+          tax || 0,
+          discount || 0,
+          payment_method || 'cash',
+          customer_id || null
         ],
         function(err) {
           if (err) {
             console.error('Error adding sale:', err);
             reject(err);
           } else {
-            console.log('✅ Sale added successfully with ID:', this.lastID);
+            const saleId = this.lastID;
+            console.log('✅ Sale added successfully with ID:', saleId);
             
-            // Update inventory
-            try {
-              items.forEach(item => {
-                db.run(
-                  'UPDATE products SET stock = stock - ? WHERE id = ?',
-                  [item.quantity, item.id],
-                  (err) => {
-                    if (err) {
-                      console.error(`Error updating stock for product ${item.id}:`, err);
+            // Insert sale items
+            if (items && items.length > 0) {
+              try {
+                items.forEach(item => {
+                  db.run(
+                    `INSERT INTO sale_items (sale_id, product_id, quantity, price)
+                     VALUES (?, ?, ?, ?)`,
+                    [saleId, item.id, item.quantity, item.price],
+                    (err) => {
+                      if (err) console.error('Error inserting sale item:', err);
                     }
-                  }
-                );
-              });
-            } catch (stockErr) {
-              console.error('Error updating inventory:', stockErr);
+                  );
+                });
+              } catch (itemErr) {
+                console.error('Error inserting sale items:', itemErr);
+              }
             }
             
-            resolve({ id: this.lastID });
+            // Update inventory
+            if (items && items.length > 0) {
+              try {
+                items.forEach(item => {
+                  db.run(
+                    'UPDATE products SET stock = stock - ? WHERE id = ?',
+                    [item.quantity, item.id],
+                    (err) => {
+                      if (err) {
+                        console.error(`Error updating stock for product ${item.id}:`, err);
+                      }
+                    }
+                  );
+                });
+              } catch (stockErr) {
+                console.error('Error updating inventory:', stockErr);
+              }
+            }
+            
+            resolve({ id: saleId });
           }
         }
       );
@@ -79,6 +100,13 @@ function registerSalesHandlers(ipcMainInstance, databaseManager) {
 
   ipcMain.handle('get-sale-details', (event, id) => {
     return new Promise((resolve, reject) => {
+      const saleItemsQuery = `
+        SELECT si.*, p.name as product_name
+        FROM sale_items si
+        LEFT JOIN products p ON si.product_id = p.id
+        WHERE si.sale_id = ?
+      `;
+      
       db.get(
         `SELECT 
           s.*,
@@ -93,15 +121,18 @@ function registerSalesHandlers(ipcMainInstance, databaseManager) {
           if (err) {
             console.error('Error getting sale details:', err);
             reject(err);
+          } else if (!row) {
+            resolve(null);
           } else {
-            if (row && row.items) {
-              try {
-                row.items = JSON.parse(row.items);
-              } catch (parseErr) {
-                console.error('Error parsing items:', parseErr);
+            db.all(saleItemsQuery, [id], (itemsErr, items) => {
+              if (itemsErr) {
+                console.error('Error getting sale items:', itemsErr);
+                row.items = [];
+              } else {
+                row.items = items || [];
               }
-            }
-            resolve(row || null);
+              resolve(row);
+            });
           }
         }
       );

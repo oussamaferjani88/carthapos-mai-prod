@@ -55,6 +55,17 @@ export default function Products() {
   const buttonClasses = POSConfiguration.getButtonClasses(config);
   const gridClasses = POSConfiguration.getGridClasses(config);
 
+  const formatPrice = (price) => {
+    if (config.currencyPosition === 'before') {
+      return `${config.currency}${price.toFixed(2)}`;
+    }
+    return `${price.toFixed(2)} ${config.currency}`;
+  };
+
+  const isBarcodeEnabled = electronConfig?.modules
+    ? electronConfig.modules.some(m => (m.name || m) === 'barcode' && m.isEnabled !== false)
+    : AppConfig.isModuleEnabled('barcode');
+
   const [products, setProducts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -343,7 +354,7 @@ const generateLocalBarcode = () => {
   const filteredProducts = useMemo(() => {
     return products.filter(product => {
       const matchesSearch = product.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                           (product.barcode && product.barcode.includes(searchTerm));
+                           (isBarcodeEnabled && product.barcode && product.barcode.includes(searchTerm));
       const matchesFamily = selectedFamily === 'all' || product.family === selectedFamily || product.category === selectedFamily;
       return matchesSearch && matchesFamily;
     });
@@ -565,7 +576,7 @@ const generateLocalBarcode = () => {
             <Settings className="mr-2 h-4 w-4" />
             Gérer les familles
           </Button>
-          {products.filter(p => !p.barcode).length > 0 && (
+          {isBarcodeEnabled && products.filter(p => !p.barcode).length > 0 && (
             <Button variant="outline" onClick={generateBulkBarcodes}>
               <Barcode className="mr-2 h-4 w-4" />
               Générer codes-barres ({products.filter(p => !p.barcode).length})
@@ -683,18 +694,18 @@ const generateLocalBarcode = () => {
                 
                 <div className="space-y-3">
                   <div className="flex justify-between items-center">
-                    <span className="text-2xl font-bold">{product.price.toFixed(2)} DT</span>
+                    <span className="text-2xl font-bold">{formatPrice(product.price)}</span>
                     {getStockBadge(product.stock)}
                   </div>
                   
                   <div className="text-sm text-muted-foreground">
                     <p>Stock: {product.stock} unités</p>
-                    {product.barcode ? (
+                    {isBarcodeEnabled && product.barcode ? (
                       <div className="flex items-center">
                         <Barcode className="h-3 w-3 mr-1 text-green-600" />
                         <p>Code-barres: {product.barcode}</p>
                       </div>
-                    ) : (
+                    ) : isBarcodeEnabled ? (
                       <div className="flex items-center justify-between">
                         <div className="flex items-center text-orange-600">
                           <AlertTriangle className="h-3 w-3 mr-1" />
@@ -709,7 +720,7 @@ const generateLocalBarcode = () => {
                           Générer
                         </Button>
                       </div>
-                    )}
+                    ) : null}
                   </div>
                 </div>
               </CardContent>
@@ -725,7 +736,7 @@ const generateLocalBarcode = () => {
         editingProduct={editingProduct}
         families={families.map(f => f.name)}
         onSubmit={handleFormSubmit}
-        showBarcode={AppConfig.getConfig().enabledModules.includes('barcode')}
+        showBarcode={isBarcodeEnabled}
       />
 
       {/* Dialogue de gestion des familles */}

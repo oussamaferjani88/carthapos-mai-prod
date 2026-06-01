@@ -256,7 +256,7 @@ function registerAuthHandlers(/* initializeManagers (optional) */) {
     try {
       await ensureManagers();
       return await dbManager.getData(
-        'SELECT id, username, full_name, email, role, badge_id, is_active, last_login FROM users WHERE is_active = 1'
+        'SELECT id, username, full_name, email, phone, role, badge_id, is_active, last_login FROM users WHERE is_active = 1'
       );
     } catch (error) {
       logger.error('❌ Error getting users:', error);
@@ -284,6 +284,70 @@ function registerAuthHandlers(/* initializeManagers (optional) */) {
     } catch (error) {
       logger.error('❌ Error logging out user:', error);
       return { success: false, error: error?.message || 'Logout failed' };
+    }
+  });
+
+  // Add user (called from renderer via electronAPI.addUser)
+  ipcMain.handle('add-user', async (event, userData) => {
+    try {
+      await ensureManagers();
+      logger.info('📝 IPC add-user called with:', JSON.stringify(userData));
+      const createdBy = 1; // Default admin
+      const result = await authManager.createUser(userData, createdBy);
+      logger.info('✅ IPC add-user success:', JSON.stringify(result));
+      return result;
+    } catch (error) {
+      // If UNIQUE constraint failed on username, try reactivating a soft-deleted user
+      if (error.message && error.message.includes('UNIQUE constraint failed: users.username')) {
+        logger.warn('⚠️ Username already exists, trying to reactivate soft-deleted user:', userData.username);
+        try {
+          const result = await authManager.reactivateUser(userData);
+          if (result) {
+            logger.info('✅ Reactivated soft-deleted user:', userData.username);
+            return result;
+          }
+        } catch (reactivateError) {
+          logger.error('❌ Also failed to reactivate user:', reactivateError);
+        }
+      }
+      logger.error('❌ IPC add-user error:', error);
+      throw error;
+    }
+  });
+
+  // Update user (called from renderer via electronAPI.updateUser)
+  ipcMain.handle('update-user', async (event, userId, userData) => {
+    try {
+      await ensureManagers();
+      logger.info('📝 IPC update-user called for id:', userId, 'data:', JSON.stringify(userData));
+      const updatedBy = 1; // Default admin
+      await authManager.updateUser(userId, {
+        full_name: userData.username,
+        email: userData.email,
+        phone: userData.phone,
+        role: userData.role,
+        is_active: userData.status === 'active' ? 1 : 0
+      }, updatedBy);
+      logger.info('✅ IPC update-user success for id:', userId);
+      return { success: true };
+    } catch (error) {
+      logger.error('❌ IPC update-user error:', error);
+      throw error;
+    }
+  });
+
+  // Delete user (called from renderer via electronAPI.deleteUser)
+  ipcMain.handle('delete-user', async (event, userId) => {
+    try {
+      await ensureManagers();
+      logger.info('📝 IPC delete-user called for id:', userId);
+      const deletedBy = 1; // Default admin
+      await authManager.deleteUser(userId, deletedBy);
+      logger.info('✅ IPC delete-user success for id:', userId);
+      return { success: true };
+    } catch (error) {
+      logger.error('❌ IPC delete-user error:', error);
+      throw error;
     }
   });
 

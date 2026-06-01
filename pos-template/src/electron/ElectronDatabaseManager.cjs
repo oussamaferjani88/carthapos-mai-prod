@@ -960,6 +960,16 @@ class ElectronDatabaseManager {
       }
     }
 
+    // Migration: Add phone column to users if not exists
+    try {
+      await this.runQuery("ALTER TABLE users ADD COLUMN phone TEXT DEFAULT ''");
+      console.log('✅ Migration: Added phone column to users');
+    } catch (migrateError) {
+      if (!migrateError.message.includes('duplicate column')) {
+        console.warn(`⚠️ Migration note: ${migrateError.message}`);
+      }
+    }
+
     // Insert default data
     await this.insertDefaultData();
     console.log('✅ Database tables and indexes created successfully');

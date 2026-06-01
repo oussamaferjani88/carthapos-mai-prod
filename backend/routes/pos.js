@@ -75,10 +75,7 @@ router.post('/generate', async (req, res) => {
       fs.writeFileSync(packageJsonPath, JSON.stringify(packageJson, null, 2));
     }
 
-    // Après génération, trigger GitHub Actions build (async - return immediately)
-    // In local dev, allow skipping GH Actions to avoid external dependencies.
-    let executablePath = null;
-
+    // Build metadata
     const businessName = license.configuration?.businessName || license.client.name;
     const projectName = `pos-${businessName.toLowerCase().replace(/\s+/g, '-')}-${license.licenseKey.split('-')[1]}`;
     let localExecutablePath = result.executablePath || null;
@@ -96,75 +93,50 @@ router.post('/generate', async (req, res) => {
       }
     }
 
-    if (localBuild) {
-      try {
-        logger.info(`[PRE-UPDATE] Attempting to save build metadata for local build`);
-        logger.info(`  - licenseId: ${licenseId}`);
-        logger.info(`  - outputPath: ${result.outputPath}`);
-        logger.info(`  - projectName: ${projectName}`);
-        logger.info(`  - skipBuild: ${skipBuild}`);
-        logger.info(`  - buildStatus: ${skipBuild ? 'source_ready' : 'completed'}`);
-        
-        const updateResult = await prisma.license.update({
-          where: { id: licenseId },
-          data: {
-            buildStatus: skipBuild ? 'source_ready' : 'completed',
-            buildProjectPath: result.outputPath,
-            buildProjectName: projectName
-          }
-        });
-        
-        logger.info(`[POST-UPDATE] ✅ Build metadata saved successfully`);
-        logger.info(`  - Updated fields: buildStatus=${updateResult.buildStatus}, buildProjectPath=${updateResult.buildProjectPath}`);
-      } catch (updateError) {
-        // Some databases may not have buildStatus/buildProject fields; do not fail local generation.
-        logger.error('[UPDATE-ERROR] ❌ Failed to save build status', {
-          message: updateError.message,
-          code: updateError.code,
-          licenseId: licenseId,
-          outputPath: result.outputPath
-        });
-        logger.warn('This is usually due to old database schema. Run "npx prisma migrate deploy" to apply pending migrations.');
-      }
-    } else {
-      try {
-        console.log('🚀 Triggering GitHub Actions build for:', projectName);
+    // Save build metadata to database (best-effort, non-blocking)
+    try {
+      await prisma.license.update({
+        where: { id: licenseId },
+        data: {
+          buildStatus: localBuild ? (skipBuild ? 'source_ready' : 'completed') : 'source_ready',
+          buildProjectPath: result.outputPath,
+          buildProjectName: projectName
+        }
+      });
+    } catch (updateError) {
+      logger.warn('Failed to save build metadata (non-fatal):', updateError.message);
+    }
 
-        // Trigger the GitHub Actions workflow
-        const workflowRun = await githubService.triggerBuild({
-          projectName: projectName,
-          licenseKey: license.licenseKey,
-          businessName: businessName,
-          clientName: license.client.name,
-          modules: license.modules.map(m => m.module.code).join(','),
-          theme: license.configuration?.theme || 'modern'
-        });
-
-        console.log('✅ Workflow triggered, run ID:', workflowRun.id);
-
-        // Update license with build info (don't wait for completion)
-        await prisma.license.update({
-          where: { id: licenseId },
-          data: {
-            buildStatus: 'building',
-            buildRunId: String(workflowRun.id),
-            buildProjectPath: result.outputPath,
-            buildProjectName: projectName
-          }
-        });
-      } catch (buildError) {
-        console.error('Error triggering build:', buildError);
-        return res.status(500).json({
-          error: 'Failed to trigger build',
-          details: buildError.message
-        });
-      }
+    // Trigger GitHub Actions build if configured (fire-and-forget, never block response)
+    const hasGitHubConfig = !!(process.env.GITHUB_TOKEN && process.env.GITHUB_OWNER && process.env.GITHUB_REPO);
+    
+    if (!localBuild && hasGitHubConfig) {
+      githubService.triggerBuild({
+        projectName,
+        licenseKey: license.licenseKey,
+        businessName,
+        clientName: license.client.name,
+        modules: license.modules.map(m => m.module?.code || m.name).join(','),
+        theme: license.configuration?.theme || 'modern'
+      }).then(async (workflowRun) => {
+        logger.info('GitHub Actions build triggered:', workflowRun?.id);
+        try {
+          await prisma.license.update({
+            where: { id: licenseId },
+            data: { buildStatus: 'building', buildRunId: String(workflowRun.id) }
+          });
+        } catch {}
+      }).catch(err => {
+        logger.warn('GitHub Actions trigger failed (non-fatal):', err.message);
+      });
+    } else if (!localBuild) {
+      logger.info('GitHub Actions not configured — skipping CI build. Source files are ready.');
     }
     
-    // Return success response immediately (build continues in background)
+    // Return success response immediately
     const buildStatus = localBuild
       ? (skipBuild ? 'source_ready' : 'completed')
-      : 'building';
+      : 'source_ready';
 
     res.json({
       message: skipBuild
@@ -175,15 +147,15 @@ router.post('/generate', async (req, res) => {
       projectName,
       licenseKey: license.licenseKey,
       buildStatus,
-      licenseId: licenseId, // Include license ID for polling
+      licenseId,
       estimatedTime: localBuild
         ? (skipBuild ? '10-60 seconds' : '3-8 minutes')
-        : '6-8 minutes',
+        : '10-60 seconds',
       note: localBuild
         ? (skipBuild
           ? 'Fast local source generation complete. Trigger installer build explicitly when needed.'
           : 'Local generation complete. Use executablePath or output path for testing.')
-        : 'Build in progress on GitHub Actions. Refresh page in 6-8 minutes to download.'
+        : 'Source generation complete. Set up GitHub Actions or build locally to produce .exe.'
     });
     
   } catch (error) {

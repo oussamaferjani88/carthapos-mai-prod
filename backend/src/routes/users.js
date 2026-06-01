@@ -3,12 +3,17 @@ const router = express.Router();
 const userController = require('../controllers/userController');
 const { validate, validateParams } = require('../middleware/validator');
 const { authLimiter, createLimiter } = require('../middleware/rateLimiter');
+const { verifyToken, requireRole } = require('../../middleware/auth');
 const { 
   createUserSchema, 
   updateUserSchema, 
   loginSchema,
   userIdSchema 
 } = require('../validators/userValidator');
+
+// Auth disabled for development, enabled in production
+const auth = process.env.NODE_ENV === 'production' ? verifyToken : (req, res, next) => next();
+const adminOnly = process.env.NODE_ENV === 'production' ? requireRole('ADMIN') : (req, res, next) => next();
 
 /**
  * @swagger
@@ -52,7 +57,7 @@ const {
  *       500:
  *         $ref: '#/components/responses/ServerError'
  */
-router.get('/stats', userController.getUserStats);
+router.get('/stats', auth, adminOnly, userController.getUserStats);
 
 /**
  * @swagger
@@ -79,7 +84,7 @@ router.get('/stats', userController.getUserStats);
  *       500:
  *         $ref: '#/components/responses/ServerError'
  */
-router.get('/', userController.getAllUsers);
+router.get('/', auth, adminOnly, userController.getAllUsers);
 
 /**
  * @swagger
@@ -113,7 +118,7 @@ router.get('/', userController.getAllUsers);
  *       500:
  *         $ref: '#/components/responses/ServerError'
  */
-router.get('/:id', validateParams(userIdSchema), userController.getUserById);
+router.get('/:id', auth, adminOnly, validateParams(userIdSchema), userController.getUserById);
 
 /**
  * @swagger
@@ -176,7 +181,7 @@ router.get('/:id', validateParams(userIdSchema), userController.getUserById);
  *       500:
  *         $ref: '#/components/responses/ServerError'
  */
-router.post('/', createLimiter, validate(createUserSchema), userController.createUser);
+router.post('/', auth, adminOnly, createLimiter, validate(createUserSchema), userController.createUser);
 
 /**
  * @swagger
@@ -294,6 +299,8 @@ router.post('/login', authLimiter, validate(loginSchema), userController.login);
  */
 router.put(
   '/:id',
+  auth,
+  adminOnly,
   validateParams(userIdSchema),
   validate(updateUserSchema),
   userController.updateUser
@@ -341,6 +348,6 @@ router.put(
  *       500:
  *         $ref: '#/components/responses/ServerError'
  */
-router.delete('/:id', validateParams(userIdSchema), userController.deleteUser);
+router.delete('/:id', auth, adminOnly, validateParams(userIdSchema), userController.deleteUser);
 
 module.exports = router;

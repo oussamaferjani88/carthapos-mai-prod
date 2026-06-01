@@ -28,6 +28,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // Base de données
   getDatabasePath: () => createIpcHandler('get-db-path'),
   getDatabaseStats: () => createIpcHandler('get-database-stats'),
+  query: (sql, params) => createIpcHandler('database:query', sql, params),
   
   // Produits
   getProducts: () => createIpcHandler('get-products'),

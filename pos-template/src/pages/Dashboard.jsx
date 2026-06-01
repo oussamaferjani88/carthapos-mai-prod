@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { ShoppingCart, Users, Package, DollarSign, TrendingUp, TrendingDown, Euro, Clock, Check } from 'lucide-react';
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { POSConfiguration } from '../lib/POSConfiguration';
 import { useAppConfig } from '../hooks/useAppConfig';
 import { isPreviewMode, getPreviewData, logEnvironment } from '../utils/environment';
@@ -62,12 +63,13 @@ const Dashboard = () => {
 
   // State for real data
   const [stats, setStats] = useState({
-    todaySales: 0,
-    todayRevenue: 0,
+    totalSales: 0,
+    totalRevenue: 0,
     productsCount: 0,
     lowStockCount: 0
   });
   const [recentOrders, setRecentOrders] = useState([]);
+  const [chartData, setChartData] = useState([]);
   const [loading, setLoading] = useState(true);
 
   // Get unified theme configuration (same as Sales.jsx)
@@ -104,14 +106,10 @@ const Dashboard = () => {
 
   // Demo data for preview mode only
   const DEMO_STATS = {
-    todaySales: 23,
-    todayRevenue: 1247.50,
+    totalSales: 23,
+    totalRevenue: 1247.50,
     productsCount: 156,
     lowStockCount: 8,
-    salesChange: '+12%',
-    revenueChange: '+8%',
-    productsChange: '+15%',
-    lowStockChange: '-2%'
   };
 
   const DEMO_ORDERS = [
@@ -122,6 +120,15 @@ const Dashboard = () => {
     { id: 5, total: 89.30, items: 4, time: '13:22' }
   ];
 
+  const DEMO_CHART = [
+    { month: 'Jan', revenue: 1200 },
+    { month: 'Fév', revenue: 1800 },
+    { month: 'Mar', revenue: 1400 },
+    { month: 'Avr', revenue: 2200 },
+    { month: 'Mai', revenue: 1900 },
+    { month: 'Juin', revenue: 2600 },
+  ];
+
   // Load real data from database in production mode
   useEffect(() => {
     if (!isPreviewMode()) {
@@ -129,53 +136,68 @@ const Dashboard = () => {
     } else {
       // In preview mode, use demo data
       setStats({
-        todaySales: DEMO_STATS.todaySales,
-        todayRevenue: DEMO_STATS.todayRevenue,
+        totalSales: DEMO_STATS.totalSales,
+        totalRevenue: DEMO_STATS.totalRevenue,
         productsCount: DEMO_STATS.productsCount,
         lowStockCount: DEMO_STATS.lowStockCount
       });
       setRecentOrders(DEMO_ORDERS);
+      setChartData(DEMO_CHART);
       setLoading(false);
     }
+
+    const handleSaleCompleted = () => {
+      if (!isPreviewMode()) loadDashboardData();
+    };
+    window.addEventListener('sale-completed', handleSaleCompleted);
+    return () => window.removeEventListener('sale-completed', handleSaleCompleted);
   }, []);
 
   const loadDashboardData = async () => {
     try {
       if (window.electronAPI) {
-        // Load today's sales count and revenue
-        const today = new Date().toISOString().split('T')[0];
+        console.log('[DASHBOARD] Loading dashboard data from DB...');
+
+        // Load total sales count and revenue (ALL TIME)
         const sales = await window.electronAPI.query(
           `SELECT COUNT(*) as count, COALESCE(SUM(total), 0) as revenue 
-           FROM sales 
-           WHERE DATE(created_at) = ?`,
-          [today]
+           FROM sales`
         );
+        console.log('[DASHBOARD] Total sales result:', JSON.stringify(sales));
 
         // Load products count
+        console.log('[DASHBOARD] Query: products count');
         const products = await window.electronAPI.query(
           'SELECT COUNT(*) as count FROM products'
         );
+        console.log('[DASHBOARD] Products count result:', JSON.stringify(products));
 
         // Load low stock count (stock <= 5)
+        console.log('[DASHBOARD] Query: low stock count');
         const lowStock = await window.electronAPI.query(
           'SELECT COUNT(*) as count FROM products WHERE stock <= 5'
         );
+        console.log('[DASHBOARD] Low stock result:', JSON.stringify(lowStock));
 
         // Load recent orders (last 5)
+        console.log('[DASHBOARD] Query: recent orders');
         const recent = await window.electronAPI.query(
           `SELECT id, total, created_at 
            FROM sales 
            ORDER BY created_at DESC 
            LIMIT 5`
         );
+        console.log('[DASHBOARD] Recent orders result:', JSON.stringify(recent));
 
         // Count items per sale
         const ordersWithItems = await Promise.all(
           recent.map(async (order) => {
+            console.log('[DASHBOARD] Query: items for sale_id:', order.id);
             const items = await window.electronAPI.query(
               'SELECT SUM(quantity) as items FROM sale_items WHERE sale_id = ?',
               [order.id]
             );
+            console.log('[DASHBOARD] Items for sale', order.id, ':', JSON.stringify(items));
             const time = new Date(order.created_at).toLocaleTimeString('fr-FR', { 
               hour: '2-digit', 
               minute: '2-digit' 
@@ -189,25 +211,55 @@ const Dashboard = () => {
           })
         );
 
+        // Load chart data: revenue grouped by month for ALL TIME
+        console.log('[DASHBOARD] Query: chart data by month');
+        const chartRaw = await window.electronAPI.query(
+          `SELECT 
+             strftime('%Y-%m', created_at) as month,
+             COALESCE(SUM(total), 0) as revenue
+           FROM sales
+           GROUP BY strftime('%Y-%m', created_at)
+           ORDER BY month ASC`
+        );
+        console.log('[DASHBOARD] Chart data result:', JSON.stringify(chartRaw));
+
+        const monthNames = ['Jan', 'Fév', 'Mar', 'Avr', 'Mai', 'Juin', 'Juil', 'Aoû', 'Sep', 'Oct', 'Nov', 'Déc'];
+        const formattedChart = (chartRaw || []).map(row => {
+          const parts = row.month.split('-');
+          const monthIndex = parseInt(parts[1], 10) - 1;
+          return {
+            month: monthNames[monthIndex] || row.month,
+            revenue: parseFloat(row.revenue)
+          };
+        });
+        console.log('[DASHBOARD] Formatted chart:', JSON.stringify(formattedChart));
+
+        console.log('[DASHBOARD] Setting stats:', {
+          totalSales: sales[0]?.count || 0,
+          totalRevenue: sales[0]?.revenue || 0,
+          productsCount: products[0]?.count || 0,
+          lowStockCount: lowStock[0]?.count || 0
+        });
         setStats({
-          todaySales: sales[0]?.count || 0,
-          todayRevenue: sales[0]?.revenue || 0,
+          totalSales: sales[0]?.count || 0,
+          totalRevenue: sales[0]?.revenue || 0,
           productsCount: products[0]?.count || 0,
           lowStockCount: lowStock[0]?.count || 0
         });
 
         setRecentOrders(ordersWithItems);
+        setChartData(formattedChart);
       }
     } catch (error) {
       console.error('❌ Error loading dashboard data:', error);
-      // Set empty data on error
       setStats({
-        todaySales: 0,
-        todayRevenue: 0,
+        totalSales: 0,
+        totalRevenue: 0,
         productsCount: 0,
         lowStockCount: 0
       });
       setRecentOrders([]);
+      setChartData([]);
     } finally {
       setLoading(false);
     }

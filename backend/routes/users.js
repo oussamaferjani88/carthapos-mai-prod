@@ -1,12 +1,17 @@
 const express = require('express');
 const { PrismaClient } = require('@prisma/client');
 const bcrypt = require('bcrypt');
-const { generateToken } = require('../middleware/auth');
+const { generateToken, verifyToken, requireRole } = require('../middleware/auth');
 const router = express.Router();
 const prisma = new PrismaClient();
 
-// GET /api/users - Récupérer tous les utilisateurs
-router.get('/', async (req, res) => {
+// Auth is disabled for development (see server.js)
+// Enable by setting NODE_ENV=production or removing the bypass
+const auth = process.env.NODE_ENV === 'production' ? verifyToken : (req, res, next) => next();
+const adminOnly = process.env.NODE_ENV === 'production' ? requireRole('ADMIN') : (req, res, next) => next();
+
+// GET /api/users - Récupérer tous les utilisateurs (admin only)
+router.get('/', auth, adminOnly, async (req, res) => {
   try {
     const users = await prisma.user.findMany({
       select: {
@@ -30,8 +35,8 @@ router.get('/', async (req, res) => {
   }
 });
 
-// POST /api/users - Créer un nouvel utilisateur
-router.post('/', async (req, res) => {
+// POST /api/users - Créer un nouvel utilisateur (admin only)
+router.post('/', auth, adminOnly, async (req, res) => {
   try {
     const { username, email, password, role } = req.body;
 
@@ -81,8 +86,8 @@ router.post('/', async (req, res) => {
   }
 });
 
-// PUT /api/users/:id - Mettre à jour un utilisateur
-router.put('/:id', async (req, res) => {
+// PUT /api/users/:id - Mettre à jour un utilisateur (admin only)
+router.put('/:id', auth, adminOnly, async (req, res) => {
   try {
     const { id } = req.params;
     const { username, email, role, isActive, password } = req.body;
@@ -129,8 +134,8 @@ router.put('/:id', async (req, res) => {
   }
 });
 
-// DELETE /api/users/:id - Supprimer un utilisateur
-router.delete('/:id', async (req, res) => {
+// DELETE /api/users/:id - Supprimer un utilisateur (admin only)
+router.delete('/:id', auth, adminOnly, async (req, res) => {
   try {
     const { id } = req.params;
 
@@ -218,8 +223,8 @@ router.post('/login', async (req, res) => {
   }
 });
 
-// GET /api/users/stats - Statistiques des utilisateurs
-router.get('/stats', async (req, res) => {
+// GET /api/users/stats - Statistiques des utilisateurs (admin only)
+router.get('/stats', auth, adminOnly, async (req, res) => {
   try {
     const [totalUsers, activeUsers, usersByRole] = await Promise.all([
       prisma.user.count(),

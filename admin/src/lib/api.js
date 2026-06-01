@@ -115,6 +115,16 @@ export const licensesApi = {
   generateFile: (id, machineId) => api.post(`/licenses/${id}/generate-file`, { machineId }),
 };
 
+// API Users
+export const usersApi = {
+  getAll: () => api.get('/users'),
+  getById: (id) => api.get(`/users/${id}`),
+  create: (data) => api.post('/users', data),
+  update: (id, data) => api.put(`/users/${id}`, data),
+  delete: (id) => api.delete(`/users/${id}`),
+  getStats: () => api.get('/users/stats'),
+};
+
 // API USB
 export const usbApi = {
   getDrives: () => api.get('/usb/drives'),

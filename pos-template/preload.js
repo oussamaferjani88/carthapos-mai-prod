@@ -13,6 +13,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   
   // Base de données
   getDatabaseStats: () => ipcRenderer.invoke('get-database-stats'),
+  query: (sql, params) => ipcRenderer.invoke('database:query', sql, params),
   
   // Produits
   getProducts: () => ipcRenderer.invoke('get-products'),

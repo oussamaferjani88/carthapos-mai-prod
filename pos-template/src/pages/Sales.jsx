@@ -13,16 +13,24 @@ import {
   User,
   X,
   Check,
-  Utensils
+  Utensils,
+  Grid3x3
 } from 'lucide-react';
 import { POSConfiguration } from '../lib/POSConfiguration';
 import { useAppConfig } from '../hooks/useAppConfig';
+import { getIconComponent } from '../components/CategoryIconPicker';
+
+const FamilyIcon = ({ iconName, className = 'w-5 h-5' }) => {
+  const IconComponent = getIconComponent(iconName);
+  if (!IconComponent) return null;
+  return <IconComponent className={className} />;
+};
 
 const Sales = () => {
   const [cart, setCart] = useState([]);
   const [searchTerm, setSearchTerm] = useState('');
-  const [discountAmount, setDiscountAmount] = useState(0); // NEW: Discount support
-  const [discountPercentage, setDiscountPercentage] = useState(0); // NEW: Discount % support
+  const [discountAmount, setDiscountAmount] = useState(0);
+  const [discountPercentage, setDiscountPercentage] = useState(0);
   const [selectedCategory, setSelectedCategory] = useState('Tout');
   const [selectedTableForOrder, setSelectedTableForOrder] = useState(null);
   const [showTableSelector, setShowTableSelector] = useState(false);
@@ -36,24 +44,18 @@ const Sales = () => {
   const [calculatorPosition, setCalculatorPosition] = useState({ x: 50, y: 50 });
   const [isDragging, setIsDragging] = useState(false);
   const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
-  const [selectedCustomer, setSelectedCustomer] = useState(null); // NEW: Customer tracking
+  const [selectedCustomer, setSelectedCustomer] = useState(null);
+  const [families, setFamilies] = useState([]);
 
-  // Integration: Electron config + POSConfiguration styling
   const { config: electronConfig, loading: configLoading } = useAppConfig();
 
-  // Get unified theme configuration
   const getConfig = () => {
     if (electronConfig && electronConfig.theme) {
-      console.log('[POS DEBUG] [Sales] Using Electron config:', electronConfig);
       return POSConfiguration.createConfig(electronConfig.theme);
     }
-    
     if (typeof window !== 'undefined' && window.themeConfig) {
-      console.log('[POS DEBUG] [Sales] Using window.themeConfig');
       return POSConfiguration.createConfig(window.themeConfig);
     }
-    
-    console.log('[POS DEBUG] [Sales] Using fallback configuration');
     return POSConfiguration.createConfig({
       primaryColor: '#3b82f6',
       secondaryColor: '#1e40af',
@@ -68,31 +70,28 @@ const Sales = () => {
   };
 
   const config = getConfig();
+  const cardClasses = POSConfiguration.getCardClasses(config);
+  const gridClasses = POSConfiguration.getGridClasses(config);
 
-  // Add custom scrollbar styles for cart
+  const isBarcodeEnabled = electronConfig?.modules
+    ? electronConfig.modules.some(m => (m.name || m) === 'barcode' && m.isEnabled !== false)
+    : true;
+
   useEffect(() => {
     const style = document.createElement('style');
     style.textContent = `
-      .cart-scroll::-webkit-scrollbar {
-        width: 6px;
-      }
-      .cart-scroll::-webkit-scrollbar-track {
-        background: #f1f5f9;
-        border-radius: 3px;
-      }
-      .cart-scroll::-webkit-scrollbar-thumb {
-        background: #cbd5e1;
-        border-radius: 3px;
-      }
-      .cart-scroll::-webkit-scrollbar-thumb:hover {
-        background: #94a3b8;
-      }
+      .cart-scroll::-webkit-scrollbar { width: 5px; }
+      .cart-scroll::-webkit-scrollbar-track { background: transparent; }
+      .cart-scroll::-webkit-scrollbar-thumb { background: #d1d5db; border-radius: 999px; }
+      .cart-scroll::-webkit-scrollbar-thumb:hover { background: #9ca3af; }
+      .cat-scroll::-webkit-scrollbar { height: 4px; }
+      .cat-scroll::-webkit-scrollbar-track { background: transparent; }
+      .cat-scroll::-webkit-scrollbar-thumb { background: #d1d5db; border-radius: 999px; }
     `;
     document.head.appendChild(style);
     return () => document.head.removeChild(style);
   }, []);
 
-  // Global mouse events for calculator dragging
   useEffect(() => {
     const handleMouseMove = (e) => {
       if (isDragging) {
@@ -102,40 +101,34 @@ const Sales = () => {
         });
       }
     };
-
-    const handleMouseUp = () => {
-      setIsDragging(false);
-    };
-
+    const handleMouseUp = () => setIsDragging(false);
     if (isDragging) {
       document.addEventListener('mousemove', handleMouseMove);
       document.addEventListener('mouseup', handleMouseUp);
     }
-
     return () => {
       document.removeEventListener('mousemove', handleMouseMove);
       document.removeEventListener('mouseup', handleMouseUp);
     };
   }, [isDragging, dragOffset]);
 
-  // Load data from database
   const [products, setProducts] = useState([]);
   const [availableTables, setAvailableTables] = useState([]);
 
   useEffect(() => {
     loadProductsFromDB();
     loadTablesFromDB();
+    loadFamiliesFromDB();
   }, []);
 
   const loadProductsFromDB = async () => {
     try {
       if (window.electronAPI) {
         const data = await window.electronAPI.getProducts();
-        console.log('✅ Loaded products from database:', data.length);
         setProducts(data);
       }
     } catch (error) {
-      console.error('❌ Failed to load products:', error);
+      console.error('Failed to load products:', error);
       setProducts([]);
     }
   };
@@ -144,40 +137,55 @@ const Sales = () => {
     try {
       if (window.electronAPI) {
         const data = await window.electronAPI.getTables();
-        console.log('✅ Loaded tables from database:', data.length);
         setAvailableTables(data);
       }
     } catch (error) {
-      console.error('❌ Failed to load tables:', error);
+      console.error('Failed to load tables:', error);
       setAvailableTables([]);
     }
   };
 
-  // Categories
+  const loadFamiliesFromDB = async () => {
+    try {
+      if (window.electronAPI && window.electronAPI.getFamilies) {
+        const rows = await window.electronAPI.getFamilies();
+        const familiesList = (rows || []).map(row => ({
+          name: row.name,
+          icon: row.icon || ''
+        })).filter(f => f.name);
+        setFamilies(familiesList);
+      }
+    } catch (error) {
+      console.error('Failed to load families:', error);
+    }
+  };
+
+  const getCategoryIcon = (categoryName) => {
+    const family = families.find(f => f.name === categoryName);
+    return family ? family.icon : '';
+  };
+
   const categories = ['Tout', ...new Set(products.map(p => p.category))];
 
   const addToCart = (product) => {
     setAnimatingCard(product.id);
     setSelectedCard(product.id);
-
     setCart(prevCart => {
       const existingItem = prevCart.find(item => item.id === product.id);
       if (existingItem) {
         return prevCart.map(item =>
-          item.id === product.id 
+          item.id === product.id
             ? { ...item, quantity: item.quantity + 1 }
             : item
         );
       }
       return [...prevCart, { ...product, quantity: 1 }];
     });
-
     setTimeout(() => {
       setAnimatingCard(null);
       setSelectedCard(null);
     }, 300);
-
-    setLocalNotification(`➕ ${product.name} ajouté !`);
+    setLocalNotification(`${product.name} ajouté`);
     setTimeout(() => setLocalNotification(null), 2000);
   };
 
@@ -186,7 +194,7 @@ const Sales = () => {
       removeFromCart(productId);
       return;
     }
-    setCart(prevCart => 
+    setCart(prevCart =>
       prevCart.map(item =>
         item.id === productId ? { ...item, quantity: newQuantity } : item
       )
@@ -199,7 +207,7 @@ const Sales = () => {
 
   const clearCart = () => {
     setCart([]);
-    setLocalNotification("🗑️ Panier vidé");
+    setLocalNotification("Panier vidé");
     setTimeout(() => setLocalNotification(null), 2000);
   };
 
@@ -211,19 +219,17 @@ const Sales = () => {
     return cart.reduce((total, item) => total + item.quantity, 0);
   };
 
-  // ⚡ OPTIMIZED: Memoize filtered products to prevent recalculation on every render
   const filteredProducts = useMemo(() => {
     return products.filter(product => {
       const matchesSearch = product.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                           product.barcode?.toLowerCase().includes(searchTerm.toLowerCase());
+                           (isBarcodeEnabled && product.barcode?.toLowerCase().includes(searchTerm.toLowerCase()));
       const matchesCategory = selectedCategory === 'Tout' || product.category === selectedCategory;
       return matchesSearch && matchesCategory;
     });
   }, [products, searchTerm, selectedCategory]);
 
-  // Calculate subtotal, discount, tax, and final total
   const subtotal = getTotalAmount();
-  const calculatedDiscount = discountPercentage > 0 
+  const calculatedDiscount = discountPercentage > 0
     ? Math.round(subtotal * (discountPercentage / 100) * 100) / 100
     : discountAmount;
   const discountedSubtotal = Math.round((subtotal - calculatedDiscount) * 100) / 100;
@@ -242,74 +248,39 @@ const Sales = () => {
     setShowPaymentMethods(true);
   };
 
-   const confirmPayment = async (method) => {
-      const startTime = performance.now();
-      console.log(`⏱️ [PAYMENT-SAVE START] Method: ${method} - Items: ${cart.length}`);
-      
-      try {
-        // Save sale to database if Electron API is available
-        if (window.electronAPI && window.electronAPI.addSale) {
-          console.log(`💾 [SAVING-SALE] Total: ${finalTotal} - Tax: ${tax} - Discount: ${calculatedDiscount}`);
-          
-          const saleData = {
-            items: cart,
-            subtotal: subtotal,
-            discount: calculatedDiscount,
-            tax: tax,
-            total: finalTotal,
-            payment_method: method,
-            customer_id: selectedCustomer?.id || null,
-            notes: ''
-          };
-          
-          try {
-            const savedSale = await window.electronAPI.addSale(saleData);
-            const dbDuration = performance.now() - startTime;
-           console.log(`✅ [SALE-CREATED] ID: ${savedSale?.id} - ${dbDuration.toFixed(2)}ms`);
-           
-           // Save individual cart items if sale was created
-           if (savedSale && savedSale.id) {
-             console.log(`💾 [SAVING-ITEMS] Creating ${cart.length} items...`);
-             
-             for (const item of cart) {
-               try {
-                 await window.electronAPI.addSaleItem({
-                   sale_id: savedSale.id,
-                   product_id: item.id,
-                   quantity: item.quantity,
-                   unit_price: item.price,
-                   total: item.price * item.quantity
-                 });
-               } catch (itemError) {
-                 console.error(`❌ [ITEM-SAVE-ERROR]`, itemError);
-               }
-             }
-             console.log(`✅ [ITEMS-SAVED]`);
-           }
-         } catch (saleError) {
-           console.error(`❌ [SALE-SAVE-ERROR]`, saleError);
-           setLocalNotification(`❌ Erreur lors de la sauvegarde: ${saleError.message}`);
-           setTimeout(() => setLocalNotification(null), 3000);
-           return;
-         }
-       }
-       
-       // Show confirmation
-       setLocalNotification(`✅ Paiement ${method}: ${formatPrice(finalTotal)}`);
-       setCart([]);
-       setSelectedTableForOrder(null);
-       setShowPaymentMethods(false);
-       
-       const totalDuration = performance.now() - startTime;
-       console.log(`✅ [PAYMENT-COMPLETED] Total: ${totalDuration.toFixed(2)}ms`);
-       
-       setTimeout(() => setLocalNotification(null), 3000);
-     } catch (error) {
-       console.error('❌ [PAYMENT-ERROR]', error);
-       setLocalNotification(`❌ Erreur lors du paiement`);
-       setTimeout(() => setLocalNotification(null), 3000);
-     }
-   };
+  const confirmPayment = async (method) => {
+    try {
+      if (window.electronAPI && window.electronAPI.addSale) {
+        const saleData = {
+          items: cart,
+          subtotal: subtotal,
+          discount: calculatedDiscount,
+          tax: tax,
+          total: finalTotal,
+          payment_method: method,
+          customer_id: selectedCustomer?.id || null,
+          notes: ''
+        };
+        try {
+          await window.electronAPI.addSale(saleData);
+        } catch (saleError) {
+          setLocalNotification(`Erreur paiement: ${saleError.message}`);
+          setTimeout(() => setLocalNotification(null), 3000);
+          return;
+        }
+      }
+      window.dispatchEvent(new CustomEvent('sale-completed'));
+      setLocalNotification(`Paiement ${method}: ${formatPrice(finalTotal)}`);
+      setCart([]);
+      setSelectedTableForOrder(null);
+      setShowPaymentMethods(false);
+      setTimeout(() => setLocalNotification(null), 3000);
+    } catch (error) {
+      console.error('Payment error:', error);
+      setLocalNotification('Erreur lors du paiement');
+      setTimeout(() => setLocalNotification(null), 3000);
+    }
+  };
 
   const handleKeypadClick = (value) => {
     if (value === 'C') {
@@ -318,10 +289,8 @@ const Sales = () => {
       try {
         const result = new Function('return ' + (keypadValue || "0"))();
         setKeypadValue(result.toString());
-        setLocalNotification(`🔢 Résultat: ${result}`);
-        setTimeout(() => setLocalNotification(null), 2000);
       } catch {
-        setLocalNotification("❌ Erreur de calcul");
+        setLocalNotification("Erreur de calcul");
         setTimeout(() => setLocalNotification(null), 2000);
       }
     } else {
@@ -332,17 +301,17 @@ const Sales = () => {
   const selectTable = (table) => {
     setSelectedTableForOrder(table);
     setShowTableSelector(false);
-    setLocalNotification(`📍 Table ${table.number} sélectionnée`);
+    setLocalNotification(`Table ${table.number} sélectionnée`);
     setTimeout(() => setLocalNotification(null), 2000);
   };
 
   const getTableStatusColor = (status) => {
     switch(status) {
-      case 'free': return 'bg-green-500';
+      case 'free': return 'bg-emerald-500';
       case 'occupied': return 'bg-red-500';
-      case 'reserved': return 'bg-yellow-500';
-      case 'cleaning': return 'bg-gray-500';
-      default: return 'bg-gray-500';
+      case 'reserved': return 'bg-amber-500';
+      case 'cleaning': return 'bg-gray-400';
+      default: return 'bg-gray-400';
     }
   };
 
@@ -357,74 +326,65 @@ const Sales = () => {
   };
 
   return (
-    <div 
-      className="h-screen bg-gray-100 overflow-hidden flex"
-      style={{ 
-        backgroundColor: config.backgroundColor,
-        fontFamily: config.fontFamily,
-        fontSize: config.fontSize
-      }}
-    >
+    <div className="h-screen bg-gray-50 overflow-hidden flex">
       {/* Notification */}
       {localNotification && (
-        <div className="fixed top-4 left-1/2 transform -translate-x-1/2 z-50 animate-in slide-in-from-top-2 duration-300">
-          <div className="bg-green-500 text-white px-4 py-2 rounded-lg shadow-lg flex items-center gap-2">
-            <div className="w-2 h-2 bg-white rounded-full animate-pulse"></div>
+        <div className="fixed top-4 left-1/2 -translate-x-1/2 z-50 animate-in slide-in-from-top-2 duration-300">
+          <div className="bg-emerald-500 text-white px-5 py-2.5 rounded-xl shadow-lg flex items-center gap-2.5 backdrop-blur-sm bg-emerald-500/95">
             <span className="font-medium text-sm">{localNotification}</span>
           </div>
         </div>
       )}
 
-      {/* Table Selector Overlay */}
+      {/* Table Selector Modal */}
       {showTableSelector && (
-        <div className="absolute inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-8">
-          <div className="bg-white w-full max-w-4xl max-h-[90vh] overflow-auto relative rounded-lg shadow-2xl">
-            <div className="p-6 border-b">
+        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-8">
+          <div className="bg-white w-full max-w-4xl max-h-[90vh] overflow-auto relative rounded-2xl shadow-2xl animate-in zoom-in-95 duration-200">
+            <div className="p-6 border-b border-gray-100">
               <div className="flex items-center justify-between">
                 <div>
-                  <h2 className="flex items-center gap-2 text-2xl font-bold" style={{ color: config.textColor }}>
-                    <Utensils className="w-6 h-6" />
+                  <h2 className="flex items-center gap-2.5 text-xl font-bold text-gray-900">
+                    <Utensils className="w-5 h-5 text-emerald-500" />
                     Sélection de Table
                   </h2>
-                  <p className="text-sm" style={{ color: config.textMutedColor }}>
+                  <p className="text-sm text-gray-500 mt-0.5">
                     Choisissez une table pour commencer la commande
                   </p>
                 </div>
                 <button
                   onClick={() => setShowTableSelector(false)}
-                  className="p-2 rounded-full hover:bg-gray-100 transition-colors"
-                  title="Fermer"
+                  className="p-2 rounded-xl hover:bg-gray-100 transition-colors"
                 >
-                  <X className="w-6 h-6 text-gray-600" />
+                  <X className="w-5 h-5 text-gray-400" />
                 </button>
               </div>
             </div>
             <div className="p-6">
-              <div className="grid grid-cols-3 md:grid-cols-6 gap-2">
+              <div className="grid grid-cols-3 md:grid-cols-6 gap-3">
                 {availableTables.map((table) => (
                   <button
                     key={table.id || table.number}
                     onClick={() => selectTable(table)}
                     disabled={table.status === 'occupied'}
-                    className={`relative p-3 rounded-lg border-2 transition-all hover:scale-105 ${
-                      table.status === 'free' 
-                        ? 'border-green-500 bg-green-50 hover:bg-green-100 cursor-pointer' 
+                    className={`relative p-4 rounded-xl border-2 transition-all hover:scale-[1.03] active:scale-[0.98] ${
+                      table.status === 'free'
+                        ? 'border-emerald-200 bg-emerald-50 hover:bg-emerald-100 hover:border-emerald-400 cursor-pointer shadow-sm hover:shadow-md'
                         : table.status === 'reserved'
-                        ? 'border-yellow-500 bg-yellow-50 hover:bg-yellow-100 cursor-pointer'
-                        : 'border-red-300 bg-gray-100 cursor-not-allowed opacity-60'
+                        ? 'border-amber-200 bg-amber-50 hover:bg-amber-100 hover:border-amber-400 cursor-pointer shadow-sm hover:shadow-md'
+                        : 'border-red-200 bg-gray-50 cursor-not-allowed opacity-60'
                     }`}
                   >
-                    <div className="flex flex-col items-center gap-1">
-                      <div className={`w-10 h-10 rounded-full flex items-center justify-center text-white font-bold text-lg ${getTableStatusColor(table.status)}`}>
+                    <div className="flex flex-col items-center gap-2">
+                      <div className={`w-12 h-12 rounded-2xl flex items-center justify-center text-white font-bold text-lg shadow-sm ${getTableStatusColor(table.status)}`}>
                         {table.number}
                       </div>
                       <div className="text-center">
-                        <div className="font-semibold text-sm">Table {table.number}</div>
-                        <div className="text-[10px] text-gray-500">{table.capacity} places</div>
-                        <div className={`text-[10px] font-semibold mt-0.5 ${
-                          table.status === 'free' ? 'text-green-600' :
-                          table.status === 'reserved' ? 'text-yellow-600' :
-                          'text-red-600'
+                        <div className="font-semibold text-sm text-gray-800">Table {table.number}</div>
+                        <div className="text-[11px] text-gray-400">{table.capacity} places</div>
+                        <div className={`text-[11px] font-semibold mt-0.5 ${
+                          table.status === 'free' ? 'text-emerald-600' :
+                          table.status === 'reserved' ? 'text-amber-600' :
+                          'text-red-500'
                         }`}>
                           {getTableStatusLabel(table.status)}
                         </div>
@@ -438,165 +398,158 @@ const Sales = () => {
         </div>
       )}
 
-      {/* Main Content */}
-      <div className="h-full w-full flex gap-0.5 p-0.5">
-        {/* LEFT SIDE - Cart */}
-        <div className="w-[25%] flex flex-col h-full">
-          <div 
-            className="flex flex-col h-full min-h-0 bg-white rounded-lg shadow-sm"
-            style={{ 
-              backgroundColor: config.cardBackgroundColor,
-              borderColor: config.cardBorderColor
-            }}
-          >
+      {/* Main Layout */}
+      <div className="h-full w-full flex gap-2 p-2">
+        {/* Cart Panel - Left */}
+        <div className="w-[320px] min-w-[280px] flex flex-col h-full">
+          <div className="flex flex-col h-full bg-white rounded-2xl shadow-sm border border-gray-100">
             {/* Cart Header */}
-            <div className="py-1 px-2 flex-shrink-0 border-b" style={{ borderColor: config.cardBorderColor }}>
-              <div className="flex items-center justify-between text-xs">
-                <span className="flex items-center gap-1 text-sm font-bold" style={{ color: config.textColor }}>
-                  <ShoppingCart className="w-4 h-4" />
+            <div className="px-4 py-3 flex-shrink-0 border-b border-gray-100">
+              <div className="flex items-center justify-between">
+                <span className="flex items-center gap-2 font-semibold text-gray-800">
+                  <ShoppingCart className="w-4 h-4 text-gray-400" />
+                  Commande
                   {selectedTableForOrder && (
-                    <span className="text-xs bg-blue-500 text-white px-2 py-0.5 rounded ml-1">
+                    <span className="text-xs font-medium bg-blue-50 text-blue-600 px-2 py-0.5 rounded-lg ml-1">
                       Table {selectedTableForOrder.number}
                     </span>
                   )}
-                  {!selectedTableForOrder ? 'Commande' : ''}
                 </span>
-                <span className="text-[11px] bg-blue-100 px-2 py-0.5 rounded" style={{ color: config.primaryColor }}>
-                  {getTotalItems()} articles
+                <span className="text-xs font-medium text-blue-600 bg-blue-50 px-2.5 py-1 rounded-lg">
+                  {getTotalItems()} art.
                 </span>
               </div>
             </div>
 
-            {/* Cart Content */}
-            <div className="flex flex-col p-1 min-h-0 flex-1">
-              {/* Cart Items */}
-              <div className="flex-1 space-y-0.5 min-h-0 overflow-y-auto overflow-x-hidden max-h-[400px] pr-1 cart-scroll">
-                {cart.length === 0 ? (
-                  <div className="text-center py-1" style={{ color: config.textMutedColor }}>
-                    <ShoppingCart className="w-4 h-4 mx-auto mb-1 opacity-50" />
-                    <p className="text-xs">Panier vide</p>
-                  </div>
-                ) : (
-                  <div className="space-y-0.5">
-                    {cart.map((item) => (
-                      <div
-                        key={item.id}
-                        className="flex items-center justify-between p-0.5 bg-gray-50 rounded border text-[11px]"
-                        style={{ gap: 4, borderColor: config.cardBorderColor }}
-                      >
-                        <div className="flex-1 min-w-0">
-                          <div className="font-medium text-[13px] truncate" style={{ color: config.textColor }}>
-                            {item.name}
-                          </div>
-                          <div className="text-[11px]" style={{ color: config.textMutedColor }}>
-                            {formatPrice(item.price)} × {item.quantity}
-                          </div>
-                        </div>
-                        <div className="flex items-center gap-1 ml-2">
-                          <button
-                            onClick={() => updateQuantity(item.id, item.quantity - 1)}
-                            className="w-6 h-6 bg-red-500 hover:bg-red-600 text-white rounded-full flex items-center justify-center text-xs"
-                          >
-                            <Minus className="w-3 h-3" />
-                          </button>
-                          <span className="w-6 text-center font-bold text-[12px]">{item.quantity}</span>
-                          <button
-                            onClick={() => updateQuantity(item.id, item.quantity + 1)}
-                            className="w-6 h-6 bg-green-500 hover:bg-green-600 text-white rounded-full flex items-center justify-center text-xs"
-                          >
-                            <Plus className="w-3 h-3" />
-                          </button>
-                          <button
-                            onClick={() => removeFromCart(item.id)}
-                            className="w-6 h-6 bg-gray-500 hover:bg-gray-600 text-white rounded-full flex items-center justify-center ml-1 text-xs"
-                          >
-                            <X className="w-3 h-3" />
-                          </button>
-                        </div>
-                        <div className="font-bold text-right ml-2 text-[13px]" style={{ color: config.primaryColor }}>
-                          {formatPrice(item.price * item.quantity)}
-                        </div>
+            {/* Cart Items */}
+            <div className="flex-1 min-h-0 overflow-y-auto cart-scroll px-3 py-2 space-y-1.5">
+              {cart.length === 0 ? (
+                <div className="flex flex-col items-center justify-center h-full text-gray-400">
+                  <ShoppingCart className="w-10 h-10 mb-2 opacity-30" />
+                  <p className="text-sm font-medium">Panier vide</p>
+                  <p className="text-xs mt-0.5">Cliquez sur un produit</p>
+                </div>
+              ) : (
+                cart.map((item) => (
+                  <div
+                    key={item.id}
+                    className="flex items-center gap-2 p-2.5 bg-gray-50 rounded-xl border border-gray-100 hover:border-gray-200 transition-colors"
+                  >
+                    <div className="flex-1 min-w-0">
+                      <div className="font-medium text-sm text-gray-800 truncate">
+                        {item.name}
                       </div>
-                    ))}
+                      <div className="text-xs text-gray-400 mt-0.5">
+                        {formatPrice(item.price)}
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      <button
+                        onClick={() => updateQuantity(item.id, item.quantity - 1)}
+                        className="w-7 h-7 bg-white border border-gray-200 rounded-lg hover:bg-red-50 hover:border-red-200 hover:text-red-500 flex items-center justify-center text-gray-500 transition-all"
+                      >
+                        <Minus className="w-3 h-3" />
+                      </button>
+                      <span className="w-7 text-center font-semibold text-sm text-gray-800">
+                        {item.quantity}
+                      </span>
+                      <button
+                        onClick={() => updateQuantity(item.id, item.quantity + 1)}
+                        className="w-7 h-7 bg-white border border-gray-200 rounded-lg hover:bg-emerald-50 hover:border-emerald-200 hover:text-emerald-500 flex items-center justify-center text-gray-500 transition-all"
+                      >
+                        <Plus className="w-3 h-3" />
+                      </button>
+                      <button
+                        onClick={() => removeFromCart(item.id)}
+                        className="w-7 h-7 bg-white border border-gray-200 rounded-lg hover:bg-red-50 hover:border-red-200 hover:text-red-500 flex items-center justify-center text-gray-400 transition-all ml-0.5"
+                      >
+                        <Trash2 className="w-3 h-3" />
+                      </button>
+                    </div>
+                    <div className="text-sm font-semibold text-blue-600 min-w-[70px] text-right">
+                      {formatPrice(item.price * item.quantity)}
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+
+            {/* Totals & Actions */}
+            <div className="border-t border-gray-100 px-3 py-3 space-y-2.5">
+              {/* Discount */}
+              {(calculatedDiscount > 0 || discountPercentage > 0) && (
+                <div className="bg-amber-50 rounded-xl p-2.5 border border-amber-200">
+                  <div className="flex items-center gap-2 justify-between text-xs">
+                    <span className="font-medium text-amber-700">Réduction</span>
+                    <div className="flex gap-1.5 items-center">
+                      <input
+                        type="number"
+                        value={discountPercentage > 0 ? discountPercentage : discountAmount}
+                        onChange={(e) => {
+                          const val = parseFloat(e.target.value) || 0;
+                          if (e.target.value.includes('%') || val > 100) {
+                            setDiscountPercentage(Math.min(val, 100));
+                            setDiscountAmount(0);
+                          } else {
+                            setDiscountAmount(val);
+                            setDiscountPercentage(0);
+                          }
+                        }}
+                        placeholder="0"
+                        className="w-14 px-2 py-1 border border-amber-300 rounded-lg text-xs text-center bg-white"
+                      />
+                      <span className="text-amber-700 font-semibold">
+                        {discountPercentage > 0 ? `${discountPercentage}%` : formatPrice(calculatedDiscount)}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Subtotal / Tax */}
+              <div className="space-y-1 text-xs">
+                <div className="flex justify-between text-gray-500">
+                  <span>Sous-total</span>
+                  <span className="font-medium text-gray-700">{formatPrice(subtotal)}</span>
+                </div>
+                {calculatedDiscount > 0 && (
+                  <div className="flex justify-between text-amber-600">
+                    <span>Réduction</span>
+                    <span className="font-medium">-{formatPrice(calculatedDiscount)}</span>
                   </div>
                 )}
+                <div className="flex justify-between text-gray-500">
+                  <span>TVA ({(config.taxRate * 100).toFixed(0)}%)</span>
+                  <span className="font-medium text-emerald-600">{formatPrice(tax)}</span>
+                </div>
               </div>
 
-              {/* Total & Discount & Tax & Payment */}
-              <div className="border-t pt-1 space-y-1 flex-shrink-0 px-1" style={{ borderColor: config.cardBorderColor }}>
-                {/* Discount Row */}
-                {(calculatedDiscount > 0 || discountPercentage > 0) && (
-                  <div className="bg-orange-50 p-1 rounded border border-orange-200">
-                    <div className="flex items-center gap-1 justify-between text-xs mb-1">
-                      <label className="font-semibold text-orange-700">Réduction:</label>
-                      <div className="flex gap-1 flex-1">
-                        <input
-                          type="number"
-                          value={discountPercentage > 0 ? discountPercentage : discountAmount}
-                          onChange={(e) => {
-                            const val = parseFloat(e.target.value) || 0;
-                            if (e.target.value.includes('%') || val > 100) {
-                              setDiscountPercentage(Math.min(val, 100));
-                              setDiscountAmount(0);
-                            } else {
-                              setDiscountAmount(val);
-                              setDiscountPercentage(0);
-                            }
-                          }}
-                          placeholder="0"
-                          className="w-12 px-1 py-0.5 border rounded text-xs"
-                          style={{ borderColor: config.cardBorderColor }}
-                        />
-                        <span className="text-orange-700 font-bold">
-                          {discountPercentage > 0 ? `${discountPercentage}%` : formatPrice(calculatedDiscount)}
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-                )}
+              {/* Total */}
+              <div className="flex justify-between items-center bg-gradient-to-r from-blue-500 to-blue-600 rounded-xl px-4 py-3 shadow-sm">
+                <span className="text-white font-semibold text-sm">TOTAL</span>
+                <span className="text-white font-bold text-lg">{formatPrice(finalTotal)}</span>
+              </div>
 
-                {/* Tax Display */}
-                <div className="space-y-0.5 text-xs bg-blue-50 p-1 rounded">
-                  <div className="flex justify-between" style={{ color: config.textColor }}>
-                    <span>Subtotal:</span>
-                    <span className="font-semibold">{formatPrice(subtotal)}</span>
-                  </div>
-                  {calculatedDiscount > 0 && (
-                    <div className="flex justify-between text-orange-600">
-                      <span>Réduction:</span>
-                      <span className="font-semibold">-{formatPrice(calculatedDiscount)}</span>
-                    </div>
-                  )}
-                  <div className="flex justify-between border-t pt-0.5" style={{ borderColor: config.cardBorderColor }}>
-                    <span>Tax ({(config.taxRate * 100).toFixed(0)}%):</span>
-                    <span className="font-semibold text-green-600">{formatPrice(tax)}</span>
-                  </div>
-                </div>
+              {/* Action Buttons */}
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  onClick={handlePayment}
+                  disabled={cart.length === 0}
+                  className="py-2.5 px-3 rounded-xl text-white font-semibold text-sm transition-all hover:shadow-md hover:scale-[1.01] active:scale-[0.99] disabled:opacity-40 disabled:hover:shadow-none disabled:hover:scale-100"
+                  style={{ backgroundColor: config.primaryColor }}
+                >
+                  ENCAISSER
+                </button>
+                <button
+                  onClick={clearCart}
+                  className="py-2.5 px-3 rounded-xl bg-gray-100 hover:bg-red-100 text-gray-600 hover:text-red-600 font-semibold text-sm transition-all"
+                >
+                  VIDER
+                </button>
+              </div>
 
-                {/* TOTAL */}
-                <div className="flex justify-between items-center font-bold text-sm bg-gradient-to-r rounded p-1" 
-                  style={{ background: `linear-gradient(to right, ${config.primaryColor}, ${config.secondaryColor})`, color: 'white' }}>
-                  <span>TOTAL:</span>
-                  <span className="text-lg">{formatPrice(finalTotal)}</span>
-                </div>
-
-                {/* Action Buttons */}
-                <div className="grid grid-cols-2 gap-1">
-                  <button
-                    onClick={handlePayment}
-                    disabled={cart.length === 0}
-                    className="py-1 px-2 rounded text-white font-bold text-xs transition-all hover:opacity-90 disabled:opacity-50"
-                    style={{ backgroundColor: config.primaryColor }}
-                  >
-                    💳 ENCAISSER
-                  </button>
-                  <button
-                    onClick={clearCart}
-                    className="py-1 px-2 rounded bg-red-500 hover:bg-red-600 text-white text-xs"
-                  >
-                    🗑️ VIDER
-                  </button>
-                </div>
+              {/* Secondary Actions */}
+              <div className="flex gap-2">
                 {selectedTableForOrder && (
                   <button
                     onClick={() => {
@@ -604,193 +557,208 @@ const Sales = () => {
                       setSelectedTableForOrder(null);
                       setCart([]);
                     }}
-                    className="w-full py-1 px-2 rounded bg-purple-500 hover:bg-purple-600 text-white text-xs flex items-center justify-center gap-1"
+                    className="flex-1 py-2 px-3 rounded-xl bg-purple-50 hover:bg-purple-100 text-purple-700 text-xs font-medium transition-all flex items-center justify-center gap-1.5"
                   >
-                    <Utensils className="w-3 h-3" />
+                    <Utensils className="w-3.5 h-3.5" />
                     Changer Table
                   </button>
                 )}
                 <button
                   onClick={() => setShowCalculator(true)}
-                  className="w-full py-1 px-2 rounded bg-blue-500 hover:bg-blue-600 text-white text-xs flex items-center justify-center gap-1"
+                  className="flex-1 py-2 px-3 rounded-xl bg-gray-50 hover:bg-gray-100 text-gray-600 text-xs font-medium transition-all flex items-center justify-center gap-1.5"
                 >
-                  <Calculator className="w-3 h-3" />
-                  CALCULATRICE
+                  <Calculator className="w-3.5 h-3.5" />
+                  Calculatrice
                 </button>
-                
-                {/* Quick Actions */}
-                <div className="grid grid-cols-5 gap-1 mt-1">
-                  <button
-                    onClick={() => setShowTableSelector(true)}
-                    className="bg-green-500 hover:bg-green-600 text-white rounded font-bold text-[9px] flex items-center justify-center h-8"
-                    title="Sélectionner Table"
-                  >
-                    <Utensils className="w-3 h-3" />
-                  </button>
-                  <button
-                    onClick={() => {
-                      setLocalNotification("👤 Gestion client");
-                      setTimeout(() => setLocalNotification(null), 2000);
-                    }}
-                    className="bg-purple-500 hover:bg-purple-600 text-white rounded font-bold text-[9px] flex items-center justify-center h-8"
-                    title="Client"
-                  >
-                    <User className="w-3 h-3" />
-                  </button>
-                  <button
-                    onClick={() => {
-                      setLocalNotification("📈 Rapports");
-                      setTimeout(() => setLocalNotification(null), 2000);
-                    }}
-                    className="bg-indigo-500 hover:bg-indigo-600 text-white rounded font-bold text-[9px] flex items-center justify-center h-8"
-                    title="Rapports"
-                  >
-                    📈
-                  </button>
-                  <button
-                    onClick={() => {
-                      setLocalNotification("🎫 Impression ticket");
-                      setTimeout(() => setLocalNotification(null), 2000);
-                    }}
-                    className="bg-orange-500 hover:bg-orange-600 text-white rounded font-bold text-[9px] flex items-center justify-center h-8"
-                    title="Ticket"
-                  >
-                    🎫
-                  </button>
-                  <button
-                    onClick={() => {
-                      setLocalNotification("💰 Tiroir ouvert !");
-                      setDrawerStatus('open');
-                      setTimeout(() => {
-                        setDrawerStatus('closed');
-                        setLocalNotification(null);
-                      }, 3000);
-                    }}
-                    className={`rounded font-bold text-[9px] h-8 flex items-center justify-center ${
-                      drawerStatus === 'open'
-                        ? 'bg-green-500 text-white'
-                        : 'bg-gray-500 hover:bg-gray-600 text-white'
-                    }`}
-                    title="Tiroir caisse"
-                  >
-                    💰
-                  </button>
-                </div>
+              </div>
+
+              {/* Quick Actions Grid */}
+              <div className="grid grid-cols-5 gap-1.5">
+                <button
+                  onClick={() => setShowTableSelector(true)}
+                  className="bg-emerald-50 hover:bg-emerald-100 text-emerald-700 rounded-xl font-medium text-[10px] h-10 flex flex-col items-center justify-center gap-0.5 transition-all"
+                  title="Sélectionner Table"
+                >
+                  <Utensils className="w-4 h-4" />
+                  <span>Table</span>
+                </button>
+                <button
+                  onClick={() => {
+                    setLocalNotification("Gestion client");
+                    setTimeout(() => setLocalNotification(null), 2000);
+                  }}
+                  className="bg-purple-50 hover:bg-purple-100 text-purple-700 rounded-xl font-medium text-[10px] h-10 flex flex-col items-center justify-center gap-0.5 transition-all"
+                  title="Client"
+                >
+                  <User className="w-4 h-4" />
+                  <span>Client</span>
+                </button>
+                <button
+                  onClick={() => {
+                    setLocalNotification("Rapports");
+                    setTimeout(() => setLocalNotification(null), 2000);
+                  }}
+                  className="bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded-xl font-medium text-[10px] h-10 flex flex-col items-center justify-center gap-0.5 transition-all"
+                  title="Rapports"
+                >
+                  <Receipt className="w-4 h-4" />
+                  <span>Rapports</span>
+                </button>
+                <button
+                  onClick={() => {
+                    setLocalNotification("Impression ticket");
+                    setTimeout(() => setLocalNotification(null), 2000);
+                  }}
+                  className="bg-orange-50 hover:bg-orange-100 text-orange-700 rounded-xl font-medium text-[10px] h-10 flex flex-col items-center justify-center gap-0.5 transition-all"
+                  title="Ticket"
+                >
+                  <Receipt className="w-4 h-4" />
+                  <span>Ticket</span>
+                </button>
+                <button
+                  onClick={() => {
+                    setDrawerStatus('open');
+                    setLocalNotification("Tiroir ouvert");
+                    setTimeout(() => {
+                      setDrawerStatus('closed');
+                      setLocalNotification(null);
+                    }, 3000);
+                  }}
+                  className={`rounded-xl font-medium text-[10px] h-10 flex flex-col items-center justify-center gap-0.5 transition-all ${
+                    drawerStatus === 'open'
+                      ? 'bg-emerald-100 text-emerald-700'
+                      : 'bg-gray-50 hover:bg-gray-100 text-gray-600'
+                  }`}
+                  title="Tiroir caisse"
+                >
+                  <CreditCard className="w-4 h-4" />
+                  <span>Caisse</span>
+                </button>
               </div>
             </div>
           </div>
         </div>
 
-        {/* RIGHT SIDE - Products */}
-        <div className="w-[75%] h-full">
-          <div 
-            className="h-full bg-white rounded-lg shadow-sm flex flex-col"
-            style={{ 
-              backgroundColor: config.cardBackgroundColor,
-              borderColor: config.cardBorderColor
-            }}
-          >
-             {/* Products Header */}
-             <div className="py-2 px-2 flex-shrink-0 border-b space-y-2" style={{ borderColor: config.cardBorderColor }}>
-               {/* Search and Info Row */}
-               <div className="flex items-center justify-between gap-2">
-                 <div className="flex-1 relative">
-                   <Search className="absolute left-2 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
-                   <input
-                     type="text"
-                     placeholder="🔍 Rechercher produit, code..."
-                     value={searchTerm}
-                     onChange={(e) => setSearchTerm(e.target.value)}
-                     className="w-full pl-8 pr-2 py-1.5 text-sm border rounded"
-                     style={{ borderColor: config.cardBorderColor, color: config.textColor }}
-                   />
-                 </div>
-                 <span className="text-xs bg-blue-100 px-2 py-1 rounded whitespace-nowrap font-bold" style={{ color: config.primaryColor }}>
-                   {filteredProducts.length}
-                 </span>
-               </div>
+        {/* Products Panel - Right */}
+        <div className="flex-1 h-full min-w-0">
+          <div className="h-full bg-white rounded-2xl shadow-sm border border-gray-100 flex flex-col">
+            {/* Search & Categories */}
+            <div className="px-4 py-3 flex-shrink-0 border-b border-gray-100 space-y-3">
+              {/* Search */}
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                <input
+                  type="text"
+                  placeholder="Rechercher un produit..."
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  className="w-full pl-9 pr-3 py-2.5 text-sm bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 transition-all"
+                />
+                <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-medium text-blue-600 bg-blue-50 px-2 py-0.5 rounded-lg">
+                  {filteredProducts.length}
+                </span>
+              </div>
 
-               {/* Categories */}
-               <div className="flex gap-0.5 overflow-x-auto">
-                 {categories.map((category) => (
-                   <button
-                     key={category}
-                     onClick={() => setSelectedCategory(category)}
-                     className={`px-2 py-0.5 rounded text-[10px] font-medium transition-all whitespace-nowrap ${
-                       selectedCategory === category
-                         ? "text-white"
-                         : "bg-gray-100 text-gray-600 hover:bg-gray-200"
-                     }`}
-                     style={{
-                       backgroundColor: selectedCategory === category ? config.primaryColor : undefined
-                     }}
-                   >
-                     {category}
-                   </button>
-                 ))}
-               </div>
-             </div>
+              {/* Category Filter with Icons */}
+              <div className="flex gap-1.5 overflow-x-auto cat-scroll pb-0.5">
+                {categories.map((category) => {
+                  const iconName = getCategoryIcon(category);
+                  const isActive = selectedCategory === category;
+                  return (
+                    <button
+                      key={category}
+                      onClick={() => setSelectedCategory(category)}
+                      className={`flex flex-col items-center gap-1 px-3 py-2 rounded-xl text-xs font-medium transition-all whitespace-nowrap min-w-[60px] ${
+                        isActive
+                          ? 'text-white shadow-sm'
+                          : 'bg-gray-50 text-gray-500 hover:bg-gray-100 hover:text-gray-700 border border-gray-100'
+                      }`}
+                      style={isActive ? { backgroundColor: config.primaryColor } : {}}
+                    >
+                      {iconName ? (
+                        <FamilyIcon iconName={iconName} className="w-5 h-5" />
+                      ) : (
+                        <Grid3x3 className="w-5 h-5 opacity-60" />
+                      )}
+                      <span>{category === 'Tout' ? 'Tout' : category}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
 
             {/* Product Grid */}
-            <div className="flex-1 p-1 overflow-auto">
+            <div className="flex-1 p-3 overflow-auto">
               {filteredProducts.length === 0 ? (
                 <div className="flex flex-col items-center justify-center h-full text-center py-16">
-                  <Package className="w-20 h-20 text-gray-300 mb-4" />
-                  <h3 className="text-xl font-semibold text-gray-700 mb-2">
+                  <div className="w-20 h-20 bg-gray-100 rounded-2xl flex items-center justify-center mb-4">
+                    <Package className="w-10 h-10 text-gray-300" />
+                  </div>
+                  <h3 className="text-lg font-semibold text-gray-700 mb-1">
                     Aucun produit disponible
                   </h3>
-                  <p className="text-gray-500 mb-6 max-w-md">
-                    Ajoutez des produits dans la section 'Produits' pour commencer les ventes
+                  <p className="text-sm text-gray-400 mb-6 max-w-md">
+                    Ajoutez des produits dans la section Produits pour commencer les ventes
                   </p>
                   <button
                     onClick={() => window.location.hash = '#/products'}
-                    className="px-6 py-3 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors"
+                    className="px-6 py-2.5 bg-blue-500 text-white rounded-xl hover:bg-blue-600 transition-all shadow-sm hover:shadow-md text-sm font-medium"
                   >
                     Aller aux produits
                   </button>
                 </div>
               ) : (
-                <div className="grid grid-cols-6 gap-1 auto-rows-[minmax(60px,1fr)]">
-                  {filteredProducts.map((product) => (
-                    <div
-                      key={product.id}
-                      className={`flex flex-col justify-between p-1 border rounded cursor-pointer transition-all active:scale-95 min-h-[60px] ${
-                        selectedCard === product.id && "ring-2 ring-blue-500"
-                      } ${
-                        animatingCard === product.id && "animate-pulse"
-                      }`}
-                      style={{
-                        borderColor: config.cardBorderColor,
-                        backgroundColor: config.backgroundColor
-                      }}
-                      onClick={() => addToCart(product)}
-                    >
-                      <div className="flex-1">
-                        <div className="font-bold text-[12px] mb-1 truncate" style={{ color: config.textColor }}>
-                          {product.name}
+                <div className="grid grid-cols-5 xl:grid-cols-6 gap-2 auto-rows-[minmax(90px,1fr)]">
+                  {filteredProducts.map((product) => {
+                    const iconName = getCategoryIcon(product.category);
+                    return (
+                      <div
+                        key={product.id}
+                        onClick={() => addToCart(product)}
+                        className={`flex flex-col justify-between p-3 rounded-xl border cursor-pointer transition-all hover:shadow-md hover:border-blue-200 active:scale-[0.97] min-h-[90px] ${
+                          selectedCard === product.id
+                            ? 'ring-2 ring-blue-500 border-blue-300 shadow-md bg-blue-50/30'
+                            : 'border-gray-100 bg-white hover:bg-gray-50'
+                        } ${
+                          animatingCard === product.id && 'animate-pulse'
+                        }`}
+                      >
+                        <div className="space-y-1">
+                          {product.image && (
+                            <div className="-mx-3 -mt-3 mb-2 overflow-hidden bg-gray-50 h-[72px]">
+                              <img src={product.image} alt={product.name} className="w-full h-full object-cover" />
+                            </div>
+                          )}
+                          <div className="flex items-start justify-between gap-1">
+                            <span className="font-semibold text-sm text-gray-800 leading-tight line-clamp-2">
+                              {product.name}
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-1">
+                            {iconName && <FamilyIcon iconName={iconName} className="w-3.5 h-3.5 text-gray-400" />}
+                            <span className="text-[10px] text-gray-400 truncate">
+                              {product.category}
+                            </span>
+                          </div>
                         </div>
-                        <div className="text-[10px] mb-1 truncate" style={{ color: config.textMutedColor }}>
-                          {product.category}
+                        <div className="flex items-center justify-between mt-1">
+                          <span className="font-bold text-sm text-blue-600">
+                            {formatPrice(product.price)}
+                          </span>
+                          {product.stock !== undefined && product.stock <= 5 && product.stock > 0 && (
+                            <span className="text-[9px] text-amber-600 bg-amber-50 px-1.5 py-0.5 rounded-lg font-medium">
+                              +{product.stock}
+                            </span>
+                          )}
+                          {product.stock === 0 && (
+                            <span className="text-[9px] text-red-500 bg-red-50 px-1.5 py-0.5 rounded-lg font-medium">
+                              Rupture
+                            </span>
+                          )}
                         </div>
                       </div>
-                      <div className="font-bold text-sm" style={{ color: config.primaryColor }}>
-                        {formatPrice(product.price)}
-                      </div>
-                    </div>
-                  ))}
-
-                  {/* Empty slots */}
-                  {[...Array(Math.max(0, 24 - filteredProducts.length))].map((_, index) => (
-                    <div
-                      key={`empty-${index}`}
-                      className="flex items-center justify-center border-2 border-dashed rounded opacity-20 min-h-[60px]"
-                      style={{
-                        borderColor: config.cardBorderColor
-                      }}
-                    >
-                      <Plus className="w-4 h-4" style={{ color: config.textMutedColor }} />
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
             </div>
@@ -798,69 +766,69 @@ const Sales = () => {
         </div>
       </div>
 
-      {/* Payment Modal - Professional Receipt */}
+      {/* Payment Modal */}
       {showPaymentMethods && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white w-full max-w-md rounded-lg shadow-2xl max-h-[90vh] overflow-y-auto">
-            <div className="p-4 border-b sticky top-0 bg-white" style={{ borderColor: config.cardBorderColor }}>
-              <h2 className="text-lg font-bold" style={{ color: config.textColor }}>💳 Confirmation Paiement</h2>
+        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50">
+          <div className="bg-white w-full max-w-md rounded-2xl shadow-2xl max-h-[90vh] overflow-y-auto animate-in zoom-in-95 duration-200">
+            <div className="p-5 border-b border-gray-100">
+              <h2 className="text-lg font-bold text-gray-900">Confirmation Paiement</h2>
             </div>
 
-            {/* Receipt Preview */}
-            <div className="p-4 space-y-3">
-              {/* Items List */}
-              <div className="bg-gray-50 p-3 rounded max-h-48 overflow-y-auto">
-                <h3 className="text-xs font-bold mb-2 text-gray-600">ARTICLES:</h3>
+            <div className="p-5 space-y-4">
+              {/* Receipt Items */}
+              <div className="bg-gray-50 rounded-xl p-4 max-h-44 overflow-y-auto space-y-1.5">
+                <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Articles</p>
                 {cart.map((item) => (
-                  <div key={item.id} className="flex justify-between text-xs mb-1 py-1 border-b" style={{ borderColor: config.cardBorderColor }}>
+                  <div key={item.id} className="flex justify-between text-sm py-1.5 border-b border-gray-100 last:border-0">
                     <div className="flex-1">
-                      <div className="font-semibold" style={{ color: config.textColor }}>{item.name}</div>
-                      <div className="text-gray-500">{item.quantity}x @ {formatPrice(item.price)}</div>
+                      <div className="font-medium text-gray-800">{item.name}</div>
+                      <div className="text-xs text-gray-400">{item.quantity}x {formatPrice(item.price)}</div>
                     </div>
-                    <div className="text-right font-semibold" style={{ color: config.primaryColor }}>
+                    <div className="text-right font-semibold text-gray-800 whitespace-nowrap ml-3">
                       {formatPrice(item.price * item.quantity)}
                     </div>
                   </div>
                 ))}
               </div>
 
-              {/* Totals Breakdown */}
-              <div className="bg-blue-50 p-3 rounded space-y-1 text-xs border border-blue-200">
-                <div className="flex justify-between">
-                  <span className="text-gray-600">Subtotal:</span>
-                  <span className="font-semibold">{formatPrice(subtotal)}</span>
+              {/* Totals */}
+              <div className="bg-blue-50 rounded-xl p-4 space-y-1.5 text-sm">
+                <div className="flex justify-between text-gray-500">
+                  <span>Sous-total</span>
+                  <span className="font-medium text-gray-700">{formatPrice(subtotal)}</span>
                 </div>
                 {calculatedDiscount > 0 && (
-                  <div className="flex justify-between text-orange-600">
-                    <span>Réduction:</span>
-                    <span className="font-semibold">-{formatPrice(calculatedDiscount)}</span>
+                  <div className="flex justify-between text-amber-600">
+                    <span>Réduction</span>
+                    <span className="font-medium">-{formatPrice(calculatedDiscount)}</span>
                   </div>
                 )}
-                <div className="flex justify-between border-t pt-1" style={{ borderColor: config.cardBorderColor }}>
-                  <span className="text-gray-600">Tax ({(config.taxRate * 100).toFixed(0)}%):</span>
-                  <span className="font-semibold text-green-600">{formatPrice(tax)}</span>
+                <div className="flex justify-between border-t border-blue-100 pt-1.5">
+                  <span className="text-gray-500">TVA ({(config.taxRate * 100).toFixed(0)}%)</span>
+                  <span className="font-medium text-emerald-600">{formatPrice(tax)}</span>
                 </div>
-                <div className="flex justify-between border-t-2 pt-1 text-sm" style={{ borderColor: config.primaryColor, color: config.primaryColor }}>
-                  <span className="font-bold">TOTAL:</span>
-                  <span className="font-bold text-lg">{formatPrice(finalTotal)}</span>
+                <div className="flex justify-between border-t-2 border-blue-200 pt-1.5">
+                  <span className="font-bold text-gray-800">TOTAL</span>
+                  <span className="font-bold text-lg text-blue-600">{formatPrice(finalTotal)}</span>
                 </div>
               </div>
 
               {/* Payment Methods */}
               <div className="space-y-2">
-                <p className="text-xs font-bold text-gray-600">Sélectionner le mode de paiement:</p>
+                <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Mode de paiement</p>
                 <div className="grid grid-cols-2 gap-2">
                   {[
-                    { label: '💵 Espèces', color: 'bg-green-500 hover:bg-green-600' },
-                    { label: '💳 Carte', color: 'bg-blue-500 hover:bg-blue-600' },
-                    { label: '📝 Chèque', color: 'bg-purple-500 hover:bg-purple-600' },
-                    { label: '📱 Mobile', color: 'bg-orange-500 hover:bg-orange-600' }
+                    { label: 'Espèces', color: 'bg-emerald-500 hover:bg-emerald-600', icon: '💵' },
+                    { label: 'Carte', color: 'bg-blue-500 hover:bg-blue-600', icon: '💳' },
+                    { label: 'Chèque', color: 'bg-purple-500 hover:bg-purple-600', icon: '📝' },
+                    { label: 'Mobile', color: 'bg-orange-500 hover:bg-orange-600', icon: '📱' }
                   ].map(method => (
                     <button
                       key={method.label}
                       onClick={() => confirmPayment(method.label)}
-                      className={`p-2 ${method.color} text-white rounded-lg font-bold text-xs transition-all`}
+                      className={`p-3 ${method.color} text-white rounded-xl font-semibold text-sm transition-all hover:shadow-md active:scale-[0.98] flex items-center justify-center gap-2`}
                     >
+                      <span>{method.icon}</span>
                       {method.label}
                     </button>
                   ))}
@@ -869,23 +837,23 @@ const Sales = () => {
 
               <button
                 onClick={() => setShowPaymentMethods(false)}
-                className="w-full p-2 bg-gray-500 hover:bg-gray-600 text-white rounded-lg text-sm font-semibold"
+                className="w-full py-2.5 bg-gray-100 hover:bg-gray-200 text-gray-600 rounded-xl text-sm font-medium transition-all"
               >
-                ✖ Annuler
+                Annuler
               </button>
             </div>
           </div>
         </div>
       )}
 
-      {/* Draggable Calculator Popup */}
+      {/* Draggable Calculator */}
       {showCalculator && (
         <div
-          className="fixed bg-white border-2 border-blue-300 rounded-lg shadow-2xl z-50 select-none"
+          className="fixed bg-white border border-gray-200 rounded-2xl shadow-2xl z-50 select-none overflow-hidden"
           style={{
             left: `${calculatorPosition.x}px`,
             top: `${calculatorPosition.y}px`,
-            width: '280px',
+            width: '260px',
             cursor: isDragging ? 'grabbing' : 'grab'
           }}
           onMouseDown={(e) => {
@@ -897,33 +865,30 @@ const Sales = () => {
             });
           }}
         >
-          {/* Calculator Header */}
-          <div className="bg-blue-500 text-white px-3 py-2 rounded-t-lg flex items-center justify-between">
+          {/* Header */}
+          <div className="bg-blue-500 text-white px-3 py-2.5 flex items-center justify-between">
             <div className="flex items-center gap-2">
               <Calculator className="w-4 h-4" />
-              <span className="font-bold text-sm">Calculatrice</span>
+              <span className="font-semibold text-sm">Calculatrice</span>
             </div>
             <button
-              onClick={() => {
-                setShowCalculator(false);
-                setKeypadValue("");
-              }}
-              className="calculator-button w-6 h-6 bg-red-500 hover:bg-red-600 rounded-full flex items-center justify-center transition-colors"
+              onClick={() => { setShowCalculator(false); setKeypadValue(""); }}
+              className="calculator-button w-6 h-6 bg-white/20 hover:bg-white/30 rounded-lg flex items-center justify-center transition-colors"
             >
-              <X className="w-4 h-4" />
+              <X className="w-3.5 h-3.5" />
             </button>
           </div>
 
-          {/* Calculator Display */}
+          {/* Display */}
           <div className="p-3 bg-gray-50">
-            <div className="bg-black text-green-400 px-3 py-2 rounded font-mono text-right text-lg min-h-[40px] flex items-center justify-end">
+            <div className="bg-gray-900 text-emerald-400 px-3 py-2.5 rounded-xl font-mono text-right text-lg min-h-[42px] flex items-center justify-end">
               {keypadValue || "0"}
             </div>
           </div>
 
-          {/* Calculator Buttons */}
+          {/* Buttons */}
           <div className="p-3">
-            <div className="grid grid-cols-4 gap-2">
+            <div className="grid grid-cols-4 gap-1.5">
               {['C', '←', '%', '÷', '7', '8', '9', '×', '4', '5', '6', '-', '1', '2', '3', '+', '0', '.', '=', '='].map((btn, index) => (
                 <button
                   key={index}
@@ -940,30 +905,22 @@ const Sales = () => {
                       handleKeypadClick(btn);
                     }
                   }}
-                  className={`
-                    calculator-button h-12 rounded font-bold text-sm transition-all hover:scale-105 active:scale-95
-                    ${btn === 'C'
-                      ? 'bg-red-500 hover:bg-red-600 text-white'
+                  className={`calculator-button h-11 rounded-xl font-semibold text-sm transition-all active:scale-95 ${
+                    btn === 'C'
+                      ? 'bg-red-100 hover:bg-red-200 text-red-600'
                       : btn === '='
-                        ? 'bg-green-500 hover:bg-green-600 text-white col-span-1'
+                        ? 'bg-blue-500 hover:bg-blue-600 text-white col-span-1'
                         : ['÷', '×', '-', '+', '%', '←'].includes(btn)
-                          ? 'bg-blue-500 hover:bg-blue-600 text-white'
+                          ? 'bg-blue-50 hover:bg-blue-100 text-blue-600'
                           : btn === '0'
-                            ? 'bg-gray-200 hover:bg-gray-300 col-span-2'
-                            : 'bg-gray-200 hover:bg-gray-300'
-                    }
-                    ${index === 19 ? 'hidden' : ''}
-                  `}
+                            ? 'bg-gray-100 hover:bg-gray-200 col-span-2 text-gray-700'
+                            : 'bg-gray-100 hover:bg-gray-200 text-gray-700'
+                  } ${index === 19 ? 'hidden' : ''}`}
                 >
                   {btn}
                 </button>
               ))}
             </div>
-          </div>
-
-          {/* Drag Handle */}
-          <div className="text-center py-1 bg-gray-100 rounded-b-lg">
-            <div className="inline-flex w-8 h-1 bg-gray-400 rounded-full"></div>
           </div>
         </div>
       )}

@@ -10,6 +10,8 @@ import {
   Search,
   MoreHorizontal
 } from 'lucide-react';
+import { POSConfiguration } from '../lib/POSConfiguration';
+import { useAppConfig } from '../hooks/useAppConfig';
 
 // Components
 import { Button } from '../components/ui/button';
@@ -42,6 +44,28 @@ import {
 } from '../components/ui/dropdown-menu';
 
 export default function Services() {
+  const { config: electronConfig } = useAppConfig();
+  const getConfig = () => {
+    if (electronConfig?.theme) {
+      return POSConfiguration.createConfig(electronConfig.theme);
+    }
+    return POSConfiguration.createConfig({
+      primaryColor: '#3b82f6',
+      backgroundColor: '#ffffff',
+      textColor: '#1f2937',
+      currency: 'DT',
+      currencyPosition: 'after',
+      taxRate: 19
+    });
+  };
+  const config = getConfig();
+  const formatPrice = (price) => {
+    if (config.currencyPosition === 'before') {
+      return `${config.currency}${price.toFixed(2)}`;
+    }
+    return `${price.toFixed(2)} ${config.currency}`;
+  };
+
   const [services, setServices] = useState([]);
   const [loading, setLoading] = useState(true);
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -287,7 +311,7 @@ export default function Services() {
               <DollarSign className="h-4 w-4 text-orange-500" />
               <div className="ml-2">
                 <p className="text-sm font-medium text-muted-foreground">Prix moyen</p>
-                <p className="text-2xl font-bold">{stats.avgPrice}DT</p>
+                <p className="text-2xl font-bold">{formatPrice(stats.avgPrice)}</p>
               </div>
             </div>
           </CardContent>
@@ -374,7 +398,7 @@ export default function Services() {
                     </TableCell>
                     <TableCell>
                       <span className="font-medium text-lg">
-                        {service.price.toFixed(2)}DT
+                        {formatPrice(service.price)}
                       </span>
                     </TableCell>
                     <TableCell>

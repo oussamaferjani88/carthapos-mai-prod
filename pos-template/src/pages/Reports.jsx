@@ -23,11 +23,22 @@ export default function Reports() {
     return POSConfiguration.createConfig({
       primaryColor: '#3b82f6',
       backgroundColor: '#ffffff',
-      textColor: '#1f2937'
+      textColor: '#1f2937',
+      currency: 'DT',
+      currencyPosition: 'after',
+      taxRate: 19
     });
   };
   const config = getConfig();
   const styles = POSConfiguration.getStyles(config);
+
+  const formatPrice = (price) => {
+    if (config.currencyPosition === 'before') {
+      return `${config.currency}${price.toFixed(2)}`;
+    }
+    return `${price.toFixed(2)} ${config.currency}`;
+  };
+
   const [selectedPeriod, setSelectedPeriod] = useState('today');
   const [salesData, setSalesData] = useState([]);
   const [categoryData, setCategoryData] = useState([]);
@@ -269,14 +280,14 @@ export default function Reports() {
     },
     {
       title: 'Chiffre d\'affaires',
-      value: `${stats.totalRevenue.toFixed(2)} DT`,
+      value: formatPrice(stats.totalRevenue),
       description: 'Revenus générés',
       icon: Euro,
       color: 'text-green-600'
     },
     {
       title: 'Ticket moyen',
-      value: `${stats.averageTicket.toFixed(2)} DT`,
+      value: formatPrice(stats.averageTicket),
       description: 'Montant moyen par vente',
       icon: TrendingUp,
       color: 'text-purple-600'
@@ -388,7 +399,7 @@ export default function Reports() {
                   <YAxis />
                   <Tooltip 
                     formatter={(value, name) => [
-                      name === 'sales' ? `${value} ventes` : `${value} DT`,
+                      name === 'sales' ? `${value} ventes` : formatPrice(value),
                       name === 'sales' ? 'Ventes' : 'Revenus'
                     ]}
                   />
@@ -502,8 +513,8 @@ export default function Reports() {
                       <tr key={index} className="border-b">
                         <td className="p-2 font-medium">{item.hour}</td>
                         <td className="text-right p-2">{item.sales}</td>
-                        <td className="text-right p-2">{item.revenue.toFixed(2)} DT</td>
-                        <td className="text-right p-2">{avgTicket.toFixed(2)} DT</td>
+                        <td className="text-right p-2">{formatPrice(item.revenue)}</td>
+                        <td className="text-right p-2">{formatPrice(avgTicket)}</td>
                         <td className={`text-right p-2 font-medium ${performanceColor}`}>
                           {performance}
                         </td>

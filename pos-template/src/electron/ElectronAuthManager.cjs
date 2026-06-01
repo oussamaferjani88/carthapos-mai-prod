@@ -549,13 +549,14 @@ class ElectronAuthManager {
       // Insert user
       const result = await this.db.runQuery(
         `INSERT INTO users 
-         (username, password_hash, full_name, email, role, badge_id, pin, is_active, created_by, created_at, updated_at) 
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         (username, password_hash, full_name, email, phone, role, badge_id, pin, is_active, created_by, created_at, updated_at) 
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           userData.username,
           passwordHash,
           userData.full_name || null,
           userData.email || null,
+          userData.phone || null,
           userData.role || 'cashier',
           userData.badge_id || null,
           userData.pin || null,
@@ -610,7 +611,12 @@ class ElectronAuthManager {
 
       if (userData.email !== undefined) {
         updates.push('email = ?');
-        params.push(userData.email);
+        params.push(userData.email || null);
+      }
+
+      if (userData.phone !== undefined) {
+        updates.push('phone = ?');
+        params.push(userData.phone || null);
       }
 
       if (userData.role !== undefined) {
@@ -698,6 +704,48 @@ class ElectronAuthManager {
       console.log('✅ User deleted successfully');
     } catch (error) {
       console.error('❌ Error deleting user:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Reactivate a soft-deleted user by username (reuses the existing row)
+   * @param {Object} userData - New user data (username, password, email, phone, role, etc.)
+   * @returns {Promise<Object>} Reactivated user info
+   */
+  async reactivateUser(userData) {
+    try {
+      const existing = await this.db.getRow(
+        'SELECT id, username FROM users WHERE username = ?',
+        [userData.username]
+      );
+
+      if (!existing) {
+        throw new Error(`User ${userData.username} not found for reactivation`);
+      }
+
+      const passwordHash = await bcrypt.hash(userData.password, SALT_ROUNDS);
+
+      await this.db.runQuery(
+        `UPDATE users SET 
+         password_hash = ?, full_name = ?, email = ?, phone = ?, role = ?,
+         is_active = 1, updated_at = ?
+         WHERE id = ?`,
+        [
+          passwordHash,
+          userData.full_name || userData.username,
+          userData.email || null,
+          userData.phone || null,
+          userData.role || 'cashier',
+          new Date().toISOString(),
+          existing.id
+        ]
+      );
+
+      console.log('✅ User reactivated successfully:', userData.username);
+      return { id: existing.id, username: userData.username, role: userData.role };
+    } catch (error) {
+      console.error('❌ Error reactivating user:', error);
       throw error;
     }
   }

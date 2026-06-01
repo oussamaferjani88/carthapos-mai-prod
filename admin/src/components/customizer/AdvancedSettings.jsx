@@ -166,6 +166,7 @@ const AdvancedSettings = ({ formData, setFormData }) => {
                   <SelectItem value="CAD">🇨🇦 Dollar Canadien (C$)</SelectItem>
                   <SelectItem value="CHF">🇨🇭 Franc Suisse (CHF)</SelectItem>
                   <SelectItem value="MAD">🇲🇦 Dirham (DH)</SelectItem>
+                  <SelectItem value="TND">🇹🇳 Dinar (TND)</SelectItem>
                 </SelectContent>
               </Select>
             </div>

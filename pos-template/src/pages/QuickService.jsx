@@ -48,10 +48,20 @@ export default function QuickService() {
     return POSConfiguration.createConfig({
       primaryColor: '#3b82f6',
       backgroundColor: '#ffffff',
-      textColor: '#1f2937'
+      textColor: '#1f2937',
+      currency: 'DT',
+      currencyPosition: 'after',
+      taxRate: 19
     });
   };
   const config = getConfig();
+
+  const formatPrice = (price) => {
+    if (config.currencyPosition === 'before') {
+      return `${config.currency}${price.toFixed(2)}`;
+    }
+    return `${price.toFixed(2)} ${config.currency}`;
+  };
   const [searchTerm, setSearchTerm] = useState('');
   const [showCheckout, setShowCheckout] = useState(false);
   const [paymentMethod, setPaymentMethod] = useState('cash');
@@ -113,7 +123,7 @@ export default function QuickService() {
   };
 
   const calculateTax = (total) => {
-    return total * 0.20; // 20% TVA
+    return total * ((config.taxRate || 19) / 100);
   };
 
   const handleCheckout = async () => {
@@ -253,7 +263,7 @@ export default function QuickService() {
                         )}
                         <h3 className="font-medium text-sm truncate">{product.name}</h3>
                         <div className="flex items-center justify-between">
-                          <span className="text-lg font-bold">{product.price}€</span>
+                          <span className="text-lg font-bold">{formatPrice(product.price)}</span>
                           <Badge 
                             variant={product.stock > 10 ? "default" : product.stock > 0 ? "outline" : "destructive"}
                             className="text-xs"
@@ -302,7 +312,7 @@ export default function QuickService() {
                       <div key={item.id} className="flex items-center justify-between p-2 border rounded">
                         <div className="flex-1">
                           <p className="font-medium text-sm truncate">{item.name}</p>
-                          <p className="text-xs text-muted-foreground">{item.price}€ × {item.quantity}</p>
+                          <p className="text-xs text-muted-foreground">{formatPrice(item.price)} × {item.quantity}</p>
                         </div>
                         <div className="flex items-center space-x-2">
                           <Button
@@ -328,15 +338,15 @@ export default function QuickService() {
                   <div className="border-t pt-4 space-y-2">
                     <div className="flex justify-between text-sm">
                       <span>Sous-total:</span>
-                      <span>{total.toFixed(2)}€</span>
+                      <span>{formatPrice(total)}</span>
                     </div>
                     <div className="flex justify-between text-sm">
-                      <span>TVA (20%):</span>
-                      <span>{tax.toFixed(2)}€</span>
+                      <span>TVA ({(config.taxRate || 19)}%):</span>
+                      <span>{formatPrice(tax)}</span>
                     </div>
                     <div className="flex justify-between font-bold text-lg border-t pt-2">
                       <span>Total:</span>
-                      <span>{(total + tax).toFixed(2)}€</span>
+                      <span>{formatPrice(total + tax)}</span>
                     </div>
                   </div>
                   
@@ -393,7 +403,7 @@ export default function QuickService() {
           <DialogHeader>
             <DialogTitle>Finaliser la vente</DialogTitle>
             <DialogDescription>
-              Total à encaisser: {(total + tax).toFixed(2)}€
+              Total à encaisser: {formatPrice(total + tax)}
             </DialogDescription>
           </DialogHeader>
           
@@ -423,21 +433,21 @@ export default function QuickService() {
               {cart.map(item => (
                 <div key={item.id} className="flex justify-between text-sm">
                   <span>{item.name} × {item.quantity}</span>
-                  <span>{(item.price * item.quantity).toFixed(2)}€</span>
+                  <span>{formatPrice(item.price * item.quantity)}</span>
                 </div>
               ))}
               <div className="border-t pt-2 space-y-1">
                 <div className="flex justify-between text-sm">
                   <span>Sous-total:</span>
-                  <span>{total.toFixed(2)}€</span>
+                  <span>{formatPrice(total)}</span>
                 </div>
                 <div className="flex justify-between text-sm">
                   <span>TVA:</span>
-                  <span>{tax.toFixed(2)}€</span>
+                  <span>{formatPrice(tax)}</span>
                 </div>
                 <div className="flex justify-between font-bold">
                   <span>Total:</span>
-                  <span>{(total + tax).toFixed(2)}€</span>
+                  <span>{formatPrice(total + tax)}</span>
                 </div>
               </div>
             </div>
@@ -449,7 +459,7 @@ export default function QuickService() {
             </Button>
             <Button onClick={handleCheckout}>
               <Zap className="h-4 w-4 mr-2" />
-              Encaisser {(total + tax).toFixed(2)}€
+              Encaisser {formatPrice(total + tax)}
             </Button>
           </DialogFooter>
         </DialogContent>
