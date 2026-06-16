@@ -17,6 +17,11 @@ import POSPreviewPage from './pages/pos/POSPreviewPage';
 import USBManager from './pages/management/USBManager';
 import UserManagement from './pages/management/UserManagement';
 import BIRequests from './pages/BIRequests';
+import BiUploadPortal from './pages/BiUploadPortal';
+import AdminBIDashboardManager from './pages/AdminBIDashboardManager';
+import AdminBIAnalystWorkspace from './pages/AdminBIAnalystWorkspace';
+import AdminBIAnalysisDetail from './pages/AdminBIAnalysisDetail';
+import AdminBIReview from './pages/AdminBIReview';
 
 // ============================================================================
 // JWT AUTHENTICATION - DISABLED FOR DEVELOPMENT
@@ -68,6 +73,11 @@ function AppShell() {
               <Route path="/pos-generator" element={<POSGenerator />} />
               <Route path="/pos-preview" element={<POSPreviewPage />} />
               <Route path="/bi-requests" element={<BIRequests />} />
+              <Route path="/bi-upload-portal" element={<BiUploadPortal />} />
+              <Route path="/bi-dashboard-manager" element={<AdminBIDashboardManager />} />
+              <Route path="/bi-analysis" element={<AdminBIAnalystWorkspace />} />
+              <Route path="/bi-analysis/:id" element={<AdminBIAnalysisDetail />} />
+              <Route path="/bi-review" element={<AdminBIReview />} />
               <Route path="/usb-manager" element={<USBManager />} />
               <Route path="/user-management" element={<UserManagement />} />
             </>

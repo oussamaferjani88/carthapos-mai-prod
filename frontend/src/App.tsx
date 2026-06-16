@@ -24,6 +24,8 @@ const Register = lazy(() => import("./pages/Register"));
 const VerificationPending = lazy(() => import("./pages/VerificationPending"));
 const Dashboard = lazy(() => import("./pages/dashboard/Dashboard"));
 const Generator = lazy(() => import("./pages/dashboard/Generator"));
+const BiExportDeploy = lazy(() => import("./pages/dashboard/BiExportDeploy"));
+const BIDashboardViewer = lazy(() => import("./pages/dashboard/BIDashboardViewer"));
 const NotFound = lazy(() => import("./pages/NotFound"));
 
 const queryClient = new QueryClient();
@@ -107,6 +109,21 @@ const App = () => (
               <Route path="generator" element={
                 <Suspense fallback={<PageSkeleton />}>
                   <Generator />
+                </Suspense>
+              } />
+              <Route path="bi-export" element={
+                <Suspense fallback={<PageSkeleton />}>
+                  <BiExportDeploy />
+                </Suspense>
+              } />
+              <Route path="bi-dashboard" element={
+                <Suspense fallback={<PageSkeleton />}>
+                  <BIDashboardViewer />
+                </Suspense>
+              } />
+              <Route path="bi-dashboard/:dashboardId" element={
+                <Suspense fallback={<PageSkeleton />}>
+                  <BIDashboardViewer />
                 </Suspense>
               } />
             </Route>

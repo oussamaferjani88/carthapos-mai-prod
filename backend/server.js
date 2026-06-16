@@ -33,6 +33,12 @@ const giftCardsRoutes = require('./routes/gift-cards');
 const prescriptionsRoutes = require('./routes/prescriptions');
 const productionRoutes = require('./routes/production');
 const biRequestsRoutes = require('./routes/bi-requests');
+const biUploadsRoutes = require('./routes/bi-uploads');
+const biDebugRoutes = require('./routes/bi-debug');
+const biDashboardsRoutes = require('./routes/bi-dashboards');
+const biNotificationsRoutes = require('./routes/bi-notifications');
+const biAnalysisRoutes = require('./routes/bi-analysis');
+const biReviewsRoutes = require('./routes/bi-reviews');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -101,6 +107,14 @@ app.use('/api/gift-cards', giftCardsRoutes);
 app.use('/api/prescriptions', prescriptionsRoutes);
 app.use('/api/production', productionRoutes);
 app.use('/api/bi-requests', biRequestsRoutes);
+app.use('/api/bi-uploads', biUploadsRoutes);
+app.use('/api/bi/debug', biDebugRoutes);
+app.use('/api/bi/dashboards', biDashboardsRoutes);
+app.use('/api/bi/dashboard', biDashboardsRoutes);
+app.use('/api/bi/notifications', biNotificationsRoutes);
+app.use('/api/bi/analysis', biAnalysisRoutes);
+app.use('/api/bi/reviews', biReviewsRoutes);
+app.use('/api/bi/review', biReviewsRoutes);
 
 // Error handling middleware
 app.use((err, req, res, next) => {

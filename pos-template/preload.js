@@ -34,6 +34,13 @@ contextBridge.exposeInMainWorld('electronAPI', {
   updateUser: (id, user) => ipcRenderer.invoke('update-user', id, user),
   deleteUser: (id) => ipcRenderer.invoke('delete-user', id),
   
+  // Tables
+  getTables: () => ipcRenderer.invoke('get-tables'),
+  addTable: (table) => ipcRenderer.invoke('add-table', table),
+  updateTable: (id, table) => ipcRenderer.invoke('update-table', id, table),
+  deleteTable: (id) => ipcRenderer.invoke('delete-table', id),
+  updateTableStatus: (id, status) => ipcRenderer.invoke('update-table-status', id, status),
+  
   // Authentication & Setup
   needsFirstTimeSetup: () => ipcRenderer.invoke('needs-first-time-setup'),
   needsAdminPasswordReset: () => ipcRenderer.invoke('needs-admin-password-reset'),
@@ -71,6 +78,19 @@ contextBridge.exposeInMainWorld('electronAPI', {
   saveBackup: (backupData) => ipcRenderer.invoke('save-backup', backupData),
   cleanupOldBackups: () => ipcRenderer.invoke('cleanup-old-backups'),
   
+  // BI Export
+  exportBiData: () => ipcRenderer.invoke('bi:export'),
+  
+  // Fournisseurs
+  getSuppliers: () => ipcRenderer.invoke('get-suppliers'),
+  
+  // Services & Rendez-vous
+  getServices: () => ipcRenderer.invoke('get-services'),
+  getAppointments: (date) => ipcRenderer.invoke('get-appointments', date),
+  
+  // Cuisine
+  getKitchenOrders: () => ipcRenderer.invoke('get-kitchen-orders'),
+  
   // Événements
   onLicenseStatusChanged: (callback) => {
     ipcRenderer.on('license-status-changed', callback);
@@ -78,8 +98,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   
   onDatabaseUpdated: (callback) => {
     ipcRenderer.on('database-updated', callback);
-  }
-  ,
+  },
   onDatabaseLocation: (callback) => {
     ipcRenderer.on('database-location', (event, dbPath) => callback(dbPath));
   }

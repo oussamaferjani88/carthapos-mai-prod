@@ -15,10 +15,11 @@ import {
   Upload,
   Plus,
   Trash2,
-  Receipt
+  Receipt,
+  ArrowLeft
 } from 'lucide-react';
 
-const ReceiptDesignerPreview = () => {
+const ReceiptDesignerPreview = ({ onClose }) => {
   const [previewMode, setPreviewMode] = useState(false);
 
   // Receipt configuration state (STATIC DEMO DATA)
@@ -169,6 +170,12 @@ const ReceiptDesignerPreview = () => {
           </p>
         </div>
         <div className="flex gap-2">
+          {onClose && (
+            <Button variant="ghost" onClick={onClose}>
+              <ArrowLeft className="h-4 w-4 mr-2" />
+              Retour
+            </Button>
+          )}
           <Button variant="outline" onClick={() => setPreviewMode(!previewMode)}>
             <Eye className="h-4 w-4 mr-2" />
             {previewMode ? 'Éditer' : 'Aperçu'}

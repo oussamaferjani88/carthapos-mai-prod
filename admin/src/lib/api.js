@@ -142,5 +142,18 @@ export const posApi = {
   cleanupBuild: (licenseId) => api.delete(`/pos/cleanup/${licenseId}`),
 };
 
+// API BI Uploads
+export const biUploadsApi = {
+  getAll: (params) => api.get('/bi-uploads', { params }),
+  getById: (id) => api.get(`/bi-uploads/${id}`),
+  getLogs: (id) => api.get(`/bi-uploads/${id}/logs`),
+  getSummary: (id) => api.get(`/bi-uploads/${id}/summary`),
+  getClients: () => api.get('/bi-uploads/clients/list'),
+  upload: (formData, onProgress) => api.post('/bi-uploads', formData, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+    onUploadProgress: onProgress,
+  }),
+};
+
 export default api;
 

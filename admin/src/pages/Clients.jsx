@@ -184,6 +184,9 @@ export default function Clients() {
                       {client.address}
                     </div>
                   )}
+                  <div className="text-xs text-muted-foreground font-mono">
+                    ID: {client.id}
+                  </div>
                   <div className="text-xs text-muted-foreground">
                     Créé le {new Date(client.createdAt).toLocaleDateString('fr-FR')}
                   </div>

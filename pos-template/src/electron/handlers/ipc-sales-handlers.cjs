@@ -34,17 +34,18 @@ function registerSalesHandlers(ipcMainInstance, databaseManager) {
 
   ipcMain.handle('add-sale', (event, sale) => {
     return new Promise((resolve, reject) => {
-      const { items, total, tax, discount, payment_method, customer_id } = sale;
+      const { items, total, tax, discount, payment_method, customer_id, table_id } = sale;
       
       db.run(
-        `INSERT INTO sales (total, tax, discount, payment_method, customer_id)
-         VALUES (?, ?, ?, ?, ?)`,
+        `INSERT INTO sales (total, tax, discount, payment_method, customer_id, table_id)
+         VALUES (?, ?, ?, ?, ?, ?)`,
         [
           total,
           tax || 0,
           discount || 0,
           payment_method || 'cash',
-          customer_id || null
+          customer_id || null,
+          table_id || null
         ],
         function(err) {
           if (err) {
@@ -53,6 +54,17 @@ function registerSalesHandlers(ipcMainInstance, databaseManager) {
           } else {
             const saleId = this.lastID;
             console.log('✅ Sale added successfully with ID:', saleId);
+            
+            // Free the table if one was assigned
+            if (table_id) {
+              db.run(
+                'UPDATE restaurant_tables SET status = ? WHERE id = ?',
+                ['available', table_id],
+                (updateErr) => {
+                  if (updateErr) console.error('Error freeing table:', updateErr);
+                }
+              );
+            }
             
             // Insert sale items
             if (items && items.length > 0) {

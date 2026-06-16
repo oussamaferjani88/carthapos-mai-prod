@@ -5,8 +5,6 @@ import { DragDropProvider } from '../../../contexts/DragDropContext';
 import POSPreviewPage from '../../../pages/pos/POSPreviewPage';
 import ReceiptDesignerPreview from './ReceiptDesignerPreview';
 import ErrorBoundary from '../../common/ErrorBoundary';
-import { Button } from '../../ui/button';
-import { Receipt, Monitor } from 'lucide-react';
 
 // Composant d'aperçu POS en temps réel - sans iframe, mise à jour instantanée
 export default function POSRealtimePreview({ 
@@ -34,7 +32,6 @@ export default function POSRealtimePreview({
   // Configuration memorisée avec valeurs par défaut
   const previewConfig = useMemo(() => {
     const defaults = {
-      // Configuration par défaut
       businessName: 'POS System',
       primaryColor: '#3b82f6',
       accentColor: '#6366f1',
@@ -53,23 +50,19 @@ export default function POSRealtimePreview({
       navbarPosition: 'left',
       spacing: 'medium',
       shadowIntensity: 'medium',
-      // Valeurs par défaut pour les effets
       animations: true,
-      animationType: 'slide', // Type pour navigation
-      animationSpeed: 'normal', // Vitesse pour navigation
-      cardAnimations: true, // Animations pour cartes
-      cardAnimationType: 'slide', // Type pour cartes
-      cardAnimationSpeed: 'normal', // Vitesse pour cartes
+      animationType: 'slide',
+      animationSpeed: 'normal',
+      cardAnimations: true,
+      cardAnimationType: 'slide',
+      cardAnimationSpeed: 'normal',
       shadows: true,
       gradientBackgrounds: false,
       glassEffect: false,
-      // Valeurs par défaut pour le layout
       spacingScale: 1,
       maxWidth: '1200px',
       compactMode: false,
       navbarCollapsible: false,
-      
-      // Valeurs par défaut pour les composants
       components: {
         cards: {
           borderRadius: 'medium',
@@ -93,14 +86,15 @@ export default function POSRealtimePreview({
       }
     };
     
-    // Fusionner les configs en donnant priorité à config
     const merged = { ...defaults, ...config };
-    console.log('POSRealtimePreview config merged:', merged);
     return merged;
   }, [config]);
 
   // State pour basculer entre POS et Receipt Designer
-  const [viewMode, setViewMode] = useState('pos'); // 'pos' ou 'receipt'
+  const [viewMode, setViewMode] = useState('pos');
+
+  const handleOpenReceiptDesigner = () => setViewMode('receipt');
+  const handleCloseReceiptDesigner = () => setViewMode('pos');
 
   // Configuration du scale selon le device
   const getScaleConfig = () => {
@@ -138,39 +132,6 @@ export default function POSRealtimePreview({
             boxSizing: 'border-box'
           }}
         >
-          {/* Toggle buttons entre POS et Receipt Designer */}
-          <div style={{
-            position: 'absolute',
-            top: '10px',
-            right: '10px',
-            zIndex: 1000,
-            display: 'flex',
-            gap: '8px',
-            background: 'rgba(255, 255, 255, 0.95)',
-            padding: '8px',
-            borderRadius: '8px',
-            boxShadow: '0 2px 8px rgba(0,0,0,0.1)',
-          }}>
-            <Button
-              size="sm"
-              variant={viewMode === 'pos' ? 'default' : 'outline'}
-              onClick={() => setViewMode('pos')}
-              style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
-            >
-              <Monitor size={16} />
-              POS Interface
-            </Button>
-            <Button
-              size="sm"
-              variant={viewMode === 'receipt' ? 'default' : 'outline'}
-              onClick={() => setViewMode('receipt')}
-              style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
-            >
-              <Receipt size={16} />
-              Receipt Designer
-            </Button>
-          </div>
-
           {/* Conteneur principal */}
           <div style={{ 
             flex: 1, 
@@ -197,14 +158,16 @@ export default function POSRealtimePreview({
                     ...previewConfig,
                     navbarPosition: navbarPosition || previewConfig.navbarPosition,
                     isDragMode: isDragMode,
-                    selectedComponent: config?.selectedComponent
+                    selectedComponent: config?.selectedComponent,
+                    onOpenReceiptDesigner: handleOpenReceiptDesigner,
+                    onCloseReceiptDesigner: handleCloseReceiptDesigner
                   }}
                   modules={formattedModules}
                   onComponentSelect={onComponentSelect}
                   isDragMode={isDragMode}
                 />
               ) : (
-                <ReceiptDesignerPreview />
+                <ReceiptDesignerPreview onClose={handleCloseReceiptDesigner} />
               )}
             </ErrorBoundary>
           </div>

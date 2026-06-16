@@ -129,6 +129,13 @@ function registerAppHandlers(loadAppConfig, databaseManager) {
     return { success: true };
   });
 
+  // Show item in folder (BI export, etc.)
+  ipcMain.handle('shell:showItemInFolder', async (_event, filePath) => {
+    const { shell } = require('electron');
+    shell.showItemInFolder(filePath);
+    return { success: true };
+  });
+
   // Error logging from renderer
   ipcMain.handle('log-error', async (_event, errorData) => {
     console.error('═══════════════════════════════════════════════════════════');

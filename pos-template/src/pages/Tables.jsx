@@ -8,7 +8,9 @@ import {
   Edit2,
   Trash2,
   Coffee,
-  Utensils
+  Utensils,
+  ListIcon,
+  Layers
 } from 'lucide-react';
 import { POSConfiguration } from '../lib/POSConfiguration';
 import { useAppConfig } from '../hooks/useAppConfig';
@@ -32,12 +34,17 @@ export default function Tables() {
   const [tables, setTables] = useState([]);
   const [loading, setLoading] = useState(true);
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [bulkDialogOpen, setBulkDialogOpen] = useState(false);
   const [editingTable, setEditingTable] = useState(null);
   const [formData, setFormData] = useState({
     table_number: '',
-    capacity: 2,
-    x_position: 0,
-    y_position: 0
+    capacity: 2
+  });
+  const [bulkFormData, setBulkFormData] = useState({
+    prefix: 'T',
+    start: 1,
+    end: 10,
+    capacity: 4
   });
 
   // POSConfiguration integration
@@ -73,8 +80,6 @@ export default function Tables() {
             table_number: 'T1', 
             capacity: 4, 
             status: 'available',
-            x_position: 100,
-            y_position: 100,
             current_order_id: null
           },
           { 
@@ -82,8 +87,6 @@ export default function Tables() {
             table_number: 'T2', 
             capacity: 2, 
             status: 'occupied',
-            x_position: 250,
-            y_position: 100,
             current_order_id: 123
           },
           { 
@@ -91,8 +94,6 @@ export default function Tables() {
             table_number: 'T3', 
             capacity: 6, 
             status: 'reserved',
-            x_position: 100,
-            y_position: 250,
             current_order_id: null
           },
           { 
@@ -100,8 +101,6 @@ export default function Tables() {
             table_number: 'T4', 
             capacity: 4, 
             status: 'cleaning',
-            x_position: 250,
-            y_position: 250,
             current_order_id: null
           }
         ]);
@@ -123,8 +122,9 @@ export default function Tables() {
 
     try {
       if (editingTable) {
-        // Pour la mise à jour, on utiliserait updateTable si disponible
-        console.log('Update table:', formData);
+        if (window.electronAPI) {
+          await window.electronAPI.updateTable(editingTable.id, formData);
+        }
       } else {
         if (window.electronAPI) {
           await window.electronAPI.addTable(formData);
@@ -133,7 +133,7 @@ export default function Tables() {
       
       setDialogOpen(false);
       setEditingTable(null);
-      setFormData({ table_number: '', capacity: 2, x_position: 0, y_position: 0 });
+      setFormData({ table_number: '', capacity: 2 });
       loadTables();
     } catch (error) {
       console.error('Error saving table:', error);
@@ -143,8 +143,47 @@ export default function Tables() {
 
   const openCreateDialog = () => {
     setEditingTable(null);
-    setFormData({ table_number: '', capacity: 2, x_position: 0, y_position: 0 });
+    setFormData({ table_number: '', capacity: 2 });
     setDialogOpen(true);
+  };
+
+  const handleBulkSubmit = async (e) => {
+    e.preventDefault();
+    const { prefix, start, end, capacity } = bulkFormData;
+
+    if (start > end) {
+      alert('Le numéro de début doit être inférieur ou égal au numéro de fin');
+      return;
+    }
+
+    const count = end - start + 1;
+    if (count > 50) {
+      alert('Maximum 50 tables par ajout en bulk');
+      return;
+    }
+
+    try {
+      if (window.electronAPI) {
+        for (let i = start; i <= end; i++) {
+          const tableNumber = `${prefix}${i}`;
+          await window.electronAPI.addTable({ table_number: tableNumber, capacity });
+        }
+      }
+
+      setBulkDialogOpen(false);
+      setBulkFormData({ prefix: 'T', start: 1, end: 10, capacity: 4 });
+      loadTables();
+    } catch (error) {
+      console.error('Error bulk adding tables:', error);
+      alert('Erreur lors de l\'ajout en bulk');
+    }
+  };
+
+  const getBulkPreview = () => {
+    const { prefix, start, end } = bulkFormData;
+    if (start > end) return [];
+    const max = Math.min(end - start + 1, 20);
+    return Array.from({ length: max }, (_, i) => `${prefix}${start + i}`);
   };
 
   const updateTableStatus = async (tableId, newStatus) => {
@@ -229,10 +268,16 @@ export default function Tables() {
             Gérez le plan de salle et l'état des tables
           </p>
         </div>
-        <Button onClick={openCreateDialog}>
-          <Plus className="mr-2 h-4 w-4" />
-          Nouvelle table
-        </Button>
+        <div className="flex gap-2">
+          <Button variant="outline" onClick={() => setBulkDialogOpen(true)}>
+            <Layers className="mr-2 h-4 w-4" />
+            Ajout en bulk
+          </Button>
+          <Button onClick={openCreateDialog}>
+            <Plus className="mr-2 h-4 w-4" />
+            Nouvelle table
+          </Button>
+        </div>
       </div>
 
       {/* Stats Cards */}
@@ -292,15 +337,12 @@ export default function Tables() {
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <div className="relative bg-gray-50 rounded-lg p-8 min-h-96 border-2 border-dashed border-gray-200">
+          <div className="bg-gray-50 rounded-lg p-8 min-h-48 border-2 border-dashed border-gray-200">
+            <div className="flex flex-wrap gap-4">
             {tables.map((table) => (
               <div
                 key={table.id}
-                className={`absolute w-20 h-20 rounded-lg text-white text-xs font-medium flex flex-col items-center justify-center cursor-pointer transition-colors ${getStatusColor(table.status)}`}
-                style={{
-                  left: `${table.x_position}px`,
-                  top: `${table.y_position}px`
-                }}
+                className={`w-20 h-20 rounded-lg text-white text-xs font-medium flex flex-col items-center justify-center cursor-pointer transition-colors ${getStatusColor(table.status)}`}
                 onClick={() => {
                   const statuses = ['available', 'occupied', 'reserved', 'cleaning'];
                   const currentIndex = statuses.indexOf(table.status);
@@ -320,7 +362,7 @@ export default function Tables() {
             ))}
             
             {tables.length === 0 && (
-              <div className="absolute inset-0 flex items-center justify-center text-gray-500">
+              <div className="flex items-center justify-center text-gray-500 py-12 w-full">
                 <div className="text-center">
                   <Users className="h-12 w-12 mx-auto mb-4 opacity-50" />
                   <p className="text-lg font-medium">Aucune table configurée</p>
@@ -328,6 +370,7 @@ export default function Tables() {
                 </div>
               </div>
             )}
+            </div>
           </div>
         </CardContent>
       </Card>
@@ -363,10 +406,7 @@ export default function Tables() {
                     </div>
                   )}
                   
-                  <div className="flex justify-between items-center mt-4">
-                    <div className="text-xs text-muted-foreground">
-                      Position: ({table.x_position}, {table.y_position})
-                    </div>
+                  <div className="flex justify-end items-center mt-4">
                     <div className="flex space-x-1">
                       <Button
                         variant="outline"
@@ -401,6 +441,94 @@ export default function Tables() {
         </CardContent>
       </Card>
 
+      {/* Bulk Add Dialog */}
+      <Dialog open={bulkDialogOpen} onOpenChange={setBulkDialogOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Layers className="h-5 w-5" />
+              Ajout en bulk
+            </DialogTitle>
+          </DialogHeader>
+          <form onSubmit={handleBulkSubmit} className="space-y-4">
+            <div className="grid grid-cols-3 gap-3">
+              <div className="grid gap-2">
+                <Label htmlFor="prefix">Préfixe</Label>
+                <Input
+                  id="prefix"
+                  value={bulkFormData.prefix}
+                  onChange={(e) => setBulkFormData({ ...bulkFormData, prefix: e.target.value })}
+                  placeholder="T"
+                />
+              </div>
+              <div className="grid gap-2">
+                <Label htmlFor="bulkStart">Début</Label>
+                <Input
+                  id="bulkStart"
+                  type="number"
+                  value={bulkFormData.start}
+                  onChange={(e) => setBulkFormData({ ...bulkFormData, start: parseInt(e.target.value) || 1 })}
+                  min="1"
+                />
+              </div>
+              <div className="grid gap-2">
+                <Label htmlFor="bulkEnd">Fin</Label>
+                <Input
+                  id="bulkEnd"
+                  type="number"
+                  value={bulkFormData.end}
+                  onChange={(e) => setBulkFormData({ ...bulkFormData, end: parseInt(e.target.value) || 10 })}
+                  min="1"
+                />
+              </div>
+            </div>
+
+            <div className="grid gap-2">
+              <Label htmlFor="bulkCapacity">Capacité par table</Label>
+              <Input
+                id="bulkCapacity"
+                type="number"
+                value={bulkFormData.capacity}
+                onChange={(e) => setBulkFormData({ ...bulkFormData, capacity: parseInt(e.target.value) || 2 })}
+                min="1"
+                max="20"
+              />
+            </div>
+
+            <div className="p-3 bg-gray-50 rounded-lg border">
+              <p className="text-xs font-medium text-gray-500 mb-2">
+                Aperçu ({bulkFormData.end - bulkFormData.start + 1} tables)
+              </p>
+              <div className="flex flex-wrap gap-1">
+                {getBulkPreview().map((name, i) => (
+                  <span key={i} className="px-2 py-0.5 bg-white border rounded text-xs font-mono">
+                    {name}
+                  </span>
+                ))}
+                {bulkFormData.end - bulkFormData.start + 1 > 20 && (
+                  <span className="px-2 py-0.5 text-xs text-gray-400">
+                    +{bulkFormData.end - bulkFormData.start - 19} autres...
+                  </span>
+                )}
+              </div>
+            </div>
+
+            <div className="flex justify-end space-x-2">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setBulkDialogOpen(false)}
+              >
+                Annuler
+              </Button>
+              <Button type="submit">
+                Créer {bulkFormData.end - bulkFormData.start + 1} tables
+              </Button>
+            </div>
+          </form>
+        </DialogContent>
+      </Dialog>
+
       {/* Add/Edit Dialog */}
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
         <DialogContent>
@@ -432,31 +560,6 @@ export default function Tables() {
                 min="1"
                 max="20"
               />
-            </div>
-            
-            <div className="grid grid-cols-2 gap-4">
-              <div className="grid gap-2">
-                <Label htmlFor="x_position">Position X</Label>
-                <Input
-                  id="x_position"
-                  type="number"
-                  value={formData.x_position}
-                  onChange={(e) => setFormData({ ...formData, x_position: parseInt(e.target.value) || 0 })}
-                  placeholder="0"
-                  min="0"
-                />
-              </div>
-              <div className="grid gap-2">
-                <Label htmlFor="y_position">Position Y</Label>
-                <Input
-                  id="y_position"
-                  type="number"
-                  value={formData.y_position}
-                  onChange={(e) => setFormData({ ...formData, y_position: parseInt(e.target.value) || 0 })}
-                  placeholder="0"
-                  min="0"
-                />
-              </div>
             </div>
             
             <div className="flex justify-end space-x-2">

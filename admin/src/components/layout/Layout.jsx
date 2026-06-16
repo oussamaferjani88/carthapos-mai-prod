@@ -8,9 +8,12 @@ import {
   Settings, 
   Usb,
   BarChart3,
+  Upload,
   Menu,
   X,
-  Shield
+  Shield,
+  Search,
+  CheckSquare
 } from 'lucide-react';
 import { Button } from '../ui/button';
 import { cn } from '../../lib/utils';
@@ -23,6 +26,10 @@ const allNavigation = [
   { name: 'Modules', href: '/modules', icon: Package, userAccess: false },
   { name: 'Générateur POS', href: '/pos-generator', icon: Settings, userAccess: true },
   { name: 'Demandes BI', href: '/bi-requests', icon: BarChart3, userAccess: false },
+  { name: 'Portail BI', href: '/bi-upload-portal', icon: Upload, userAccess: false },
+  { name: 'Tableaux de bord BI', href: '/bi-dashboard-manager', icon: BarChart3, userAccess: false },
+  { name: 'Analyse BI', href: '/bi-analysis', icon: Search, userAccess: false },
+  { name: 'Validation BI', href: '/bi-review', icon: CheckSquare, userAccess: false },
   { name: 'Gestion Utilisateurs', href: '/user-management', icon: Shield, userAccess: false },
   { name: 'Gestion USB', href: '/usb-manager', icon: Usb, userAccess: false },
 ];

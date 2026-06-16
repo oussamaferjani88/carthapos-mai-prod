@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Outlet, Link, useLocation, useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
-import { LayoutDashboard, Package, Settings, LogOut, User } from "lucide-react";
+import { LayoutDashboard, Package, Settings, LogOut, User, FileArchive, BarChart3 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import ThemeToggle from "./ThemeToggle";
 import LanguageSwitcher from "./LanguageSwitcher";
@@ -48,6 +48,16 @@ const DashboardLayout = () => {
       name: t('dashboard.nav.settings'),
       href: '/dashboard/settings',
       icon: Settings
+    },
+    {
+      name: "Export BI",
+      href: '/dashboard/bi-export',
+      icon: FileArchive
+    },
+    {
+      name: "Tableaux de bord BI",
+      href: '/dashboard/bi-dashboard',
+      icon: BarChart3
     }
   ];
 

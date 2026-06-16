@@ -42,10 +42,10 @@ function copyElectronFiles() {
       
       // Files to copy with their sources and destinations
       const filesToCopy = [
-        { src: 'public/electron-modular.cjs', dest: 'dist/electron-modular.cjs' },
-        { src: 'public/preload.cjs', dest: 'dist/preload.cjs' },
-        { src: 'public/app-config.json', dest: 'dist/app-config.json' },
-        { src: 'public/favicon.ico', dest: 'dist/favicon.ico' }
+        { src: 'public/electron-modular.cjs', dest: 'electron-modular.cjs' },
+        { src: 'public/preload.cjs', dest: 'preload.cjs' },
+        { src: 'public/app-config.json', dest: 'app-config.json' },
+        { src: 'public/favicon.ico', dest: 'favicon.ico' }
       ];
 
       // Copy files in parallel

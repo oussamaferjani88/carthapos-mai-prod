@@ -801,6 +801,7 @@ class ElectronDatabaseManager {
           payment_method TEXT DEFAULT 'cash',
           customer_id INTEGER,
           user_id INTEGER,
+          table_id INTEGER,
           created_at DATETIME DEFAULT CURRENT_TIMESTAMP
         )`
       },
@@ -898,6 +899,17 @@ class ElectronDatabaseManager {
         )`
       },
       {
+        name: 'restaurant_tables',
+        sql: `CREATE TABLE IF NOT EXISTS restaurant_tables (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          table_number TEXT NOT NULL,
+          capacity INTEGER DEFAULT 2,
+          status TEXT DEFAULT 'available',
+          current_order_id INTEGER,
+          created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        )`
+      },
+      {
         name: 'user_sessions',
         sql: `CREATE TABLE IF NOT EXISTS user_sessions (
           id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -964,6 +976,16 @@ class ElectronDatabaseManager {
     try {
       await this.runQuery("ALTER TABLE users ADD COLUMN phone TEXT DEFAULT ''");
       console.log('✅ Migration: Added phone column to users');
+    } catch (migrateError) {
+      if (!migrateError.message.includes('duplicate column')) {
+        console.warn(`⚠️ Migration note: ${migrateError.message}`);
+      }
+    }
+
+    // Migration: Add table_id column to sales if not exists
+    try {
+      await this.runQuery("ALTER TABLE sales ADD COLUMN table_id INTEGER DEFAULT NULL");
+      console.log('✅ Migration: Added table_id column to sales');
     } catch (migrateError) {
       if (!migrateError.message.includes('duplicate column')) {
         console.warn(`⚠️ Migration note: ${migrateError.message}`);

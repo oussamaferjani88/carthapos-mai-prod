@@ -1,14 +1,18 @@
 import { useState, useEffect } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
+import { Button } from '../components/ui/button';
 import { Badge } from '../components/ui/badge';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
-import { TrendingUp, Euro, ShoppingCart, Package, Calendar } from 'lucide-react';
+import { TrendingUp, Euro, ShoppingCart, Package, Calendar, Download } from 'lucide-react';
+import BiExportModal from '../components/BiExportModal';
 import { POSConfiguration } from '../lib/POSConfiguration';
 import { useAppConfig } from '../hooks/useAppConfig';
 import { isPreviewMode, getPreviewData, logEnvironment } from '../utils/environment';
 
 export default function Reports() {
+  const [showBiExport, setShowBiExport] = useState(false);
+
   // Log environment on component mount
   useEffect(() => {
     logEnvironment();
@@ -334,7 +338,11 @@ export default function Reports() {
           </p>
         </div>
         
-        <div className="flex items-center space-x-2">
+        <div className="flex items-center gap-2">
+          <Button variant="outline" onClick={() => setShowBiExport(true)}>
+            <Download className="mr-2 h-4 w-4" />
+            Export BI
+          </Button>
           <Calendar className="h-4 w-4 text-muted-foreground" />
           <Select value={selectedPeriod} onValueChange={setSelectedPeriod}>
             <SelectTrigger className="w-48">
@@ -527,6 +535,8 @@ export default function Reports() {
           )}
         </CardContent>
       </Card>
+
+      <BiExportModal open={showBiExport} onOpenChange={setShowBiExport} />
     </div>
   );
 }

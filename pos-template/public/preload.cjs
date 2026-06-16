@@ -54,6 +54,13 @@ contextBridge.exposeInMainWorld('electronAPI', {
   updateUser: (id, user) => createIpcHandler('update-user', id, user),
   deleteUser: (id) => createIpcHandler('delete-user', id),
   
+  // Tables
+  getTables: () => createIpcHandler('get-tables'),
+  addTable: (table) => createIpcHandler('add-table', table),
+  updateTable: (id, table) => createIpcHandler('update-table', id, table),
+  deleteTable: (id) => createIpcHandler('delete-table', id),
+  updateTableStatus: (id, status) => createIpcHandler('update-table-status', id, status),
+  
   // Authentication & Setup
   needsFirstTimeSetup: () => createIpcHandler('needs-first-time-setup'),
   needsAdminPasswordReset: () => createIpcHandler('needs-admin-password-reset'),
@@ -90,6 +97,19 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // Sauvegarde
   saveBackup: (backupData) => createIpcHandler('save-backup', backupData),
   cleanupOldBackups: () => createIpcHandler('cleanup-old-backups'),
+  
+  // BI Export
+  exportBiData: () => createIpcHandler('bi:export'),
+  
+  // Fournisseurs
+  getSuppliers: () => createIpcHandler('get-suppliers'),
+  
+  // Services & Rendez-vous
+  getServices: () => createIpcHandler('get-services'),
+  getAppointments: (date) => createIpcHandler('get-appointments', date),
+  
+  // Cuisine
+  getKitchenOrders: () => createIpcHandler('get-kitchen-orders'),
   
   // Événements
   onLicenseStatusChanged: (callback) => {

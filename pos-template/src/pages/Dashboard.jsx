@@ -110,6 +110,10 @@ const Dashboard = () => {
     totalRevenue: 1247.50,
     productsCount: 156,
     lowStockCount: 8,
+    salesChange: '+12%',
+    revenueChange: '+8%',
+    productsChange: '+5%',
+    lowStockChange: '+3%'
   };
 
   const DEMO_ORDERS = [
@@ -277,7 +281,7 @@ const Dashboard = () => {
   const statsArray = [
     {
       title: 'Ventes du jour',
-      value: stats.todaySales.toString(),
+      value: stats.totalSales.toString(),
       change: isPreviewMode() ? DEMO_STATS.salesChange : null,
       trend: 'up',
       icon: ShoppingCart,
@@ -286,7 +290,7 @@ const Dashboard = () => {
     },
     {
       title: 'Chiffre d\'affaires',
-      value: formatCurrency(stats.todayRevenue),
+      value: formatCurrency(stats.totalRevenue),
       change: isPreviewMode() ? DEMO_STATS.revenueChange : null,
       trend: 'up',
       icon: Euro,
@@ -504,7 +508,7 @@ const Dashboard = () => {
               </div>
             )}
             
-            {stats.todaySales > 20 && (
+            {stats.totalSales > 20 && (
               <div className="flex items-center space-x-3 p-3 bg-green-50 border border-green-200 rounded-lg">
                 <TrendingUp className="h-5 w-5 text-green-600" />
                 <div className="flex-1">
@@ -516,7 +520,7 @@ const Dashboard = () => {
               </div>
             )}
 
-            {stats.lowStockCount === 0 && stats.todaySales <= 20 && (
+            {stats.lowStockCount === 0 && stats.totalSales <= 20 && (
               <div className="text-center py-8">
                 <Check className="h-12 w-12 text-gray-300 mx-auto mb-3" />
                 <p className="text-gray-500">Aucune alerte</p>

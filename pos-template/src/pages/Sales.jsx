@@ -14,7 +14,10 @@ import {
   X,
   Check,
   Utensils,
-  Grid3x3
+  Grid3x3,
+  PauseCircle,
+  Clock,
+  Play
 } from 'lucide-react';
 import { POSConfiguration } from '../lib/POSConfiguration';
 import { useAppConfig } from '../hooks/useAppConfig';
@@ -46,6 +49,8 @@ const Sales = () => {
   const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
   const [selectedCustomer, setSelectedCustomer] = useState(null);
   const [families, setFamilies] = useState([]);
+  const [heldOrders, setHeldOrders] = useState([]);
+  const [showHeldOrders, setShowHeldOrders] = useState(false);
 
   const { config: electronConfig, loading: configLoading } = useAppConfig();
 
@@ -76,6 +81,10 @@ const Sales = () => {
   const isBarcodeEnabled = electronConfig?.modules
     ? electronConfig.modules.some(m => (m.name || m) === 'barcode' && m.isEnabled !== false)
     : true;
+
+  const isTablesEnabled = electronConfig?.modules
+    ? electronConfig.modules.some(m => (m.name || m) === 'tables' && m.isEnabled !== false)
+    : false;
 
   useEffect(() => {
     const style = document.createElement('style');
@@ -259,6 +268,7 @@ const Sales = () => {
           total: finalTotal,
           payment_method: method,
           customer_id: selectedCustomer?.id || null,
+          table_id: selectedTableForOrder?.id || null,
           notes: ''
         };
         try {
@@ -298,27 +308,82 @@ const Sales = () => {
     }
   };
 
-  const selectTable = (table) => {
+  const selectTable = async (table) => {
     setSelectedTableForOrder(table);
     setShowTableSelector(false);
-    setLocalNotification(`Table ${table.number} sélectionnée`);
+    if (window.electronAPI) {
+      try {
+        await window.electronAPI.updateTableStatus(table.id, 'occupied');
+      } catch (e) {
+        console.error('Error updating table status:', e);
+      }
+    }
+    setLocalNotification(`Table ${table.table_number} sélectionnée`);
     setTimeout(() => setLocalNotification(null), 2000);
+  };
+
+  const holdOrder = () => {
+    if (cart.length === 0) return;
+    const heldOrder = {
+      id: Date.now(),
+      items: [...cart],
+      table: selectedTableForOrder,
+      total: finalTotal,
+      subtotal: subtotal,
+      tax: tax,
+      discount: calculatedDiscount,
+      timestamp: new Date().toLocaleString('fr-FR'),
+      customer: selectedCustomer,
+      itemCount: getTotalItems()
+    };
+    setHeldOrders(prev => [...prev, heldOrder]);
+    setCart([]);
+    setSelectedTableForOrder(null);
+    setDiscountAmount(0);
+    setDiscountPercentage(0);
+    setLocalNotification('Commande mise en attente');
+    setTimeout(() => setLocalNotification(null), 2000);
+  };
+
+  const restoreOrder = (order) => {
+    setCart(order.items);
+    setSelectedTableForOrder(order.table);
+    setDiscountAmount(order.discount > 0 && order.discountPercentage === undefined ? order.discount : 0);
+    setDiscountPercentage(order.discountPercentage || 0);
+    setHeldOrders(prev => prev.filter(o => o.id !== order.id));
+    setShowHeldOrders(false);
+    setLocalNotification('Commande restaurée');
+    setTimeout(() => setLocalNotification(null), 2000);
+  };
+
+  const removeHeldOrder = (orderId) => {
+    setHeldOrders(prev => prev.filter(o => o.id !== orderId));
   };
 
   const getTableStatusColor = (status) => {
     switch(status) {
-      case 'free': return 'bg-emerald-500';
+      case 'available': return 'bg-emerald-500';
       case 'occupied': return 'bg-red-500';
-      case 'reserved': return 'bg-amber-500';
+      case 'reserved': return 'bg-blue-500';
       case 'cleaning': return 'bg-gray-400';
       default: return 'bg-gray-400';
     }
   };
 
+  const getTableStatusBg = (status) => {
+    switch(status) {
+      case 'available': return 'bg-emerald-50 border-emerald-200';
+      case 'occupied': return 'bg-red-50 border-red-200';
+      case 'reserved': return 'bg-blue-50 border-blue-200';
+      case 'cleaning': return 'bg-gray-50 border-gray-200';
+      default: return 'bg-gray-50 border-gray-200';
+    }
+  };
+
   const getTableStatusLabel = (status) => {
     switch(status) {
-      case 'free': return 'Libre';
-      case 'occupied': return 'Occupée';
+      case 'available': return 'Libre';
+      case 'occupied': return 'Fermée';
       case 'reserved': return 'Réservée';
       case 'cleaning': return 'Nettoyage';
       default: return 'Inconnue';
@@ -338,9 +403,10 @@ const Sales = () => {
 
       {/* Table Selector Modal */}
       {showTableSelector && (
-        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-8">
-          <div className="bg-white w-full max-w-4xl max-h-[90vh] overflow-auto relative rounded-2xl shadow-2xl animate-in zoom-in-95 duration-200">
-            <div className="p-6 border-b border-gray-100">
+        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white w-full max-w-4xl max-h-[90vh] overflow-auto relative rounded-2xl shadow-2xl animate-in zoom-in-95 duration-200" onClick={(e) => e.stopPropagation()}>
+            {/* Header */}
+            <div className="sticky top-0 bg-white z-10 px-6 py-5 border-b border-gray-100 rounded-t-2xl">
               <div className="flex items-center justify-between">
                 <div>
                   <h2 className="flex items-center gap-2.5 text-xl font-bold text-gray-900">
@@ -351,48 +417,93 @@ const Sales = () => {
                     Choisissez une table pour commencer la commande
                   </p>
                 </div>
-                <button
-                  onClick={() => setShowTableSelector(false)}
-                  className="p-2 rounded-xl hover:bg-gray-100 transition-colors"
-                >
-                  <X className="w-5 h-5 text-gray-400" />
-                </button>
+                <div className="flex items-center gap-3">
+                  <div className="flex items-center gap-2 text-xs text-gray-400">
+                    <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-full bg-emerald-500" /> Libre</span>
+                    <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-full bg-blue-500" /> Réservée</span>
+                    <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-full bg-red-500" /> Fermée</span>
+                  </div>
+                  <button
+                    onClick={() => setShowTableSelector(false)}
+                    className="p-2 rounded-xl hover:bg-gray-100 transition-colors"
+                  >
+                    <X className="w-5 h-5 text-gray-400" />
+                  </button>
+                </div>
               </div>
             </div>
+
+            {/* Body */}
             <div className="p-6">
-              <div className="grid grid-cols-3 md:grid-cols-6 gap-3">
-                {availableTables.map((table) => (
-                  <button
-                    key={table.id || table.number}
-                    onClick={() => selectTable(table)}
-                    disabled={table.status === 'occupied'}
-                    className={`relative p-4 rounded-xl border-2 transition-all hover:scale-[1.03] active:scale-[0.98] ${
-                      table.status === 'free'
-                        ? 'border-emerald-200 bg-emerald-50 hover:bg-emerald-100 hover:border-emerald-400 cursor-pointer shadow-sm hover:shadow-md'
-                        : table.status === 'reserved'
-                        ? 'border-amber-200 bg-amber-50 hover:bg-amber-100 hover:border-amber-400 cursor-pointer shadow-sm hover:shadow-md'
-                        : 'border-red-200 bg-gray-50 cursor-not-allowed opacity-60'
-                    }`}
-                  >
-                    <div className="flex flex-col items-center gap-2">
-                      <div className={`w-12 h-12 rounded-2xl flex items-center justify-center text-white font-bold text-lg shadow-sm ${getTableStatusColor(table.status)}`}>
-                        {table.number}
-                      </div>
-                      <div className="text-center">
-                        <div className="font-semibold text-sm text-gray-800">Table {table.number}</div>
-                        <div className="text-[11px] text-gray-400">{table.capacity} places</div>
-                        <div className={`text-[11px] font-semibold mt-0.5 ${
-                          table.status === 'free' ? 'text-emerald-600' :
-                          table.status === 'reserved' ? 'text-amber-600' :
-                          'text-red-500'
+              {availableTables.length === 0 ? (
+                <div className="flex flex-col items-center justify-center py-16 text-gray-400">
+                  <Utensils className="w-16 h-16 mb-4 opacity-30" />
+                  <p className="text-lg font-medium text-gray-500">Aucune table configurée</p>
+                  <p className="text-sm mt-1">Ajoutez des tables dans la section Gestion</p>
+                </div>
+              ) : (
+                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
+                  {availableTables.map((table) => {
+                    const isOccupied = table.status === 'occupied';
+                    const isReserved = table.status === 'reserved';
+                    const isCleaning = table.status === 'cleaning';
+                    const isAvailable = table.status === 'available';
+
+                    return (
+                      <button
+                        key={table.id}
+                        onClick={() => !isOccupied && selectTable(table)}
+                        disabled={isOccupied}
+                        className={`group relative flex flex-col items-center p-5 rounded-2xl border-2 transition-all duration-200 ${
+                          isOccupied
+                            ? 'border-red-200 bg-red-50/50 cursor-not-allowed opacity-60'
+                            : isReserved
+                            ? 'border-blue-200 bg-blue-50 hover:border-blue-300 hover:shadow-md hover:scale-[1.02] cursor-pointer active:scale-[0.98]'
+                            : isCleaning
+                            ? 'border-gray-200 bg-gray-50 hover:border-gray-300 hover:shadow-md hover:scale-[1.02] cursor-pointer active:scale-[0.98]'
+                            : 'border-emerald-200 bg-emerald-50 hover:border-emerald-300 hover:shadow-md hover:scale-[1.02] cursor-pointer active:scale-[0.98]'
+                        }`}
+                      >
+                        {/* Status Badge */}
+                        <div className={`absolute top-2 right-2 px-2 py-0.5 rounded-full text-[10px] font-semibold shadow-sm ${
+                          isAvailable ? 'bg-emerald-500 text-white' :
+                          isReserved ? 'bg-blue-500 text-white' :
+                          isOccupied ? 'bg-red-500 text-white' :
+                          'bg-gray-400 text-white'
                         }`}>
                           {getTableStatusLabel(table.status)}
                         </div>
-                      </div>
-                    </div>
-                  </button>
-                ))}
-              </div>
+
+                        {/* Table Icon Area */}
+                        <div className={`w-16 h-16 rounded-2xl flex items-center justify-center text-white font-bold text-xl shadow-sm mb-3 transition-transform group-hover:scale-110 ${
+                          isAvailable ? 'bg-emerald-500' :
+                          isReserved ? 'bg-blue-500' :
+                          isOccupied ? 'bg-red-500' :
+                          'bg-gray-400'
+                        }`}>
+                          {table.table_number}
+                        </div>
+
+                        {/* Info */}
+                        <div className="text-center">
+                          <div className="font-semibold text-sm text-gray-800">
+                            Table {table.table_number}
+                          </div>
+                          <div className="text-xs text-gray-400 mt-0.5 flex items-center justify-center gap-1">
+                            <span className="w-1.5 h-1.5 rounded-full bg-gray-300 inline-block" />
+                            {table.capacity} places
+                          </div>
+                        </div>
+
+                        {/* Hover overlay for non-occupied */}
+                        {!isOccupied && (
+                          <div className="absolute inset-0 rounded-2xl ring-2 ring-transparent group-hover:ring-blue-400/40 pointer-events-none transition-all" />
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
             </div>
           </div>
         </div>
@@ -409,15 +520,33 @@ const Sales = () => {
                 <span className="flex items-center gap-2 font-semibold text-gray-800">
                   <ShoppingCart className="w-4 h-4 text-gray-400" />
                   Commande
-                  {selectedTableForOrder && (
+                  {selectedTableForOrder ? (
                     <span className="text-xs font-medium bg-blue-50 text-blue-600 px-2 py-0.5 rounded-lg ml-1">
-                      Table {selectedTableForOrder.number}
+                      Table {selectedTableForOrder.table_number}
+                    </span>
+                  ) : isTablesEnabled && (
+                    <span className="text-xs font-medium bg-gray-100 text-gray-500 px-2 py-0.5 rounded-lg ml-1">
+                      Sans table
                     </span>
                   )}
+                  {heldOrders.length > 0 && (
+                    <button
+                      onClick={() => setShowHeldOrders(true)}
+                      className="text-xs font-medium bg-amber-50 text-amber-600 px-2 py-0.5 rounded-lg ml-1 hover:bg-amber-100 transition-colors flex items-center gap-1"
+                    >
+                      <Clock className="w-3 h-3" />
+                      {heldOrders.length}
+                  </button>
+                )}
                 </span>
-                <span className="text-xs font-medium text-blue-600 bg-blue-50 px-2.5 py-1 rounded-lg">
-                  {getTotalItems()} art.
-                </span>
+                <button
+                  onClick={holdOrder}
+                  disabled={cart.length === 0}
+                  className="flex-1 py-2 px-3 rounded-xl bg-amber-50 hover:bg-amber-100 text-amber-700 text-xs font-medium transition-all flex items-center justify-center gap-1.5 disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  <PauseCircle className="w-3.5 h-3.5" />
+                  Attente
+                </button>
               </div>
             </div>
 
@@ -554,13 +683,20 @@ const Sales = () => {
                   <button
                     onClick={() => {
                       setShowTableSelector(true);
-                      setSelectedTableForOrder(null);
-                      setCart([]);
                     }}
                     className="flex-1 py-2 px-3 rounded-xl bg-purple-50 hover:bg-purple-100 text-purple-700 text-xs font-medium transition-all flex items-center justify-center gap-1.5"
                   >
                     <Utensils className="w-3.5 h-3.5" />
                     Changer Table
+                  </button>
+                )}
+                {!selectedTableForOrder && isTablesEnabled && (
+                  <button
+                    onClick={() => setShowTableSelector(true)}
+                    className="flex-1 py-2 px-3 rounded-xl bg-emerald-50 hover:bg-emerald-100 text-emerald-700 text-xs font-medium transition-all flex items-center justify-center gap-1.5"
+                  >
+                    <Utensils className="w-3.5 h-3.5" />
+                    Assigner Table
                   </button>
                 )}
                 <button
@@ -573,15 +709,17 @@ const Sales = () => {
               </div>
 
               {/* Quick Actions Grid */}
-              <div className="grid grid-cols-5 gap-1.5">
-                <button
-                  onClick={() => setShowTableSelector(true)}
-                  className="bg-emerald-50 hover:bg-emerald-100 text-emerald-700 rounded-xl font-medium text-[10px] h-10 flex flex-col items-center justify-center gap-0.5 transition-all"
-                  title="Sélectionner Table"
-                >
-                  <Utensils className="w-4 h-4" />
-                  <span>Table</span>
-                </button>
+              <div className={`grid ${isTablesEnabled ? 'grid-cols-5' : 'grid-cols-4'} gap-1.5`}>
+                {isTablesEnabled && (
+                  <button
+                    onClick={() => setShowTableSelector(true)}
+                    className="bg-emerald-50 hover:bg-emerald-100 text-emerald-700 rounded-xl font-medium text-[10px] h-10 flex flex-col items-center justify-center gap-0.5 transition-all"
+                    title="Sélectionner Table"
+                  >
+                    <Utensils className="w-4 h-4" />
+                    <span>Table</span>
+                  </button>
+                )}
                 <button
                   onClick={() => {
                     setLocalNotification("Gestion client");
@@ -766,6 +904,94 @@ const Sales = () => {
         </div>
       </div>
 
+      {/* Held Orders Modal */}
+      {showHeldOrders && (
+        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white w-full max-w-2xl max-h-[90vh] overflow-auto relative rounded-2xl shadow-2xl animate-in zoom-in-95 duration-200">
+            <div className="sticky top-0 bg-white z-10 px-6 py-5 border-b border-gray-100 rounded-t-2xl flex items-center justify-between">
+              <div>
+                <h2 className="flex items-center gap-2.5 text-xl font-bold text-gray-900">
+                  <Clock className="w-5 h-5 text-amber-500" />
+                  Commandes en attente
+                </h2>
+                <p className="text-sm text-gray-500 mt-0.5">
+                  {heldOrders.length} commande(s) en attente
+                </p>
+              </div>
+              <button
+                onClick={() => setShowHeldOrders(false)}
+                className="p-2 rounded-xl hover:bg-gray-100 transition-colors"
+              >
+                <X className="w-5 h-5 text-gray-400" />
+              </button>
+            </div>
+            <div className="p-6">
+              {heldOrders.length === 0 ? (
+                <div className="flex flex-col items-center justify-center py-16 text-gray-400">
+                  <Clock className="w-16 h-16 mb-4 opacity-30" />
+                  <p className="text-lg font-medium text-gray-500">Aucune commande en attente</p>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {heldOrders.map((order) => (
+                    <div key={order.id} className="border rounded-xl p-4 hover:border-gray-300 transition-colors">
+                      <div className="flex items-start justify-between mb-3">
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <h3 className="font-semibold text-gray-900">
+                              Commande #{order.id.toString().slice(-6)}
+                            </h3>
+                            {order.table && (
+                              <span className="text-xs font-medium bg-blue-50 text-blue-600 px-2 py-0.5 rounded-lg">
+                                Table {order.table.table_number}
+                              </span>
+                            )}
+                          </div>
+                          <p className="text-xs text-gray-400 mt-0.5">{order.timestamp}</p>
+                        </div>
+                        <span className="text-lg font-bold text-blue-600">
+                          {formatPrice(order.total)}
+                        </span>
+                      </div>
+
+                      <div className="bg-gray-50 rounded-lg p-3 mb-3 space-y-1">
+                        {order.items.map((item) => (
+                          <div key={item.id} className="flex justify-between text-sm">
+                            <span className="text-gray-700">
+                              {item.name}
+                              <span className="text-gray-400 ml-1">×{item.quantity}</span>
+                            </span>
+                            <span className="font-medium text-gray-700">
+                              {formatPrice(item.price * item.quantity)}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => restoreOrder(order)}
+                          className="flex-1 py-2 px-3 rounded-xl bg-blue-500 hover:bg-blue-600 text-white text-sm font-medium transition-all flex items-center justify-center gap-1.5"
+                        >
+                          <Play className="w-4 h-4" />
+                          Reprendre
+                        </button>
+                        <button
+                          onClick={() => removeHeldOrder(order.id)}
+                          className="py-2 px-3 rounded-xl bg-red-50 hover:bg-red-100 text-red-600 text-sm font-medium transition-all"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Payment Modal */}
       {showPaymentMethods && (
         <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50">
@@ -922,9 +1148,9 @@ const Sales = () => {
               ))}
             </div>
           </div>
-        </div>
-      )}
-    </div>
+                </div>
+              )}
+            </div>
   );
 };
 

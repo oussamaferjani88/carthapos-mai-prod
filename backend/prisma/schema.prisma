@@ -15,7 +15,10 @@ model Client {
   address   String?
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
-  licenses  License[]
+  licenses     License[]
+  biDashboards      BiDashboard[]
+  biNotifications   BiNotification[]
+  biAnalysisRequests BiAnalysisRequest[]
 
   @@map("clients")
 }
@@ -39,6 +42,8 @@ model License {
   configuration        LicenseConfiguration?
   modules              LicenseModule[]
   client               Client                @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  biDashboards         BiDashboard[]
+  biAnalysisRequests   BiAnalysisRequest[]
 
   @@map("licenses")
 }
@@ -309,6 +314,295 @@ model UserPosConfiguration {
   updatedAt    DateTime
   licenses     License   @relation(fields: [licenseId], references: [id])
   users        User      @relation(fields: [userId], references: [id])
+}
+
+// ──────────────────────────────────────────────
+// BI Dashboards & Notifications (Phase 2)
+// ──────────────────────────────────────────────
+
+model BiDashboard {
+  id              String    @id @default(cuid())
+  clientId        String
+  licenseId       String?
+  uploadId        String?
+  businessType    String
+  name            String
+  description    String?
+  status          String    @default("DRAFT")
+  dashboardType   String    @default("custom")
+  dashboardConfig Json?
+  createdBy       String?
+  assignedAt      DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  client  Client      @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  license License?    @relation(fields: [licenseId], references: [id])
+  upload  BiUpload?   @relation(fields: [uploadId], references: [id])
+  notifications BiNotification[]
+
+  @@map("bi_dashboards")
+}
+
+model BiNotification {
+  id          String   @id @default(cuid())
+  clientId    String?
+  dashboardId String?
+  title       String
+  message     String
+  type        String   @default("DASHBOARD_READY")
+  isRead      Boolean  @default(false)
+  createdAt   DateTime @default(now())
+
+  client    Client?      @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  dashboard BiDashboard? @relation(fields: [dashboardId], references: [id], onDelete: SetNull)
+
+  @@map("bi_notifications")
+}
+
+// ──────────────────────────────────────────────
+// BI Analysis Requests (Phase 3)
+// ──────────────────────────────────────────────
+
+model BiAnalysisRequest {
+  id              String    @id @default(cuid())
+  clientId        String
+  licenseId       String?
+  uploadId        String?
+  businessType    String
+  status          String    @default("PENDING")
+  assignedTo      String?
+  notes           String?
+  analysisSummary Json?
+  insights        Json?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  completedAt     DateTime?
+
+  client  Client    @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  license License?  @relation(fields: [licenseId], references: [id])
+  upload  BiUpload? @relation(fields: [uploadId], references: [id])
+
+  @@index([clientId])
+  @@index([status])
+  @@map("bi_analysis_requests")
+}
+
+// ──────────────────────────────────────────────
+// BI Upload & ETL Tracking
+// ──────────────────────────────────────────────
+
+model BiUpload {
+  id              String   @id @default(cuid())
+  clientId        String
+  businessType    String
+  biSchemaVersion String?
+  fileHash        String?  @unique
+  fileName        String
+  fileSize        Int
+  filePath        String
+  status          String   @default("UPLOADED")
+  totalFiles      Int      @default(0)
+  totalRows       Int      @default(0)
+  errorMessage    String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  files           BiUploadFile[]
+  processingJob   BiProcessingJob?
+  dashboards      BiDashboard[]
+  analysisRequests BiAnalysisRequest[]
+
+  @@map("bi_uploads")
+}
+
+model BiUploadFile {
+  id           String   @id @default(cuid())
+  uploadId     String
+  fileName     String
+  rowCount     Int      @default(0)
+  fileSize     Int      @default(0)
+  status       String   @default("PENDING")
+  errorMessage String?
+  createdAt    DateTime @default(now())
+  upload       BiUpload @relation(fields: [uploadId], references: [id], onDelete: Cascade)
+
+  @@map("bi_upload_files")
+}
+
+model BiProcessingJob {
+  id             String   @id @default(cuid())
+  uploadId       String   @unique
+  status         String   @default("QUEUED")
+  startedAt      DateTime?
+  completedAt    DateTime?
+  errorMessage   String?
+  recordsLoaded  Int      @default(0)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  upload         BiUpload @relation(fields: [uploadId], references: [id], onDelete: Cascade)
+  logs           BiProcessingLog[]
+
+  @@map("bi_processing_jobs")
+}
+
+model BiProcessingLog {
+  id        String   @id @default(cuid())
+  jobId     String
+  level     String   @default("INFO")
+  step      String
+  message   String
+  details   Json?
+  createdAt DateTime @default(now())
+  job       BiProcessingJob @relation(fields: [jobId], references: [id], onDelete: Cascade)
+
+  @@map("bi_processing_logs")
+}
+
+// ──────────────────────────────────────────────
+// Analytics Warehouse - Dimension Tables
+// ──────────────────────────────────────────────
+
+model DimClient {
+  id           String   @id @default(cuid())
+  tenantId     String   @unique
+  exportId     String
+  name         String
+  businessType String
+  createdAt    DateTime @default(now())
+  factSales    FactSale[]
+
+  @@map("dim_clients")
+}
+
+model DimProduct {
+  id            String          @id @default(cuid())
+  tenantId      String
+  exportId      String
+  productId     String
+  name          String
+  category      String?
+  family        String?
+  barcode       String?
+  createdAt     DateTime        @default(now())
+  factSales     FactSale[]
+  factInventory FactInventory[]
+
+  @@map("dim_products")
+}
+
+model DimSupplier {
+  id         String   @id @default(cuid())
+  tenantId   String
+  exportId   String
+  supplierId String
+  name       String
+  contact    String?
+  phone      String?
+  email      String?
+  createdAt  DateTime @default(now())
+
+  @@map("dim_suppliers")
+}
+
+model DimTime {
+  id                Int                @id
+  date              DateTime           @unique
+  year              Int
+  quarter           Int
+  month             Int
+  day               Int
+  dayOfWeek         Int
+  isWeekend         Boolean
+  createdAt         DateTime           @default(now())
+  factSales         FactSale[]
+  factInventory     FactInventory[]
+  factAppointments  FactAppointment[]
+  factKitchenOrders FactKitchenOrder[]
+
+  @@map("dim_time")
+}
+
+// ──────────────────────────────────────────────
+// Analytics Warehouse - Fact Tables
+// ──────────────────────────────────────────────
+
+model FactSale {
+  id            String  @id @default(cuid())
+  tenantId      String
+  exportId      String
+  dimClientId   String?
+  dimProductId  String?
+  dimTimeId     Int?
+  saleId        String
+  total         Float
+  tax           Float?
+  discount      Float?
+  paymentMethod String?
+  createdAt     DateTime @default(now())
+
+  dimClient  DimClient?  @relation(fields: [dimClientId], references: [id])
+  dimProduct DimProduct? @relation(fields: [dimProductId], references: [id])
+  dimTime    DimTime?    @relation(fields: [dimTimeId], references: [id])
+
+  @@unique([exportId, saleId])
+  @@map("fact_sales")
+}
+
+model FactInventory {
+  id           String   @id @default(cuid())
+  tenantId     String
+  exportId     String
+  rowIndex     Int
+  dimProductId String?
+  dimTimeId    Int?
+  productName  String
+  stock        Int
+  price        Float?
+  timesSold    Int
+  createdAt    DateTime @default(now())
+
+  dimProduct DimProduct? @relation(fields: [dimProductId], references: [id])
+  dimTime    DimTime?    @relation(fields: [dimTimeId], references: [id])
+
+  @@unique([exportId, rowIndex])
+  @@map("fact_inventory")
+}
+
+model FactAppointment {
+  id            String   @id @default(cuid())
+  tenantId      String
+  exportId      String
+  rowIndex      Int
+  dimTimeId     Int?
+  customerName  String
+  customerPhone String?
+  serviceId     String?
+  duration      Int?
+  status        String
+  createdAt     DateTime @default(now())
+
+  dimTime DimTime? @relation(fields: [dimTimeId], references: [id])
+
+  @@unique([exportId, rowIndex])
+  @@map("fact_appointments")
+}
+
+model FactKitchenOrder {
+  id          String   @id @default(cuid())
+  tenantId    String
+  exportId    String
+  rowIndex    Int
+  dimTimeId   Int?
+  tableNumber Int?
+  items       String?
+  priority    String?
+  status      String
+  createdAt   DateTime @default(now())
+
+  dimTime DimTime? @relation(fields: [dimTimeId], references: [id])
+
+  @@unique([exportId, rowIndex])
+  @@map("fact_kitchen_orders")
 }
 
 enum LicenseType {

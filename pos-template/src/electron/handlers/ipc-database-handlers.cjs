@@ -220,6 +220,110 @@ function registerDatabaseHandlers(getDatabase) {
       return [];
     }
   });
+
+  // Add table
+  ipcMain.handle('add-table', async (event, table) => {
+    try {
+      const db = getDatabase();
+      if (!db) throw new Error('Database not initialized');
+      
+      const { table_number, capacity } = table;
+      
+      return new Promise((resolve, reject) => {
+        db.run(
+          'INSERT INTO restaurant_tables (table_number, capacity) VALUES (?, ?)',
+          [table_number, capacity || 2],
+          function(err) {
+            if (err) {
+              console.error('❌ Error adding table:', err.message);
+              reject(err);
+              return;
+            }
+            resolve({ id: this.lastID, ...table });
+          }
+        );
+      });
+    } catch (error) {
+      console.error('❌ Error adding table:', error);
+      throw error;
+    }
+  });
+
+  // Update table
+  ipcMain.handle('update-table', async (event, id, table) => {
+    try {
+      const db = getDatabase();
+      if (!db) throw new Error('Database not initialized');
+      
+      const { table_number, capacity } = table;
+      
+      return new Promise((resolve, reject) => {
+        db.run(
+          'UPDATE restaurant_tables SET table_number = ?, capacity = ? WHERE id = ?',
+          [table_number, capacity || 2, id],
+          function(err) {
+            if (err) {
+              console.error('❌ Error updating table:', err.message);
+              reject(err);
+              return;
+            }
+            resolve({ success: true });
+          }
+        );
+      });
+    } catch (error) {
+      console.error('❌ Error updating table:', error);
+      throw error;
+    }
+  });
+
+  // Update table status
+  ipcMain.handle('update-table-status', async (event, id, status) => {
+    try {
+      const db = getDatabase();
+      if (!db) throw new Error('Database not initialized');
+      
+      return new Promise((resolve, reject) => {
+        db.run(
+          'UPDATE restaurant_tables SET status = ? WHERE id = ?',
+          [status, id],
+          function(err) {
+            if (err) {
+              console.error('❌ Error updating table status:', err.message);
+              reject(err);
+              return;
+            }
+            resolve({ success: true });
+          }
+        );
+      });
+    } catch (error) {
+      console.error('❌ Error updating table status:', error);
+      throw error;
+    }
+  });
+
+  // Delete table
+  ipcMain.handle('delete-table', async (event, id) => {
+    try {
+      const db = getDatabase();
+      if (!db) throw new Error('Database not initialized');
+      
+      return new Promise((resolve, reject) => {
+        db.run('DELETE FROM restaurant_tables WHERE id = ?', [id], function(err) {
+          if (err) {
+            console.error('❌ Error deleting table:', err.message);
+            reject(err);
+            return;
+          }
+          resolve({ success: true });
+        });
+      });
+    } catch (error) {
+      console.error('❌ Error deleting table:', error);
+      throw error;
+    }
+  });
   
   // Database query
   ipcMain.handle('database:query', async (event, sql, params = []) => {

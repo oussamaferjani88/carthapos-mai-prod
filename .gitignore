@@ -144,3 +144,6 @@ nul
 POS System/ 
 generated-pos/ 
 *.exe 
+
+# Metabase JAR (405MB binary, not for git)
+metabase/metabase.jar
