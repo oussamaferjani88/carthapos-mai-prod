@@ -173,35 +173,35 @@ class POSRepository extends BaseRepository {
         id: 'restaurant',
         name: 'Restaurant',
         description: 'Gestion complète pour restaurants avec tables, commandes cuisine, etc.',
-        defaultModules: ['pos-core', 'tables', 'kitchen', 'inventory', 'reports'],
+        defaultModules: ['pos-core', 'tables', 'kitchen', 'menu-management', 'takeaway', 'inventory', 'reports'],
         icon: '🍽️'
       },
       {
         id: 'cafe',
         name: 'Café / Bar',
         description: 'Solution adaptée aux cafés et bars avec gestion rapide des commandes',
-        defaultModules: ['pos-core', 'quick-service', 'inventory', 'reports'],
+        defaultModules: ['pos-core', 'inventory', 'reports'],
         icon: '☕'
       },
       {
         id: 'retail',
         name: 'Commerce de détail',
         description: 'Caisse pour magasins et boutiques avec gestion des stocks',
-        defaultModules: ['pos-core', 'inventory', 'barcode', 'customer-management', 'reports'],
+        defaultModules: ['pos-core', 'inventory', 'barcode', 'customer-management', 'promotions', 'reports'],
         icon: '🛍️'
       },
       {
         id: 'bakery',
         name: 'Boulangerie / Pâtisserie',
         description: 'Spécialisé pour boulangeries avec gestion des produits frais',
-        defaultModules: ['pos-core', 'inventory', 'production', 'customer-management', 'reports'],
+        defaultModules: ['pos-core', 'inventory', 'weight-scale', 'production', 'customer-management', 'reports'],
         icon: '🥖'
       },
       {
         id: 'pharmacy',
         name: 'Pharmacie',
         description: 'Solution pour pharmacies avec gestion des médicaments',
-        defaultModules: ['pos-core', 'inventory', 'prescription', 'customer-management', 'reports'],
+        defaultModules: ['pos-core', 'inventory', 'serial-batch', 'prescription', 'customer-management', 'reports'],
         icon: '💊'
       },
       {

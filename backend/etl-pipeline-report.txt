@@ -1,0 +1,177 @@
+BI ETL PIPELINE — PROCESS DOCUMENTATION
+=========================================
+Last updated: June 30, 2026
+
+This document describes the Extract-Transform-Load (ETL) pipeline that processes
+BI upload ZIP files into the warehouse database for dashboard consumption.
+
+SOURCE FILE
+-----------
+  backend/services/etl-pipeline.js  (613 lines)
+  Class: EtlPipeline  (singleton export)
+
+TRIGGER
+-------
+  POST /api/bi-uploads/:id/start-etl  (manual only, never auto-fires)
+  Prerequisites:
+    - Upload must have a linked BiRequest (requestId must exist)
+    - Linked BiRequest must have status = 'APPROVED'
+    - Upload must not already be COMPLETED
+    - Upload must not already be PROCESSING/VALIDATING
+  On trigger: upload status set to VALIDATING, BiProcessingJob created as QUEUED
+
+OVERALL FLOW (6 steps)
+-----------------------
+
+STEP 1 — EXTRACT ZIP
+---------------------
+  Input:  ZIP file path (upload.filePath)
+  Action: Copies ZIP to temporary directory, extracts using unzip (system command),
+          falls back to adm-zip npm package if unzip not available.
+  Output: Temp directory containing metadata.json + CSV files
+  Cleanup: Temp directory deleted in finally block regardless of success/failure
+
+STEP 2 — READ METADATA
+-----------------------
+  Input:  metadata.json from extracted ZIP
+  Fields: client_id, business_type, bi_schema_version, enabled_modules, export_timestamp
+  ClientId Override:
+    - Reads upload.clientId from DB
+    - If mismatch between metadata.client_id and upload.clientId, override with upload.clientId
+    - Ensures warehouse tenantId matches the upload owner, not the POS metadata
+    - Fixes "no data in dashboard preview" bug from tenantId mismatch
+
+STEP 3 — SCHEMA VALIDATION
+---------------------------
+  Compares metadata.bi_schema_version against schema registry version.
+  If mismatch, throws error (rejected).
+
+STEP 4 — DATASET VALIDATION
+----------------------------
+  Reads CSVs from temp directory. For each dataset:
+    1. REQUIRED datasets must exist (defined in BiSchemaRegistry)
+    2. Parse CSV header
+    3. Validate column names against schema registry
+    4. Parse all rows, validate data types per column
+    5. Detect duplicate rows (exact JSON match)
+    6. Non-required/empty files marked SKIPPED, not failed
+  Supported datasets (from BiSchemaRegistry):
+    - sales.csv         (required)
+    - products.csv      (required)
+    - inventory.csv     (required)
+    - suppliers.csv     (optional)
+    - appointments.csv  (optional)
+    - kitchen_orders.csv (optional)
+
+STEP 5 — DATABASE TRANSACTION (Prisma $transaction)
+----------------------------------------------------
+  All DB writes happen inside a single transaction for atomicity.
+
+  5a — BiProcessingJob management
+    - Find or create BiProcessingJob by uploadId
+    - Set status = 'PROCESSING', reset counters
+    - Write logging entries to BiProcessingLog table
+
+  5b — Dimension Tables (loaded first, referenced by fact tables)
+
+    DimTime:
+      - Extracts unique dates from sales.csv rows
+      - Fields: date (PK as YYYYMMDD int), year, quarter, month, day, dayOfWeek, isWeekend
+      - Uses findFirst + create to avoid duplicates (no unique constraint in DB)
+
+    DimClient:
+      - One record per tenantId (upsert by tenantId)
+      - Fields: tenantId, exportId, name, businessType
+
+    DimProduct:
+      - For each row in products.csv
+      - Composite PK: "prod_{clientId}_{product_id}"
+      - Fields: id, tenantId, exportId, productId, name, category, family, barcode
+      - findFirst + create/update pattern (no unique constraint)
+
+    DimSupplier:
+      - For each row in suppliers.csv (optional dataset)
+      - Composite PK: "supp_{clientId}_{supplier_id}"
+      - Fields: id, tenantId, exportId, supplierId, name, contact, phone, email
+      - findFirst + create/update pattern
+
+  5c — Fact Tables (loaded with references to dimension PKs)
+
+    FactSale:
+      - For each row in sales.csv
+      - Fields: tenantId, exportId, saleId, total, tax, discount, paymentMethod, dimTimeId
+      - Duplicate handling: catches P2002 (unique violation), skips silently
+      - No unique constraint on DB, but P2002 caught as safety
+
+    FactInventory:
+      - For each row in inventory.csv
+      - Fields: tenantId, exportId, rowIndex, dimProductId, productName, stock, price, timesSold
+
+    FactAppointment:
+      - For each row in appointments.csv (optional dataset)
+      - Fields: tenantId, exportId, rowIndex, dimTimeId, customerName, customerPhone, serviceId, duration, status
+
+    FactKitchenOrder:
+      - For each row in kitchen_orders.csv (optional dataset)
+      - Fields: tenantId, exportId, rowIndex, dimTimeId, tableNumber, items, priority, status
+
+  5d — Completion marking
+    - BiProcessingJob: status = COMPLETED, completedAt = now, recordsLoaded = total
+    - BiUpload: status = COMPLETED, totalRows = recordsLoaded
+
+  5e — BiAnalysisRequest creation (Phase 3 linkage)
+    - Auto-creates BiAnalysisRequest with status = PENDING
+    - Non-fatal: failure does not roll back transaction
+    - Links uploadId to the analysis request
+
+STEP 6 — TRANSACTION COMMIT
+----------------------------
+  Transaction commits automatically at end of $transaction callback.
+  On failure, entire operation rolls back.
+
+DATA CLEANING & PREPARATION
+----------------------------
+  1. ClientId normalization:
+     - metadata.client_id overridden with upload.clientId to ensure multi-tenant isolation
+  2. Date normalization:
+     - Dates truncated to YYYY-MM-DD (time portion stripped)
+     - Converted to YYYYMMDD integer for DimTime PK
+  3. Type coercion:
+     - ParseFloat for numeric fields (total, tax, discount, price)
+     - ParseInt for integer fields (stock, timesSold, duration, tableNumber)
+     - String conversion for IDs (saleId, serviceId, productId, supplierId)
+  4. Table number sanitization:
+     - Strips non-numeric prefix characters from kitchen table numbers
+  5. Duplicate row detection:
+     - Exact JSON-fingerprint matching within each dataset
+     - Reported in validation report (dev mode only)
+  6. Schema version enforcement:
+     - Rejects ZIP if bi_schema_version does not match server's BI_SCHEMA_VERSION
+  7. Column validation:
+     - CSV headers validated against schema registry per dataset type
+     - Missing columns on required datasets → rejection
+     - Type validation per column (row-level errors) → rejection with first 10 errors
+
+ERROR HANDLING
+--------------
+  - On any failure, upload set to FAILED with error message including failed step
+  - BiProcessingJob also marked FAILED with same error
+  - Step tracking via 'step' variable at top of run() — set before each stage
+  - AnalysisRequest creation failure is non-fatal (catches and logs only)
+  - Individual fact row P2002 (duplicate) errors are caught and skipped
+  - Temp directory always cleaned up in finally block
+
+LOGGING
+-------
+  All log entries written to BiProcessingLog table with:
+    - jobId, level (INFO/ERROR), step name, message text
+  Console logging with [ETL] prefix
+  Debug mode (BI_DEBUG=true env var) adds verbose [ETL:DEBUG] logs and validation report
+
+KNOWN LIMITATIONS
+-----------------
+  - DB lacks unique constraints defined in Prisma schema (migration drift)
+    → findFirst + create/update used instead of upsert
+  - BiAnalysisRequest auto-created with PENDING status (never auto-approved)
+  - No incremental loading — re-running ETL re-inserts fact rows (P2002 skip prevents full duplicates)
+  - No data archival — warehouse tables accumulate all exports

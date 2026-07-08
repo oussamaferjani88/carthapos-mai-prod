@@ -17,6 +17,8 @@ const execAsync = promisify(exec);
 
 // POST /api/pos/generate - Générer une application POS personnalisée
 router.post('/generate', async (req, res) => {
+  const perfTimings = {};
+  const routeStart = performance.now();
   try {
     const { licenseId, outputPath } = req.body;
 
@@ -25,6 +27,7 @@ router.post('/generate', async (req, res) => {
     }
 
     // Récupérer la licence complète
+    const tFetchLicense = performance.now();
     const license = await prisma.license.findUnique({
       where: { id: licenseId },
       include: {
@@ -37,6 +40,7 @@ router.post('/generate', async (req, res) => {
         configuration: true
       }
     });
+    perfTimings.route_fetchLicense = performance.now() - tFetchLicense;
     console.log('[POS DEBUG] [Backend] Loaded license for generation:', JSON.stringify(license, null, 2));
 
     if (!license) {
@@ -53,12 +57,16 @@ router.post('/generate', async (req, res) => {
     const localBuild = process.env.LOCAL_BUILD === 'true';
     const fastLocalGeneration = process.env.FAST_LOCAL_GENERATION === 'true' || req.body.fastMode === true;
     const skipBuild = !localBuild || fastLocalGeneration;
+    const tGenerate = performance.now();
     const result = await generatePOSApplication(license, outputPath, {
       skipBuild,
-      skipNodeModulesInstall: skipBuild
+      skipNodeModulesInstall: skipBuild,
+      releaseBuild: localBuild ? (req.body.releaseBuild !== false) : (req.body.releaseBuild === true)
     });
+    perfTimings.route_generatePOS = performance.now() - tGenerate;
 
     // Mettre à jour le productName et assurer le bon fichier main dans package.json avant la construction
+    const tPostProcess = performance.now();
     const packageJsonPath = path.join(result.outputPath, 'package.json');
     
     if (fs.existsSync(packageJsonPath)) {
@@ -94,6 +102,7 @@ router.post('/generate', async (req, res) => {
     }
 
     // Save build metadata to database (best-effort, non-blocking)
+    const tDbUpdate = performance.now();
     try {
       await prisma.license.update({
         where: { id: licenseId },
@@ -106,6 +115,7 @@ router.post('/generate', async (req, res) => {
     } catch (updateError) {
       logger.warn('Failed to save build metadata (non-fatal):', updateError.message);
     }
+    perfTimings.route_dbUpdate = performance.now() - tDbUpdate;
 
     // Trigger GitHub Actions build if configured (fire-and-forget, never block response)
     const hasGitHubConfig = !!(process.env.GITHUB_TOKEN && process.env.GITHUB_OWNER && process.env.GITHUB_REPO);
@@ -134,6 +144,15 @@ router.post('/generate', async (req, res) => {
     }
     
     // Return success response immediately
+    const routeTotalMs = performance.now() - routeStart;
+    logger.info('\n══════════════════ ROUTE TIMING ══════════════════');
+    const allTimings = { ...perfTimings, ...(result.timings || {}) };
+    const timingEntries = Object.entries(allTimings)
+      .sort((a, b) => b[1] - a[1])
+      .map(([k, v]) => `${k.padEnd(35)} ${v.toFixed(0)}ms`);
+    timingEntries.forEach(t => logger.info(t));
+    logger.info(`${'ROUTE TOTAL'.padEnd(35)} ${routeTotalMs.toFixed(0)}ms (${(routeTotalMs / 1000).toFixed(1)}s)`);
+    logger.info('═══════════════════════════════════════════════════\n');
     const buildStatus = localBuild
       ? (skipBuild ? 'source_ready' : 'completed')
       : 'source_ready';

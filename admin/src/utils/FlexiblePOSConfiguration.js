@@ -71,15 +71,13 @@ export class FlexiblePOSConfiguration {
           'Gestion des tables', 
           'Menu',
           'Cuisine',
-          'Stocks',
           'Clients',
           'Rapports'
         ],
         enableTableManagement: true,
-        enableMenuManagement: true,
-        enableInventoryTracking: true
+        enableMenuManagement: true
       }),
-      
+
       // Configuration Café simple
       cafe: this.createConfiguration({
         businessName: 'Café Central',
@@ -87,14 +85,11 @@ export class FlexiblePOSConfiguration {
         accentColor: '#DEB887',
         modules: [
           'Ventes',
-          'Service rapide',
-          'Stocks',
           'Rapports'
         ],
-        enableTableManagement: false,
-        quickServiceMode: true
+        enableTableManagement: false
       }),
-      
+
       // Configuration Boutique
       retail: this.createConfiguration({
         businessName: 'Boutique Mode',
@@ -103,16 +98,14 @@ export class FlexiblePOSConfiguration {
         modules: [
           'Ventes',
           'Produits',
-          'Stocks',
           'Clients',
           'Cartes cadeaux',
           'Rapports'
         ],
-        enableInventoryTracking: true,
         enableCustomerManagement: true,
         enableGiftCards: true
       }),
-      
+
       // Configuration Pharmacie
       pharmacy: this.createConfiguration({
         businessName: 'Pharmacie du Centre',
@@ -121,12 +114,10 @@ export class FlexiblePOSConfiguration {
         modules: [
           'Ventes',
           'Produits',
-          'Stocks',
           'Clients',
           'Ordonnances',
           'Rapports'
         ],
-        enableInventoryTracking: true,
         enablePrescriptionManagement: true,
         requirePharmacyLicense: true
       })

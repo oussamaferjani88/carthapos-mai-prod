@@ -21,7 +21,7 @@ class ModuleFilter {
       'customer-management': ['Customers.jsx'],
       'loyalty': ['Loyalty.jsx'],
       'takeaway': ['Takeaway.jsx'],
-      'delivery': ['Takeaway.jsx'], // Delivery bundled with Takeaway
+      'delivery': ['Takeaway.jsx'],
       'appointments': ['Appointments.jsx'],
       'services': ['Services.jsx'],
       'suppliers': ['Suppliers.jsx'],
@@ -30,7 +30,6 @@ class ModuleFilter {
       'reports': ['Reports.jsx'],
       'menu-management': ['MenuManagement.jsx'],
       'barcode': ['Barcode.jsx'],
-      'quick-service': ['QuickService.jsx'],
       'prescription': ['Prescription.jsx'],
       'production': ['Production.jsx'],
       'tables': ['Tables.jsx'],

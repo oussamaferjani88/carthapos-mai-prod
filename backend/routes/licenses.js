@@ -568,6 +568,103 @@ router.post('/', async (req, res) => {
   }
 });
 
+// POST /api/licenses/admin-create - Créer une licence (admin, sans paiement)
+router.post('/admin-create', async (req, res) => {
+  try {
+    const {
+      clientId,
+      sector,
+      licenseType,
+      bindingType,
+      expirationDate,
+      machineId,
+      moduleIds,
+      configuration
+    } = req.body;
+
+    console.log('[admin-create] Creating license:', { clientId, sector, licenseType, bindingType });
+
+    if (!clientId || !sector || !licenseType) {
+      return res.status(400).json({ error: 'clientId, sector, and licenseType are required' });
+    }
+
+    // Vérifier que le client existe
+    const client = await prisma.client.findUnique({
+      where: { id: clientId }
+    });
+
+    if (!client) {
+      return res.status(404).json({ error: 'Client not found' });
+    }
+
+    // Générer une clé de licence unique
+    const licenseKey = generateLicenseKey();
+
+    // Créer la licence (aucune vérification de paiement)
+    const license = await prisma.license.create({
+      data: {
+        clientId,
+        licenseKey,
+        sector,
+        licenseType,
+        bindingType: bindingType || 'MACHINE',
+        expirationDate: licenseType === 'LIFETIME' ? null : new Date(expirationDate),
+        isActive: true,
+        machineId: machineId || null,
+        createdBy: 'admin'
+      }
+    });
+
+    // Ajouter les modules
+    if (moduleIds && moduleIds.length > 0) {
+      const foundModules = await prisma.module.findMany({
+        where: { id: { in: moduleIds } }
+      });
+      if (foundModules.length !== moduleIds.length) {
+        return res.status(400).json({ error: 'Un ou plusieurs modules sont invalides.' });
+      }
+      await prisma.licenseModule.createMany({
+        data: moduleIds.map(moduleId => ({
+          licenseId: license.id,
+          moduleId,
+          isEnabled: true
+        }))
+      });
+    }
+
+    // Ajouter la configuration
+    if (configuration && Object.keys(configuration).length > 0) {
+      const filteredConfig = filterValidConfigurationFields({
+        licenseId: license.id,
+        businessName: configuration.businessName || client.name,
+        ...configuration
+      });
+      await prisma.licenseConfiguration.create({
+        data: filteredConfig
+      });
+    }
+
+    // Récupérer la licence complète
+    const completeLicense = await prisma.license.findUnique({
+      where: { id: license.id },
+      include: {
+        client: true,
+        modules: {
+          include: {
+            module: true
+          }
+        },
+        configuration: true
+      }
+    });
+
+    res.status(201).json(completeLicense);
+  } catch (error) {
+    console.error('[admin-create] Error:', error);
+    res.status(500).json({ error: 'Failed to create license' });
+  }
+});
+
 // PUT /api/licenses/:id - Mettre à jour une licence
 router.put('/:id', async (req, res) => {
   try {

@@ -1,321 +1,181 @@
-/**
- * Build System Manager - Handles compilation and build processes
- * Extracted from pos-generator.js for better debugging and modularity
- */
-
 const { execSync } = require('child_process');
 const fs = require('fs');
 const path = require('path');
+const os = require('os');
 const { createLogger } = require('../common/logger');
+const perfLogger = require('./PerfLogger');
 
 const logger = createLogger('BuildSystemManager');
 
 class BuildSystemManager {
-  constructor(projectPath) {
+  constructor(projectPath, options = {}) {
     this.projectPath = projectPath;
+    this.options = options;
+    this._hasNodeModules = false;
   }
 
-  /**
-   * Clean npm cache to free up space on C: drive
-   */
   async cleanNpmCache() {
     logger.info('Cleaning npm cache to free up disk space on C:');
-
     try {
-      // Clean npm cache (this runs on C: drive even if project is on D: or E:)
-      execSync('npm cache clean --force', {
-        stdio: 'inherit',
-        timeout: 60000
+      perfLogger.measureSync('npm cache clean', 'npm cache clean --force', {
+        timeout: 60000, stdio: 'pipe'
       });
-
       logger.info('✓ npm cache cleaned successfully');
     } catch (error) {
       logger.warn('Could not clean npm cache:', error.message);
     }
   }
 
-  /**
-   * Install npm dependencies by copying from template (FAST METHOD)
-   * FALLBACK: If copy fails or on Linux, run npm install directly
-   */
   async installDependencies() {
     logger.info('Installing npm dependencies');
+    const projectPath = this.projectPath;
+    const targetNodeModules = path.join(projectPath, 'node_modules');
+    const isWindows = process.platform === 'win32';
+    const templatePath = path.join(__dirname, '../../../pos-template');
+    const templateNodeModules = path.join(templatePath, 'node_modules');
 
+    // Check if node_modules already exists in target
+    const targetExists = fs.existsSync(targetNodeModules);
+    let targetCount = 0;
+    if (targetExists) {
+      targetCount = fs.readdirSync(targetNodeModules).length;
+    }
+
+    logger.info(`Target node_modules: ${targetExists} (${targetCount} items)`);
+
+    if (targetExists && targetCount > 100) {
+      logger.info('node_modules already exists - skipping install');
+      this._hasNodeModules = true;
+      return;
+    }
+
+    if (!isWindows) {
+      perfLogger.measureSync('npm ci', 'npm ci --legacy-peer-deps', {
+        cwd: projectPath, timeout: 600000
+      });
+      return;
+    }
+
+    if (fs.existsSync(targetNodeModules)) {
+      try {
+        fs.rmSync(targetNodeModules, { recursive: true, force: true });
+      } catch {
+        perfLogger.measureSync('remove existing node_modules',
+          `rmdir /s /q "${targetNodeModules}"`,
+          { shell: true, stdio: 'pipe', throws: false }
+        );
+      }
+    }
+
+    if (!fs.existsSync(templateNodeModules)) {
+      throw new Error(`Template node_modules not found at: ${templateNodeModules}`);
+    }
+
+    if (!fs.existsSync(targetNodeModules)) {
+      fs.mkdirSync(targetNodeModules, { recursive: true });
+    }
+
+    // Use robocopy to copy node_modules from template (multi-threaded, ~20-30s)
+    const robocopyCmd = `robocopy "${templateNodeModules}" "${targetNodeModules}" /E /NFL /NDL /NJH /NJS /MT:16`;
     try {
-      const isWindows = process.platform === 'win32';
-      const targetNodeModules = path.join(this.projectPath, 'node_modules');
-
-      // ✅ NEW OPTIMIZATION: Skip installation if node_modules already exists
-      if (fs.existsSync(targetNodeModules)) {
-        const existingPackages = fs.readdirSync(targetNodeModules).length;
-        if (existingPackages > 100) {  // Sanity check - should have lots of packages
-          logger.info(`✅ node_modules already exists with ${existingPackages} packages - SKIPPING INSTALL`);
-          logger.info('⏱️ Time saved: ~3-5 minutes!');
-          return;
-        }
-      }
-
-       // On Linux (Render), skip copy and just install directly (more reliable)
-       if (!isWindows) {
-         logger.info('🐧 Linux detected - Running npm ci directly (no copy)');
-         logger.info('⏱️ This will take 3-5 minutes...');
-         
-         execSync('npm ci --legacy-peer-deps', {
-           cwd: this.projectPath,
-           stdio: 'inherit',
-           timeout: 600000 // 10 minutes
-         });
-         
-         logger.info('✅ Dependencies installed successfully');
-         return;
-       }
-
-      // Windows: Try fast copy method
-      logger.info('💻 Windows detected - Attempting fast copy from template');
-      
-      // Path to template's node_modules
-      const templatePath = path.join(__dirname, '../../../pos-template');
-      const templateNodeModules = path.join(templatePath, 'node_modules');
-
-      logger.info(`Source: ${templateNodeModules}`);
-      logger.info(`Target: ${targetNodeModules}`);
-
-       // Check if template has node_modules
-       if (!fs.existsSync(templateNodeModules)) {
-         logger.warn('⚠️ Template node_modules not found. Attempting emergency npm ci...');
-         try {
-           execSync('npm ci --legacy-peer-deps', {
-             cwd: templatePath,
-             stdio: 'inherit',
-             timeout: 900000
-           });
-           logger.info('✓ Emergency install completed');
-         } catch (e) {
-           throw new Error(`CRITICAL: Template node_modules missing and install failed at ${templatePath}`);
-         }
-       }
-
-      // Verify source content
-      const sourceCount = fs.readdirSync(templateNodeModules).length;
-      logger.info(`Source node_modules contains ${sourceCount} items`);
-      if (sourceCount === 0) throw new Error("Template node_modules is empty!");
-
-      // PRE-CLEANUP: Ensure target does not exist to prevent nesting
-      if (fs.existsSync(targetNodeModules)) {
-        logger.info('Removing existing target node_modules...');
-        if (process.platform === 'win32') {
-          execSync(`rmdir /s /q "${targetNodeModules}"`, { shell: true });
-        } else {
-          execSync(`rm -rf "${targetNodeModules}"`);
-        }
-      }
-
-      // Create target directory
-      if (!fs.existsSync(targetNodeModules)) {
-        fs.mkdirSync(targetNodeModules, { recursive: true });
-      }
-
-      // Copy node_modules from template to generated POS
-      logger.info(`Copying node_modules...`);
-
-      if (isWindows) {
-        const robocopyCmd = `robocopy "${templateNodeModules}" "${targetNodeModules}" /E /NFL /NDL /NJH /NJS /MT:16`;
-        try {
-          execSync(robocopyCmd, { stdio: 'inherit', timeout: 300000 });
-        } catch (error) {
-          if (error.status > 7) throw error;
-        }
-      } else {
-        // For Linux/Mac, use cp -rL to follow symlinks and copy actual files
-        // -r = recursive
-        // -L = follow symbolic links (important for npm packages)
-        // -p = preserve attributes
-        // IMPORTANT: Use /. syntax to copy CONTENTS of directory, not the directory itself
-        execSync(`cp -rLp "${templateNodeModules}/." "${targetNodeModules}/"`, {
-          stdio: 'inherit',
-          timeout: 300000
-        });
-      }
-
-      // Verify critical packages exist
-      const criticalPackages = ['@vitejs/plugin-react', 'vite', 'electron', 'react', 'react-dom'];
-      const missingPackages = [];
-      
-      for (const pkg of criticalPackages) {
-        const pkgPath = path.join(targetNodeModules, pkg);
-        if (!fs.existsSync(pkgPath)) {
-          missingPackages.push(pkg);
-        }
-      }
-      
-       if (missingPackages.length > 0) {
-         logger.error(`❌ Missing critical packages after copy: ${missingPackages.join(', ')}`);
-         logger.info('Attempting npm ci as fallback...');
-         
-         execSync('npm ci --legacy-peer-deps', {
-           cwd: this.projectPath,
-           stdio: 'inherit',
-           timeout: 600000
-         });
-       }
-
-      logger.info('✓ Dependencies copied successfully (7 min → 30 sec!)');
-
+      perfLogger.measureSync('copy node_modules (robocopy)', robocopyCmd, {
+        timeout: 300000, shell: true, throws: true
+      });
     } catch (error) {
-      logger.error('Failed to copy dependencies:', error.message);
-      throw new Error(`Failed to install npm packages: ${error.message}`);
+      if (error.status > 7) throw error;
+    }
+
+    // Verify critical packages
+    const criticalPackages = ['@vitejs/plugin-react', 'vite', 'electron', 'react', 'react-dom'];
+    const missingPackages = criticalPackages.filter(pkg => {
+      return !fs.existsSync(path.join(targetNodeModules, pkg));
+    });
+
+    if (missingPackages.length > 0) {
+      logger.error(`Missing critical packages: ${missingPackages.join(', ')} - falling back to npm ci`);
+      perfLogger.measureSync('npm ci (fallback)', 'npm ci --legacy-peer-deps', {
+        cwd: projectPath, timeout: 600000
+      });
     }
   }
 
-  /**
-   * Build the Electron application
-   */
   async buildElectronApp() {
     logger.info('Building Electron application');
+    const isWindows = process.platform === 'win32';
 
-    try {
-      // Detect platform - Windows .exe can only be built on Windows
-      const isWindows = process.platform === 'win32';
-      
-      if (!isWindows) {
-        logger.warn('⚠️ Running on Linux - Attempting Windows build via Wine');
-        logger.info('Building Windows .exe installer using electron-builder + Wine');
-        
-        // Set Wine environment variables for electron-builder
-        process.env.WINEPREFIX = '/tmp/.wine';
-        process.env.WINEARCH = 'win64';
-        
-        // Build command for Windows on Linux
-        const command = 'npm run build:electron';
-        logger.info(`Executing: ${command}`);
-        
-        execSync(command, {
-          cwd: this.projectPath,
-          stdio: 'inherit',
-          timeout: 1200000, // 20 minutes
-          maxBuffer: 1024 * 1024 * 10,
-          encoding: 'utf8',
-          env: {
-            ...process.env,
-            USE_SYSTEM_FPM: 'true', // Use system fpm for packaging
-            DEBUG: 'electron-builder' // Enable debug output
-          }
-        });
-        
-        logger.info('✅ Build completed on Linux via Wine');
-      } else {
-        // Windows platform - build full installer
-        const command = 'npm run build:electron';
-        logger.info(`Executing: ${command}`);
+    if (!isWindows) {
+      logger.warn('Running on Linux - attempting Windows build via Wine');
+      process.env.WINEPREFIX = '/tmp/.wine';
+      process.env.WINEARCH = 'win64';
+    }
 
-        execSync(command, {
-          cwd: this.projectPath,
-          stdio: 'inherit',
-          timeout: 1200000, // 20 minutes
-          maxBuffer: 1024 * 1024 * 10,
-          encoding: 'utf8'
-        });
-        
-        logger.info('Build completed');
-        logger.info('Electron application built successfully');
-      }
+    // 3. Vite build
+    perfLogger.measureSync('vite build', 'npx vite build --mode production', {
+      cwd: this.projectPath,
+      timeout: 300000,
+      env: { ...process.env, NODE_ENV: 'production' }
+    });
 
-      // Check for installer file
-      const installerPath = this.findExecutable();
-      if (installerPath) {
-        logger.info(`✅ Installer found: ${installerPath}`);
-      } else {
-        logger.warn('⚠️ Build completed but no installer .exe file found');
-        logger.warn('Checking for unpacked version...');
-        const distPath = path.join(this.projectPath, 'dist');
-        const releasePath = path.join(this.projectPath, 'release');
-        if (fs.existsSync(distPath)) {
-          logger.info(`dist/ contents: ${fs.readdirSync(distPath).join(', ')}`);
-        }
-        if (fs.existsSync(releasePath)) {
-          logger.info(`release/ contents: ${fs.readdirSync(releasePath).join(', ')}`);
-        }
-      }
+    const distPath = path.join(this.projectPath, 'dist');
+    if (fs.existsSync(distPath)) {
+      const distFiles = fs.readdirSync(distPath);
+      logger.info(`Vite output: ${distFiles.length} files in dist/`);
+    }
 
-    } catch (error) {
-      // Check if it's just a warning (build still succeeded)
-      const output = error.stdout?.toString() || '';
-      const errorOutput = error.stderr?.toString() || '';
+    // 4-10. electron-builder
+    const env = { ...process.env };
+    const debugValue = process.env.DEBUG || 'electron-builder';
+    env.DEBUG = debugValue;
+    if (!isWindows) env.USE_SYSTEM_FPM = 'true';
 
-      // Check if dist folder was created (indicates successful build despite warnings)
-      const distPath = path.join(this.projectPath, 'dist');
-      const releasePath = path.join(this.projectPath, 'release');
-      const buildSucceeded = (fs.existsSync(distPath) && fs.readdirSync(distPath).length > 0) ||
-        (fs.existsSync(releasePath) && fs.readdirSync(releasePath).length > 0);
+    // Use --dir for dev builds (fast), full installer for release builds
+    const buildFlags = this.options?.releaseBuild ? '--win --x64 --publish=never' : '--win --x64 --dir';
 
-      if (buildSucceeded) {
-        logger.warn('Build completed with warnings (but succeeded):');
-        logger.warn('Output:', output);
-        if (errorOutput) logger.warn('Warnings:', errorOutput);
-        logger.info('✓ Build artifacts found - treating as success');
-        return; // Exit successfully
-      }
+    perfLogger.measureSync('electron-builder', `npx electron-builder ${buildFlags}`, {
+      cwd: this.projectPath,
+      timeout: 1200000,
+      env
+    });
 
-      // Real build failure
-      logger.error('Failed to build Electron application:', error.message);
-      logger.error('Build output:', output);
-      logger.error('Error output:', errorOutput);
-      logger.error('Error details:', {
-        status: error.status,
-        signal: error.signal
-      });
-
-      throw new Error(`Build command failed: ${error.message}`);
+    // For full builds, find and log the installer
+    const installerPath = this.findExecutable();
+    if (installerPath) {
+      logger.info(`Installer found: ${installerPath}`);
     }
   }
 
-  /**
-   * Clean up build directories to save space
-   * Enhanced to also clean temporary files on C: drive
-   */
   async cleanupBuildDirectories() {
-    logger.info('Cleaning up build directories and temporary files');
-
+    logger.info('Cleaning up build directories');
     const dirsToClean = [
-      'dist',
-      'release',
-      'temp-build',
-      path.join('node_modules', '.cache'),
-      path.join('node_modules', '.vite'),
-      path.join('node_modules', '.tmp'),
+      'dist', 'release', 'temp-build',
       'coverage'
     ];
 
-    let cleanedCount = 0;
     for (const dir of dirsToClean) {
       const dirPath = path.join(this.projectPath, dir);
       if (fs.existsSync(dirPath)) {
+        const cmd = process.platform === 'win32'
+          ? `rmdir /s /q "${dirPath}"`
+          : `rm -rf "${dirPath}"`;
         try {
-          if (process.platform === 'win32') {
-            execSync(`rmdir /s /q "${dirPath}"`, { shell: true });
-          } else {
-            execSync(`rm -rf "${dirPath}"`);
-          }
-          logger.info(`✓ Cleaned directory: ${dir}`);
-          cleanedCount++;
-        } catch (error) {
-          logger.warn(`Could not clean directory ${dir}:`, error.message);
-        }
+          perfLogger.measureSync(`clean ${dir}`, cmd, {
+            shell: process.platform === 'win32',
+            stdio: 'pipe',
+            throws: false
+          });
+        } catch { }
       }
     }
 
-    logger.info(`Cleanup complete: ${cleanedCount} directories cleaned`);
-
-    // Also clean npm cache after cleanup
-    await this.cleanNpmCache();
+    try {
+      perfLogger.measureSync('npm cache clean', 'npm cache clean --force', {
+        timeout: 60000, stdio: 'pipe', throws: false
+      });
+    } catch { }
   }
 
-  /**
-   * Find the generated executable file
-   */
   findExecutable() {
     logger.info('Looking for generated executable');
-
     const searchPaths = [
       path.join(this.projectPath, 'dist'),
       path.join(this.projectPath, 'release'),
@@ -326,54 +186,42 @@ class BuildSystemManager {
       if (fs.existsSync(searchPath)) {
         const files = fs.readdirSync(searchPath);
         const exeFile = files.find(file => file.endsWith('.exe'));
-
         if (exeFile) {
-          const executablePath = path.join(searchPath, exeFile);
-          logger.info(`Executable found: ${executablePath}`);
-          return executablePath;
+          const execPath = path.join(searchPath, exeFile);
+          const stat = fs.statSync(execPath);
+          logger.info(`Executable: ${execPath} (${Math.round(stat.size / 1024 / 1024)} MB)`);
+          return execPath;
         }
       }
     }
-
     logger.warn('No executable file found');
     return null;
   }
 
-  /**
-   * Validate build environment
-   */
   async validateBuildEnvironment() {
     logger.info('Validating build environment');
-
-    // Check if package.json exists
     const packageJsonPath = path.join(this.projectPath, 'package.json');
     if (!fs.existsSync(packageJsonPath)) {
       throw new Error('package.json not found in project directory');
     }
 
-    // Check if node_modules exists (after install)
     const nodeModulesPath = path.join(this.projectPath, 'node_modules');
     if (!fs.existsSync(nodeModulesPath)) {
-      logger.warn('node_modules not found - dependencies may not be installed');
+      logger.warn('node_modules not found before build');
     }
 
-    // Check if build scripts exist
     const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, 'utf8'));
     const requiredScripts = ['build:electron', 'build'];
-
-    const missingScripts = requiredScripts.filter(script => !packageJson.scripts?.[script]);
+    const missingScripts = requiredScripts.filter(s => !packageJson.scripts?.[s]);
     if (missingScripts.length > 0) {
       logger.warn(`Missing build scripts: ${missingScripts.join(', ')}`);
     }
 
-    logger.info('Build environment validation completed');
+    logger.info(`Free memory: ${Math.round(os.freemem() / 1024 / 1024)} MB`);
   }
 
-  /**
-   * Get build statistics
-   */
   getBuildStats() {
-    const stats = {
+    return {
       projectPath: this.projectPath,
       hasNodeModules: fs.existsSync(path.join(this.projectPath, 'node_modules')),
       hasDist: fs.existsSync(path.join(this.projectPath, 'dist')),
@@ -381,30 +229,18 @@ class BuildSystemManager {
       executablePath: this.findExecutable(),
       timestamp: new Date().toISOString()
     };
-
-    logger.info('Build statistics:', stats);
-    return stats;
   }
 
-  /**
-   * Execute complete build process
-   */
-  async executeFullBuild() {
+  async executeFullBuild(timings = {}) {
     logger.info('Starting complete build process');
 
-    try {
-      await this.validateBuildEnvironment();
-      await this.installDependencies();
-      await this.buildElectronApp();
+    await this.validateBuildEnvironment();
+    await this.installDependencies();
+    await this.buildElectronApp();
 
-      const stats = this.getBuildStats();
-      logger.info('Build process completed successfully');
-
-      return stats;
-    } catch (error) {
-      logger.error('Build process failed:', error);
-      throw error;
-    }
+    const stats = this.getBuildStats();
+    logger.info('Build process completed successfully');
+    return stats;
   }
 }
 

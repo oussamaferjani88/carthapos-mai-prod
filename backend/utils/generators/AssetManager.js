@@ -35,6 +35,7 @@ class AssetManager {
    * Copy template files to project directory
    */
   async copyTemplate() {
+    const t0 = performance.now();
     logger.info('Copying template files to project directory');
 
     try {
@@ -50,7 +51,7 @@ class AssetManager {
        // Copy all template files
        await this.copyDirectoryRecursive(this.templatePath, this.projectPath);
        
-       logger.info('Template files copied successfully');
+       logger.info(`Template files copied successfully (${(performance.now() - t0).toFixed(0)}ms)`);
        
        // DEFENSIVE: Ensure essential component files exist (in case they were missed)
        await this.ensureEssentialFiles();
@@ -372,7 +373,14 @@ window.addEventListener('DOMContentLoaded', () => {
           licenseKey: license.licenseKey,
           clientId: license.clientId,
           clientName: license.client?.name || businessName,
+          licenseType: license.licenseType,
+          bindingType: license.bindingType || 'MACHINE',
+          machineId: license.machineId || null,
+          expirationDate: license.expirationDate || null,
           isActive: license.isActive,
+          isActivated: license.isActivated || false,
+          activatedAt: license.activatedAt || null,
+          lastValidatedAt: license.lastValidatedAt || null,
           modules: modulesForConfig,
           configuration: license.configuration || {}
         },

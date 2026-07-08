@@ -36,6 +36,7 @@ const biRequestsRoutes = require('./routes/bi-requests');
 const biUploadsRoutes = require('./routes/bi-uploads');
 const biDebugRoutes = require('./routes/bi-debug');
 const biDashboardsRoutes = require('./routes/bi-dashboards');
+const biDashboardTemplatesRoutes = require('./routes/bi-dashboard-templates');
 const biNotificationsRoutes = require('./routes/bi-notifications');
 const biAnalysisRoutes = require('./routes/bi-analysis');
 const biReviewsRoutes = require('./routes/bi-reviews');
@@ -48,7 +49,7 @@ app.use(helmet());
 app.use(cors({
   origin: '*', // Allow all origins for development
   credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization']
 }));
 app.use(morgan('combined'));
@@ -111,6 +112,7 @@ app.use('/api/bi-uploads', biUploadsRoutes);
 app.use('/api/bi/debug', biDebugRoutes);
 app.use('/api/bi/dashboards', biDashboardsRoutes);
 app.use('/api/bi/dashboard', biDashboardsRoutes);
+app.use('/api/bi/dashboard-templates', biDashboardTemplatesRoutes);
 app.use('/api/bi/notifications', biNotificationsRoutes);
 app.use('/api/bi/analysis', biAnalysisRoutes);
 app.use('/api/bi/reviews', biReviewsRoutes);

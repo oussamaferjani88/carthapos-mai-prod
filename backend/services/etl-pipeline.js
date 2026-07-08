@@ -47,6 +47,20 @@ class EtlPipeline {
       log(`  businessType=${metadata.businessType}`);
       log(`  schemaVersion=${metadata.biSchemaVersion}`);
 
+      /* ── Override metadata.clientId with upload.clientId ───── */
+      const upload = await prisma.biUpload.findUnique({
+        where: { id: uploadId },
+        select: { clientId: true },
+      });
+      if (upload && upload.clientId) {
+        if (upload.clientId !== metadata.clientId) {
+          log(`  Overriding clientId: metadata="${metadata.clientId}" → upload="${upload.clientId}"`);
+          metadata.clientId = upload.clientId;
+        }
+      } else {
+        log(`  WARN: Upload ${uploadId} has no clientId, keeping metadata.clientId="${metadata.clientId}"`);
+      }
+
       /* ── STEP 3: Schema enforcement ─────────────────────────── */
       step = 'schema-check';
       log(`STEP 3: Validate schema version`);
@@ -81,12 +95,18 @@ class EtlPipeline {
         debug('[DB] Transaction started');
 
         /* ── Create/update job ──────────────────────────────── */
-        log(`[DB] Upsert BiProcessingJob`);
-        const job = await tx.biProcessingJob.upsert({
-          where: { uploadId },
-          update: { status: 'PROCESSING', startedAt: new Date(), errorMessage: null, completedAt: null, recordsLoaded: 0 },
-          create: { uploadId, status: 'PROCESSING', startedAt: new Date() },
-        });
+        log(`[DB] Find or create BiProcessingJob`);
+        let job = await tx.biProcessingJob.findFirst({ where: { uploadId } });
+        if (job) {
+          job = await tx.biProcessingJob.update({
+            where: { id: job.id },
+            data: { status: 'PROCESSING', startedAt: new Date(), errorMessage: null, completedAt: null, recordsLoaded: 0 },
+          });
+        } else {
+          job = await tx.biProcessingJob.create({
+            data: { uploadId, status: 'PROCESSING', startedAt: new Date() },
+          });
+        }
         log(`[DB] BiProcessingJob id=${job.id}`);
 
         await this._log(tx, job.id, 'INFO', 'EXTRACT', 'ETL started');
@@ -123,12 +143,11 @@ class EtlPipeline {
         /* ── Phase 3: Auto-create BiAnalysisRequest ──────────── */
         log(`STEP 5e: Create BiAnalysisRequest`);
         try {
-          const upload = await tx.biUpload.findUnique({ where: { id: uploadId }, select: { clientId: true, businessType: true, licenseId: true } });
+          const upload = await tx.biUpload.findUnique({ where: { id: uploadId }, select: { clientId: true, businessType: true } });
           if (upload) {
             await tx.biAnalysisRequest.create({
               data: {
                 clientId: upload.clientId,
-                licenseId: upload.licenseId || null,
                 uploadId: uploadId,
                 businessType: upload.businessType,
                 status: 'PENDING',
@@ -371,51 +390,65 @@ class EtlPipeline {
       for (const d of dates) {
         const dt = new Date(d);
         const dayOfWeek = dt.getUTCDay();
-        await tx.dimTime.upsert({
-          where: { date: dt },
-          update: {},
-          create: {
-            id: this._dateToInt(dt),
-            date: dt,
-            year: dt.getUTCFullYear(),
-            quarter: Math.floor(dt.getUTCMonth() / 3) + 1,
-            month: dt.getUTCMonth() + 1,
-            day: dt.getUTCDate(),
-            dayOfWeek,
-            isWeekend: dayOfWeek === 0 || dayOfWeek === 6,
-          },
-        });
+        const existing = await tx.dimTime.findFirst({ where: { date: dt }, select: { id: true } });
+        if (!existing) {
+          await tx.dimTime.create({
+            data: {
+              id: this._dateToInt(dt),
+              date: dt,
+              year: dt.getUTCFullYear(),
+              quarter: Math.floor(dt.getUTCMonth() / 3) + 1,
+              month: dt.getUTCMonth() + 1,
+              day: dt.getUTCDate(),
+              dayOfWeek,
+              isWeekend: dayOfWeek === 0 || dayOfWeek === 6,
+            },
+          });
+        }
         timeCount++;
       }
     }
 
     // DimClient
     debug('[DB] Inserting DimClient');
-    await tx.dimClient.upsert({
-      where: { tenantId: metadata.clientId },
-      update: { name: metadata.clientId, businessType: metadata.businessType, exportId: uploadId },
-      create: { tenantId: metadata.clientId, exportId: uploadId, name: metadata.clientId, businessType: metadata.businessType },
-    });
+    const existingClient = await tx.dimClient.findFirst({ where: { tenantId: metadata.clientId }, select: { id: true } });
+    if (existingClient) {
+      await tx.dimClient.update({
+        where: { id: existingClient.id },
+        data: { name: metadata.clientId, businessType: metadata.businessType, exportId: uploadId },
+      });
+    } else {
+      await tx.dimClient.create({
+        data: { tenantId: metadata.clientId, exportId: uploadId, name: metadata.clientId, businessType: metadata.businessType },
+      });
+    }
 
     // DimProduct
     let prodCount = 0;
     if (datasets.products) {
       debug('[DB] Inserting Products');
       for (const row of datasets.products.rows) {
-        await tx.dimProduct.upsert({
-          where: { id: `prod_${metadata.clientId}_${row.product_id}` },
-          update: { name: row.name, category: row.category, family: row.family, barcode: row.barcode },
-          create: {
-            id: `prod_${metadata.clientId}_${row.product_id}`,
-            tenantId: metadata.clientId,
-            exportId: uploadId,
-            productId: String(row.product_id),
-            name: row.name,
-            category: row.category,
-            family: row.family,
-            barcode: row.barcode,
-          },
-        });
+        const pid = `prod_${metadata.clientId}_${row.product_id}`;
+        const existing = await tx.dimProduct.findFirst({ where: { id: pid }, select: { id: true } });
+        if (existing) {
+          await tx.dimProduct.update({
+            where: { id: existing.id },
+            data: { name: row.name, category: row.category, family: row.family, barcode: row.barcode },
+          });
+        } else {
+          await tx.dimProduct.create({
+            data: {
+              id: pid,
+              tenantId: metadata.clientId,
+              exportId: uploadId,
+              productId: String(row.product_id),
+              name: row.name,
+              category: row.category,
+              family: row.family,
+              barcode: row.barcode,
+            },
+          });
+        }
         prodCount++;
       }
     }
@@ -425,20 +458,27 @@ class EtlPipeline {
     if (datasets.suppliers) {
       debug('[DB] Inserting Suppliers');
       for (const row of datasets.suppliers.rows) {
-        await tx.dimSupplier.upsert({
-          where: { id: `supp_${metadata.clientId}_${row.supplier_id}` },
-          update: { name: row.name, contact: row.contact, phone: row.phone, email: row.email },
-          create: {
-            id: `supp_${metadata.clientId}_${row.supplier_id}`,
-            tenantId: metadata.clientId,
-            exportId: uploadId,
-            supplierId: String(row.supplier_id),
-            name: row.name,
-            contact: row.contact,
-            phone: row.phone,
-            email: row.email,
-          },
-        });
+        const sid = `supp_${metadata.clientId}_${row.supplier_id}`;
+        const existing = await tx.dimSupplier.findFirst({ where: { id: sid }, select: { id: true } });
+        if (existing) {
+          await tx.dimSupplier.update({
+            where: { id: existing.id },
+            data: { name: row.name, contact: row.contact, phone: row.phone, email: row.email },
+          });
+        } else {
+          await tx.dimSupplier.create({
+            data: {
+              id: sid,
+              tenantId: metadata.clientId,
+              exportId: uploadId,
+              supplierId: String(row.supplier_id),
+              name: row.name,
+              contact: row.contact,
+              phone: row.phone,
+              email: row.email,
+            },
+          });
+        }
         suppCount++;
       }
     }
@@ -457,20 +497,20 @@ class EtlPipeline {
       debug('[DB] Inserting Sales');
       for (const row of datasets.sales.rows) {
         const dimTimeId = row.created_at ? this._dateToInt(new Date(row.created_at.substring(0, 10))) : null;
-        await tx.factSale.upsert({
-          where: { exportId_saleId: { exportId: uploadId, saleId: String(row.sale_id) } },
-          update: {},
-          create: {
-            tenantId: metadata.clientId,
-            exportId: uploadId,
-            saleId: String(row.sale_id),
-            total: parseFloat(row.total) || 0,
-            tax: row.tax ? parseFloat(row.tax) : null,
-            discount: row.discount ? parseFloat(row.discount) : null,
-            paymentMethod: row.payment_method,
-            dimTimeId,
-          },
-        });
+        try {
+          await tx.factSale.create({
+            data: {
+              tenantId: metadata.clientId,
+              exportId: uploadId,
+              saleId: String(row.sale_id),
+              total: parseFloat(row.total) || 0,
+              tax: row.tax ? parseFloat(row.tax) : null,
+              discount: row.discount ? parseFloat(row.discount) : null,
+              paymentMethod: row.payment_method,
+              dimTimeId,
+            },
+          });
+        } catch (e) { if (e.code !== 'P2002') throw e; }
         salesCount++;
       }
     }
@@ -480,20 +520,20 @@ class EtlPipeline {
       debug('[DB] Inserting Inventory');
       for (const [i, row] of datasets.inventory.rows.entries()) {
         const dimProductId = `prod_${metadata.clientId}_${row.product_id}`;
-        await tx.factInventory.upsert({
-          where: { exportId_rowIndex: { exportId: uploadId, rowIndex: i } },
-          update: {},
-          create: {
-            tenantId: metadata.clientId,
-            exportId: uploadId,
-            rowIndex: i,
-            dimProductId,
-            productName: row.product_name || '',
-            stock: parseInt(row.stock) || 0,
-            price: row.price ? parseFloat(row.price) : null,
-            timesSold: parseInt(row.times_sold) || 0,
-          },
-        });
+        try {
+          await tx.factInventory.create({
+            data: {
+              tenantId: metadata.clientId,
+              exportId: uploadId,
+              rowIndex: i,
+              dimProductId,
+              productName: row.product_name || '',
+              stock: parseInt(row.stock) || 0,
+              price: row.price ? parseFloat(row.price) : null,
+              timesSold: parseInt(row.times_sold) || 0,
+            },
+          });
+        } catch (e) { if (e.code !== 'P2002') throw e; }
         invCount++;
       }
     }
@@ -503,21 +543,21 @@ class EtlPipeline {
       debug('[DB] Inserting Appointments');
       for (const [i, row] of datasets.appointments.rows.entries()) {
         const dimTimeId = row.appointment_date ? this._dateToInt(new Date(row.appointment_date.substring(0, 10))) : null;
-        await tx.factAppointment.upsert({
-          where: { exportId_rowIndex: { exportId: uploadId, rowIndex: i } },
-          update: {},
-          create: {
-            tenantId: metadata.clientId,
-            exportId: uploadId,
-            rowIndex: i,
-            dimTimeId,
-            customerName: row.customer_name || '',
-            customerPhone: row.customer_phone,
-            serviceId: row.service_id ? String(row.service_id) : null,
-            duration: row.duration ? parseInt(row.duration) : null,
-            status: row.status || 'scheduled',
-          },
-        });
+        try {
+          await tx.factAppointment.create({
+            data: {
+              tenantId: metadata.clientId,
+              exportId: uploadId,
+              rowIndex: i,
+              dimTimeId,
+              customerName: row.customer_name || '',
+              customerPhone: row.customer_phone,
+              serviceId: row.service_id ? String(row.service_id) : null,
+              duration: row.duration ? parseInt(row.duration) : null,
+              status: row.status || 'scheduled',
+            },
+          });
+        } catch (e) { if (e.code !== 'P2002') throw e; }
         aptCount++;
       }
     }
@@ -527,20 +567,20 @@ class EtlPipeline {
       debug('[DB] Inserting KitchenOrders');
       for (const [i, row] of datasets.kitchen_orders.rows.entries()) {
         const dimTimeId = row.created_at ? this._dateToInt(new Date(row.created_at.substring(0, 10))) : null;
-        await tx.factKitchenOrder.upsert({
-          where: { exportId_rowIndex: { exportId: uploadId, rowIndex: i } },
-          update: {},
-          create: {
-            tenantId: metadata.clientId,
-            exportId: uploadId,
-            rowIndex: i,
-            dimTimeId,
-            tableNumber: row.table_number ? parseInt(String(row.table_number).replace(/^[^\d-]+/, '')) || null : null,
-            items: row.items,
-            priority: row.priority || 'normal',
-            status: row.status || 'pending',
-          },
-        });
+        try {
+          await tx.factKitchenOrder.create({
+            data: {
+              tenantId: metadata.clientId,
+              exportId: uploadId,
+              rowIndex: i,
+              dimTimeId,
+              tableNumber: row.table_number ? parseInt(String(row.table_number).replace(/^[^\d-]+/, '')) || null : null,
+              items: row.items,
+              priority: row.priority || 'normal',
+              status: row.status || 'pending',
+            },
+          });
+        } catch (e) { if (e.code !== 'P2002') throw e; }
         kitCount++;
       }
     }

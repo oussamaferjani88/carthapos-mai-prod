@@ -7,7 +7,7 @@ async function main() {
 
   // Créer les modules de base
   const modules = [
-    // Modules core (toujours activés)
+    // ── Core (toujours activés) ──
     {
       name: 'pos-core',
       displayName: 'Caisse de base',
@@ -18,7 +18,7 @@ async function main() {
     {
       name: 'user-management',
       displayName: 'Gestion des utilisateurs',
-      description: 'Gestion des comptes utilisateurs et des permissions',
+      description: 'Gestion des comptes utilisateurs, rôles et permissions',
       category: 'core',
       isCore: true
     },
@@ -29,7 +29,6 @@ async function main() {
       category: 'core',
       isCore: true
     },
-
     {
       name: 'barcode',
       displayName: 'Code-barres',
@@ -38,11 +37,11 @@ async function main() {
       isCore: true
     },
 
-    // Modules optionnels - Gestion des stocks
+    // ── Inventory ──
     {
       name: 'inventory',
       displayName: 'Gestion des stocks',
-      description: 'Suivi des stocks, alertes de rupture, réapprovisionnement',
+      description: 'Suivi des stocks, alertes de rupture, réapprovisionnement, inventaires',
       category: 'inventory',
       isCore: false
     },
@@ -50,20 +49,6 @@ async function main() {
       name: 'suppliers',
       displayName: 'Fournisseurs',
       description: 'Gestion des fournisseurs et des commandes',
-      category: 'inventory',
-      isCore: false
-    },
-    {
-      name: 'multi-store',
-      displayName: 'Multi-magasins',
-      description: 'Gestion de plusieurs magasins, transferts, rapports consolidés',
-      category: 'inventory',
-      isCore: false
-    },
-    {
-      name: 'transfers',
-      displayName: 'Transferts de stock',
-      description: 'Mouvements entre magasins ou entrepôts',
       category: 'inventory',
       isCore: false
     },
@@ -77,7 +62,7 @@ async function main() {
     {
       name: 'promotions',
       displayName: 'Promotions',
-      description: 'Gestion des promotions, réductions, offres spéciales',
+      description: 'Gestion des promotions, réductions, coupons, offres spéciales',
       category: 'inventory',
       isCore: false
     },
@@ -91,12 +76,12 @@ async function main() {
     {
       name: 'weight-scale',
       displayName: 'Intégration balance',
-      description: 'Vente au poids (épiceries, produits frais)',
+      description: 'Vente au poids et intégration balance (épiceries, produits frais)',
       category: 'inventory',
       isCore: false
     },
 
-    // Modules optionnels - Restaurant
+    // ── Restaurant & Takeaway ──
     {
       name: 'tables',
       displayName: 'Gestion des tables',
@@ -107,7 +92,7 @@ async function main() {
     {
       name: 'kitchen',
       displayName: 'Cuisine',
-      description: 'Impression des commandes en cuisine, suivi des préparations',
+      description: 'Affichage des commandes en cuisine, suivi des préparations',
       category: 'restaurant',
       isCore: false
     },
@@ -118,42 +103,33 @@ async function main() {
       category: 'restaurant',
       isCore: false
     },
-
-    // Modules optionnels - Service rapide
-    {
-      name: 'quick-service',
-      displayName: 'Service rapide',
-      description: 'Interface optimisée pour la vente rapide',
-      category: 'service',
-      isCore: false
-    },
     {
       name: 'takeaway',
       displayName: 'Vente à emporter',
-      description: 'Gestion des commandes à emporter et livraisons',
-      category: 'service',
+      description: 'Commandes à emporter et livraisons',
+      category: 'restaurant',
       isCore: false
     },
 
-    // Modules optionnels - Client
+    // ── Customer ──
     {
       name: 'customer-management',
       displayName: 'Gestion des clients',
-      description: 'Base de données clients, historique, fidélité',
+      description: 'Base de données clients, historique d\'achats',
       category: 'customer',
       isCore: false
     },
     {
       name: 'loyalty',
       displayName: 'Programme de fidélité',
-      description: 'Points de fidélité, cartes, promotions',
+      description: 'Points de fidélité, cartes de fidélité, récompenses',
       category: 'customer',
       isCore: false
     },
     {
-      name: 'promotions',
-      displayName: 'Promotions & remises',
-      description: 'Réductions, coupons, offres spéciales, bundles',
+      name: 'gift-cards',
+      displayName: 'Cartes cadeaux',
+      description: 'Émission et gestion des cartes cadeaux',
       category: 'customer',
       isCore: false
     },
@@ -165,7 +141,7 @@ async function main() {
       isCore: false
     },
 
-    // Modules optionnels - Paiement
+    // ── Payment ──
     {
       name: 'payment-advanced',
       displayName: 'Paiements avancés',
@@ -174,21 +150,14 @@ async function main() {
       isCore: false
     },
     {
-      name: 'gift-cards',
-      displayName: 'Cartes cadeaux',
-      description: 'Émission et gestion des cartes cadeaux',
-      category: 'payment',
-      isCore: false
-    },
-    {
       name: 'split-payments',
       displayName: 'Paiements multiples',
-      description: 'Mélange de plusieurs modes (espèces + carte + bon)',
+      description: 'Mélange de plusieurs modes de paiement (espèces + carte + bon)',
       category: 'payment',
       isCore: false
     },
 
-    // Modules optionnels - Spécialisés
+    // ── Specialized ──
     {
       name: 'appointments',
       displayName: 'Rendez-vous',
@@ -225,14 +194,7 @@ async function main() {
       isCore: false
     },
 
-    // Modules optionnels - Administration
-    {
-      name: 'tax-management',
-      displayName: 'Gestion des taxes/TVA',
-      description: 'Multi-taux, exemptions, règles fiscales locales',
-      category: 'administration',
-      isCore: false
-    },
+    // ── Administration ──
     {
       name: 'employee-management',
       displayName: 'Gestion du personnel',
@@ -241,9 +203,9 @@ async function main() {
       isCore: false
     },
     {
-      name: 'user-management',
-      displayName: 'Gestion des utilisateurs',
-      description: 'Créer comptes caissiers, gérer permissions et modules',
+      name: 'tax-management',
+      displayName: 'Gestion des taxes/TVA',
+      description: 'Multi-taux, exemptions, règles fiscales locales',
       category: 'administration',
       isCore: false
     },

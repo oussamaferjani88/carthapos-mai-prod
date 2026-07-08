@@ -105,26 +105,45 @@
     "directories": {
       "output": "release"
     },
-    "asar": false,
+    "asar": true,
+    "npmRebuild": false,
     "files": [
       "dist/**/*",
-      "public/electron-modular.cjs",
-      "public/preload.cjs",
-      "public/app-config.json",
+      "public/**/*",
       "src/electron/**/*",
-      "node_modules/sqlite3/**/*",
-      "node_modules/crypto-js/**/*",
-      "node_modules/bcryptjs/**/*",
+      "node_modules/**/*",
       "!node_modules/node-gyp/**/*",
       "!node_modules/@electron/rebuild/**/*",
       "!node_modules/**/test/**/*",
       "!node_modules/**/tests/**/*",
       "!node_modules/**/*.md",
-      "!node_modules/**/*.txt"
+      "!node_modules/**/*.txt",
+      "!**/*.ts",
+      "!**/*.tsbuildinfo",
+      "!**/*.map",
+      "!**/*.d.ts",
+      "!**/CHANGELOG*",
+      "!**/README*",
+      "!**/LICENSE*",
+      "!**/.npmignore",
+      "!**/.gitignore",
+      "!**/.editorconfig",
+      "!**/eslintrc*",
+      "!**/.eslint*",
+      "!**/prettier*",
+      "!**/.prettier*",
+      "!**/tsconfig*",
+      "!**/node_modules/**/example*/**/*",
+      "!**/node_modules/**/examples/**/*",
+      "!**/__tests__/**/*",
+      "!**/__snapshots__/**/*",
+      "!**/benchmark*/**/*",
+      "!**/perf*/**/*"
     ],
     "asarUnpack": [
       "src/electron/**/*",
-      "public/preload.cjs"
+      "public/preload.cjs",
+      "**/*.node"
     ],
     "extraFiles": [
       {

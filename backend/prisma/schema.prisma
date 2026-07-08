@@ -8,42 +8,50 @@ datasource db {
 }
 
 model Client {
-  id        String    @id @default(cuid())
-  name      String
-  email     String    @unique
-  phone     String?
-  address   String?
-  createdAt DateTime  @default(now())
-  updatedAt DateTime  @updatedAt
-  licenses     License[]
-  biDashboards      BiDashboard[]
-  biNotifications   BiNotification[]
+  id                 String              @id @default(cuid())
+  name               String
+  email              String              @unique
+  phone              String?
+  address            String?
+  createdAt          DateTime            @default(now()) @map("createdat")
+  updatedAt          DateTime            @updatedAt @map("updatedat")
+  licenses           License[]
+  biDashboards       BiDashboard[]
+  biNotifications    BiNotification[]
   biAnalysisRequests BiAnalysisRequest[]
+  biRequests         BiRequest[]
 
   @@map("clients")
 }
 
 model License {
   id                   String                @id @default(cuid())
-  clientId             String
-  licenseKey           String                @unique
+  clientId             String                @map("clientid")
+  licenseKey           String                @unique @map("licensekey")
   sector               String
-  licenseType          LicenseType
-  expirationDate       DateTime?
-  isActive             Boolean               @default(true)
-  machineId            String?
-  buildStatus          String?               @default("pending")
-  buildProjectPath     String?
-  buildProjectName     String?
-  buildRunId           String?
-  createdAt            DateTime              @default(now())
-  updatedAt            DateTime              @updatedAt
+  licenseType          LicenseType           @map("licensetype")
+  expirationDate       DateTime?             @map("expirationdate")
+  isActive             Boolean               @default(true) @map("isactive")
+  machineId            String?               @map("machineid")
+  buildStatus          String?               @default("pending") @map("buildstatus")
+  buildProjectPath     String?               @map("buildprojectpath")
+  buildProjectName     String?               @map("buildprojectname")
+  buildRunId           String?               @map("buildrunid")
+  bindingType          String                @default("MACHINE") @map("bindingtype")
+  usbSerialNumber      String?               @map("usbserialnumber")
+  isActivated          Boolean               @default(false) @map("isactivated")
+  activatedAt          DateTime?             @map("activatedat")
+  lastValidatedAt      DateTime?             @map("lastvalidatedat")
+  createdBy            String?               @default("admin") @map("createdby")
+  createdAt            DateTime              @default(now()) @map("createdat")
+  updatedAt            DateTime              @updatedAt @map("updatedat")
   UserPosConfiguration UserPosConfiguration?
   configuration        LicenseConfiguration?
   modules              LicenseModule[]
   client               Client                @relation(fields: [clientId], references: [id], onDelete: Cascade)
   biDashboards         BiDashboard[]
   biAnalysisRequests   BiAnalysisRequest[]
+  biRequests           BiRequest[]
 
   @@map("licenses")
 }
@@ -51,12 +59,12 @@ model License {
 model Module {
   id             String          @id @default(cuid())
   name           String          @unique
-  displayName    String
+  displayName    String          @map("displayname")
   description    String?
   category       String
-  isCore         Boolean         @default(false)
-  createdAt      DateTime        @default(now())
-  updatedAt      DateTime        @updatedAt
+  isCore         Boolean         @default(false) @map("iscore")
+  createdAt      DateTime        @default(now()) @map("createdat")
+  updatedAt      DateTime        @updatedAt @map("updatedat")
   licenseModules LicenseModule[]
 
   @@map("modules")
@@ -64,9 +72,9 @@ model Module {
 
 model LicenseModule {
   id        String  @id @default(cuid())
-  licenseId String
-  moduleId  String
-  isEnabled Boolean @default(true)
+  licenseId String  @map("licenseid")
+  moduleId  String  @map("moduleid")
+  isEnabled Boolean @default(true) @map("isenabled")
   license   License @relation(fields: [licenseId], references: [id], onDelete: Cascade)
   module    Module  @relation(fields: [moduleId], references: [id], onDelete: Cascade)
 
@@ -76,61 +84,61 @@ model LicenseModule {
 
 model LicenseConfiguration {
   id                  String  @id @default(cuid())
-  licenseId           String  @unique
-  businessName        String
+  licenseId           String  @unique @map("licenseid")
+  businessName        String  @map("businessname")
   logo                String?
-  primaryColor        String  @default("#3B82F6")
-  secondaryColor      String  @default("#1E40AF")
-  accentColor         String  @default("#F59E0B")
-  backgroundColor     String  @default("#FFFFFF")
-  textColor           String  @default("#1F2937")
+  primaryColor        String  @default("#3B82F6") @map("primarycolor")
+  secondaryColor      String  @default("#1E40AF") @map("secondarycolor")
+  accentColor         String  @default("#F59E0B") @map("accentcolor")
+  backgroundColor     String  @default("#FFFFFF") @map("backgroundcolor")
+  textColor           String  @default("#1F2937") @map("textcolor")
   currency            String  @default("EUR")
-  taxRate             Float   @default(20.0)
+  taxRate             Float   @default(20.0) @map("taxrate")
   language            String  @default("fr")
   timezone            String  @default("Europe/Paris")
-  borderRadius        String  @default("medium")
-  fontFamily          String  @default("Inter")
-  navbarPosition      String?
+  borderRadius        String  @default("medium") @map("borderradius")
+  fontFamily          String  @default("Inter") @map("fontfamily")
+  navbarPosition      String? @map("navbarposition")
   animations          Boolean @default(true)
-  brandWatermark      Boolean @default(false)
-  buttonStyle         String  @default("filled")
-  cardBackgroundColor String  @default("#FFFFFF")
-  cardStyle           String  @default("modern")
-  compactMode         Boolean @default(false)
-  customCSS           String?
-  dashboardLayout     String  @default("grid")
+  brandWatermark      Boolean @default(false) @map("brandwatermark")
+  buttonStyle         String  @default("filled") @map("buttonstyle")
+  cardBackgroundColor String  @default("#FFFFFF") @map("cardbackgroundcolor")
+  cardStyle           String  @default("modern") @map("cardstyle")
+  compactMode         Boolean @default(false) @map("compactmode")
+  customCSS           String? @map("customcss")
+  dashboardLayout     String  @default("grid") @map("dashboardlayout")
   favicon             String?
-  fontSize            String  @default("14px")
-  fontWeight          String  @default("normal")
-  glassEffect         Boolean @default(false)
-  gradientBackgrounds Boolean @default(false)
-  highContrastMode    Boolean @default(false)
-  hoverEffects        String  @default("subtle")
-  largeTextMode       Boolean @default(false)
-  modalStyle          String  @default("centered")
-  navbarCollapsible   Boolean @default(false)
-  navbarStyle         String  @default("modern")
-  reducedMotion       Boolean @default(false)
-  responsiveMode      String  @default("auto")
-  showBreadcrumbs     Boolean @default(true)
-  showModuleBadges    Boolean @default(true)
-  showModuleIcons     Boolean @default(true)
-  showQuickActions    Boolean @default(true)
-  splashScreen        Boolean @default(false)
-  tableStyle          String  @default("modern")
-  textMutedColor      String  @default("#6B7280")
-  widgetSizes         String  @default("mixed")
-  appTitle            String?
-  autoModeSwitch      Boolean @default(false)
-  autoSave            Boolean @default(true)
-  backdropBlur        Boolean @default(false)
-  borderColor         String  @default("#E5E7EB")
-  maxWidth            String  @default("1200px")
+  fontSize            String  @default("14px") @map("fontsize")
+  fontWeight          String  @default("normal") @map("fontweight")
+  glassEffect         Boolean @default(false) @map("glasseffect")
+  gradientBackgrounds Boolean @default(false) @map("gradientbackgrounds")
+  highContrastMode    Boolean @default(false) @map("highcontrastmode")
+  hoverEffects        String  @default("subtle") @map("hovereffects")
+  largeTextMode       Boolean @default(false) @map("largetextmode")
+  modalStyle          String  @default("centered") @map("modalstyle")
+  navbarCollapsible   Boolean @default(false) @map("navbarcollapsible")
+  navbarStyle         String  @default("modern") @map("navbarstyle")
+  reducedMotion       Boolean @default(false) @map("reducedmotion")
+  responsiveMode      String  @default("auto") @map("responsivemode")
+  showBreadcrumbs     Boolean @default(true) @map("showbreadcrumbs")
+  showModuleBadges    Boolean @default(true) @map("showmodulebadges")
+  showModuleIcons     Boolean @default(true) @map("showmoduleicons")
+  showQuickActions    Boolean @default(true) @map("showquickactions")
+  splashScreen        Boolean @default(false) @map("splashscreen")
+  tableStyle          String  @default("modern") @map("tablestyle")
+  textMutedColor      String  @default("#6B7280") @map("textmutedcolor")
+  widgetSizes         String  @default("mixed") @map("widgetsizes")
+  appTitle            String? @map("apptitle")
+  autoModeSwitch      Boolean @default(false) @map("automodeswitch")
+  autoSave            Boolean @default(true) @map("autosave")
+  backdropBlur        Boolean @default(false) @map("backdropblur")
+  borderColor         String  @default("#E5E7EB") @map("bordercolor")
+  maxWidth            String  @default("1200px") @map("maxwidth")
   opacity             Float   @default(1.0)
   shadows             Boolean @default(true)
-  spacingScale        Float   @default(1.0)
+  spacingScale        Float   @default(1.0) @map("spacingscale")
   theme               String  @default("light")
-  shadowIntensity     Float   @default(1.0)
+  shadowIntensity     Float   @default(1.0) @map("shadowintensity")
   license             License @relation(fields: [licenseId], references: [id], onDelete: Cascade)
 
   @@map("license_configurations")
@@ -142,21 +150,21 @@ model User {
   email                String                 @unique
   password             String
   role                 UserRole               @default(CASHIER)
-  isActive             Boolean                @default(true)
-  lastLogin            DateTime?
-  createdAt            DateTime               @default(now())
-  updatedAt            DateTime               @updatedAt
-  accountType          AccountType            @default(NORMAL)
-  affiliateCode        String?                @unique
-  businessInfo         Json?
+  isActive             Boolean                @default(true) @map("isactive")
+  lastLogin            DateTime?              @map("lastlogin")
+  createdAt            DateTime               @default(now()) @map("createdat")
+  updatedAt            DateTime               @updatedAt @map("updatedat")
+  accountType          AccountType            @default(NORMAL) @map("accounttype")
+  affiliateCode        String?                @unique @map("affiliatecode")
+  businessInfo         Json?                  @map("businessinfo")
   documents            String[]               @default([])
-  pendingCommissions   Float                  @default(0)
-  referredBy           String?
-  rejectionReason      String?
-  totalCommissions     Float                  @default(0)
-  totalReferrals       Int                    @default(0)
-  verificationStatus   VerificationStatus     @default(PENDING)
-  verifiedAt           DateTime?
+  pendingCommissions   Float                  @default(0) @map("pendingcommissions")
+  referredBy           String?                @map("referredby")
+  rejectionReason      String?                @map("rejectionreason")
+  totalCommissions     Float                  @default(0) @map("totalcommissions")
+  totalReferrals       Int                    @default(0) @map("totalreferrals")
+  verificationStatus   VerificationStatus     @default(PENDING) @map("verificationstatus")
+  verifiedAt           DateTime?              @map("verifiedat")
   UserPosConfiguration UserPosConfiguration[]
   orders               Order[]
   affiliateOwner       Referral[]             @relation("AffiliateOwner")
@@ -167,15 +175,15 @@ model User {
 
 model Referral {
   id               String         @id @default(cuid())
-  affiliateUserId  String
-  referredUserId   String
-  purchaseAmount   Float
-  commissionRate   Float
-  commissionAmount Float
+  affiliateUserId  String         @map("affiliateuserid")
+  referredUserId   String         @map("referreduserid")
+  purchaseAmount   Float          @map("purchaseamount")
+  commissionRate   Float          @map("commissionrate")
+  commissionAmount Float          @map("commissionamount")
   status           ReferralStatus @default(PENDING)
-  paidAt           DateTime?
-  createdAt        DateTime       @default(now())
-  updatedAt        DateTime       @updatedAt
+  paidAt           DateTime?      @map("paidat")
+  createdAt        DateTime       @default(now()) @map("createdat")
+  updatedAt        DateTime       @updatedAt @map("updatedat")
   affiliateUser    User           @relation("AffiliateOwner", fields: [affiliateUserId], references: [id])
   referredUser     User           @relation("UserReferrals", fields: [referredUserId], references: [id])
 
@@ -188,9 +196,9 @@ model Customer {
   email               String?              @unique
   phone               String?
   address             String?
-  loyaltyPoints       Int                  @default(0)
-  createdAt           DateTime             @default(now())
-  updatedAt           DateTime             @updatedAt
+  loyaltyPoints       Int                  @default(0) @map("loyaltypoints")
+  createdAt           DateTime             @default(now()) @map("createdat")
+  updatedAt           DateTime             @updatedAt @map("updatedat")
   appointments        Appointment[]
   loyaltyTransactions LoyaltyTransaction[]
   orders              Order[]
@@ -206,9 +214,9 @@ model Product {
   category    String
   barcode     String?     @unique
   stock       Int         @default(0)
-  isActive    Boolean     @default(true)
-  createdAt   DateTime    @default(now())
-  updatedAt   DateTime    @updatedAt
+  isActive    Boolean     @default(true) @map("isactive")
+  createdAt   DateTime    @default(now()) @map("createdat")
+  updatedAt   DateTime    @updatedAt @map("updatedat")
   orderItems  OrderItem[]
 
   @@map("products")
@@ -216,18 +224,18 @@ model Product {
 
 model Order {
   id                  String      @id @default(cuid())
-  customerId          String?
-  userId              String?
-  orderType           OrderType   @default(DINE_IN)
+  customerId          String?     @map("customerid")
+  userId              String?     @map("userid")
+  orderType           OrderType   @default(DINE_IN) @map("ordertype")
   status              OrderStatus @default(PENDING)
   total               Float
-  tableNumber         Int?
-  pickupTime          DateTime?
-  deliveryAddress     String?
-  specialInstructions String?
-  preparationTime     Int?
-  createdAt           DateTime    @default(now())
-  updatedAt           DateTime    @updatedAt
+  tableNumber         Int?        @map("tablenumber")
+  pickupTime          DateTime?   @map("pickuptime")
+  deliveryAddress     String?     @map("deliveryaddress")
+  specialInstructions String?     @map("specialinstructions")
+  preparationTime     Int?        @map("preparationtime")
+  createdAt           DateTime    @default(now()) @map("createdat")
+  updatedAt           DateTime    @updatedAt @map("updatedat")
   orderItems          OrderItem[]
   customer            Customer?   @relation(fields: [customerId], references: [id])
   user                User?       @relation(fields: [userId], references: [id])
@@ -237,10 +245,10 @@ model Order {
 
 model OrderItem {
   id        String  @id @default(cuid())
-  orderId   String
-  productId String
+  orderId   String  @map("orderid")
+  productId String  @map("productid")
   quantity  Int
-  unitPrice Float
+  unitPrice Float   @map("unitprice")
   order     Order   @relation(fields: [orderId], references: [id], onDelete: Cascade)
   product   Product @relation(fields: [productId], references: [id])
 
@@ -249,11 +257,11 @@ model OrderItem {
 
 model LoyaltyTransaction {
   id         String                 @id @default(cuid())
-  customerId String
+  customerId String                 @map("customerid")
   points     Int
   type       LoyaltyTransactionType
   reason     String?
-  createdAt  DateTime               @default(now())
+  createdAt  DateTime               @default(now()) @map("createdat")
   customer   Customer               @relation(fields: [customerId], references: [id], onDelete: Cascade)
 
   @@map("loyalty_transactions")
@@ -262,12 +270,12 @@ model LoyaltyTransaction {
 model GiftCard {
   id            String    @id @default(cuid())
   code          String    @unique
-  originalValue Float
-  currentValue  Float
-  isActive      Boolean   @default(true)
-  expiryDate    DateTime?
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
+  originalValue Float     @map("originalvalue")
+  currentValue  Float     @map("currentvalue")
+  isActive      Boolean   @default(true) @map("isactive")
+  expiryDate    DateTime? @map("expirydate")
+  createdAt     DateTime  @default(now()) @map("createdat")
+  updatedAt     DateTime  @updatedAt @map("updatedat")
 
   @@map("gift_cards")
 }
@@ -276,7 +284,7 @@ model Table {
   id       String  @id @default(cuid())
   number   Int     @unique
   capacity Int
-  isActive Boolean @default(true)
+  isActive Boolean @default(true) @map("isactive")
   x        Float?
   y        Float?
 
@@ -285,17 +293,17 @@ model Table {
 
 model Appointment {
   id              String    @id @default(cuid())
-  customerId      String?
-  customerName    String
-  customerPhone   String?
-  customerEmail   String?
-  serviceType     String
-  appointmentDate DateTime
+  customerId      String?   @map("customerid")
+  customerName    String    @map("customername")
+  customerPhone   String?   @map("customerphone")
+  customerEmail   String?   @map("customeremail")
+  serviceType     String    @map("servicetype")
+  appointmentDate DateTime  @map("appointmentdate")
   duration        Int
   notes           String?
   status          String    @default("SCHEDULED")
-  createdAt       DateTime  @default(now())
-  updatedAt       DateTime  @updatedAt
+  createdAt       DateTime  @default(now()) @map("createdat")
+  updatedAt       DateTime  @updatedAt @map("updatedat")
   customer        Customer? @relation(fields: [customerId], references: [id])
 
   @@map("appointments")
@@ -303,15 +311,15 @@ model Appointment {
 
 model UserPosConfiguration {
   id           String    @id
-  userId       String
-  licenseId    String    @unique
-  businessName String
+  userId       String    @map("userid")
+  licenseId    String    @unique @map("licenseid")
+  businessName String    @map("businessname")
   sector       String
-  outputPath   String?
-  buildStatus  String    @default("idle")
-  lastBuiltAt  DateTime?
-  createdAt    DateTime  @default(now())
-  updatedAt    DateTime
+  outputPath   String?   @map("outputpath")
+  buildStatus  String    @default("idle") @map("buildstatus")
+  lastBuiltAt  DateTime? @map("lastbuiltat")
+  createdAt    DateTime  @default(now()) @map("createdat")
+  updatedAt    DateTime  @map("updatedat")
   licenses     License   @relation(fields: [licenseId], references: [id])
   users        User      @relation(fields: [userId], references: [id])
 }
@@ -322,37 +330,54 @@ model UserPosConfiguration {
 
 model BiDashboard {
   id              String    @id @default(cuid())
-  clientId        String
-  licenseId       String?
-  uploadId        String?
-  businessType    String
+  clientId        String    @map("clientid")
+  licenseId       String?   @map("licenseid")
+  uploadId        String?   @map("uploadid")
+  businessType    String    @map("businesstype")
   name            String
-  description    String?
+  description     String?
   status          String    @default("DRAFT")
-  dashboardType   String    @default("custom")
-  dashboardConfig Json?
-  createdBy       String?
-  assignedAt      DateTime?
-  createdAt       DateTime  @default(now())
-  updatedAt       DateTime  @updatedAt
+  dashboardType   String    @default("custom") @map("dashboardtype")
+  dashboardConfig Json?     @map("dashboardconfig")
+  createdBy       String?   @map("createdby")
+  assignedAt      DateTime? @map("assignedat")
+  createdAt       DateTime  @default(now()) @map("createdat")
+  updatedAt       DateTime  @updatedAt @map("updatedat")
 
-  client  Client      @relation(fields: [clientId], references: [id], onDelete: Cascade)
-  license License?    @relation(fields: [licenseId], references: [id])
-  upload  BiUpload?   @relation(fields: [uploadId], references: [id])
+  client        Client           @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  license       License?         @relation(fields: [licenseId], references: [id])
+  upload        BiUpload?        @relation(fields: [uploadId], references: [id])
   notifications BiNotification[]
 
   @@map("bi_dashboards")
 }
 
+// ─── Metabase Dashboard Template Registry ──────────────────
+
+model BiDashboardTemplate {
+  id                  String   @id @default(cuid())
+  businessType        String   @unique @map("businesstype")
+  metabaseDashboardId Int      @map("metabasedashboardid")
+  name                String
+  description         String?
+  active              Boolean  @default(true)
+  embedType           String   @map("embedtype") @default("none")
+  embedPublicUuid     String?  @map("embedpublicuuid")
+  createdAt           DateTime @map("createdat") @default(now())
+  updatedAt           DateTime @map("updatedat") @updatedAt
+
+  @@map("bi_dashboard_templates")
+}
+
 model BiNotification {
   id          String   @id @default(cuid())
-  clientId    String?
-  dashboardId String?
+  clientId    String?  @map("clientid")
+  dashboardId String?  @map("dashboardid")
   title       String
   message     String
   type        String   @default("DASHBOARD_READY")
-  isRead      Boolean  @default(false)
-  createdAt   DateTime @default(now())
+  isRead      Boolean  @default(false) @map("isread")
+  createdAt   DateTime @default(now()) @map("createdat")
 
   client    Client?      @relation(fields: [clientId], references: [id], onDelete: Cascade)
   dashboard BiDashboard? @relation(fields: [dashboardId], references: [id], onDelete: SetNull)
@@ -366,18 +391,18 @@ model BiNotification {
 
 model BiAnalysisRequest {
   id              String    @id @default(cuid())
-  clientId        String
-  licenseId       String?
-  uploadId        String?
-  businessType    String
+  clientId        String    @map("clientid")
+  licenseId       String?   @map("licenseid")
+  uploadId        String?   @map("uploadid")
+  businessType    String    @map("businesstype")
   status          String    @default("PENDING")
-  assignedTo      String?
+  assignedTo      String?   @map("assignedto")
   notes           String?
-  analysisSummary Json?
+  analysisSummary Json?     @map("analysissummary")
   insights        Json?
-  createdAt       DateTime  @default(now())
-  updatedAt       DateTime  @updatedAt
-  completedAt     DateTime?
+  createdAt       DateTime  @default(now()) @map("createdat")
+  updatedAt       DateTime  @updatedAt @map("updatedat")
+  completedAt     DateTime? @map("completedat")
 
   client  Client    @relation(fields: [clientId], references: [id], onDelete: Cascade)
   license License?  @relation(fields: [licenseId], references: [id])
@@ -389,71 +414,122 @@ model BiAnalysisRequest {
 }
 
 // ──────────────────────────────────────────────
+// BI Requests (Phase 1 — client submissions)
+// ──────────────────────────────────────────────
+
+model BiRequest {
+  id        String  @id @default(cuid())
+  clientId  String  @map("clientid")
+  licenseId String? @map("licenseid")
+
+  businessType String  @map("businesstype")
+  businessName String? @map("businessname")
+
+  message String
+
+  objectives Json?
+  kpis       Json?
+
+  dashboardRequirements String? @map("dashboardrequirements")
+
+  dashboardType String? @map("dashboardtype")
+
+  userId    String? @map("userid")
+  userEmail String? @map("useremail")
+
+  status String @default("PENDING_REVIEW")
+
+  paymentStatus String  @default("PENDING")
+  paymentMethod String? @map("paymentmethod")
+  paymentNotes  String? @map("paymentnotes")
+
+  adminNotes      String? @map("adminnotes")
+  specialistNotes String? @default("")
+
+  files Json? @default("[]")
+
+  createdAt DateTime @default(now()) @map("createdat")
+  updatedAt DateTime @updatedAt @map("updatedat")
+
+  client  Client     @relation(fields: [clientId], references: [id], onDelete: Restrict)
+  license License?   @relation(fields: [licenseId], references: [id], onDelete: SetNull)
+  uploads BiUpload[]
+
+  @@index([clientId])
+  @@index([licenseId])
+  @@index([status])
+  @@index([paymentStatus])
+  @@map("bi_requests")
+}
+
+// ──────────────────────────────────────────────
 // BI Upload & ETL Tracking
 // ──────────────────────────────────────────────
 
 model BiUpload {
-  id              String   @id @default(cuid())
-  clientId        String
-  businessType    String
-  biSchemaVersion String?
-  fileHash        String?  @unique
-  fileName        String
-  fileSize        Int
-  filePath        String
-  status          String   @default("UPLOADED")
-  totalFiles      Int      @default(0)
-  totalRows       Int      @default(0)
-  errorMessage    String?
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
-  files           BiUploadFile[]
-  processingJob   BiProcessingJob?
-  dashboards      BiDashboard[]
+  id               String              @id @default(cuid())
+  clientId         String?             @map("clientid")
+  requestId        String?             @map("requestid")
+  businessType     String?             @map("businesstype")
+  biSchemaVersion  String?             @map("bischemaversion")
+  fileHash         String?             @unique @map("filehash")
+  fileName         String?             @map("filename")
+  fileSize         Int?                @map("filesize")
+  filePath         String?             @map("filepath")
+  status           String              @default("UPLOADED")
+  totalFiles       Int                 @default(0) @map("totalfiles")
+  totalRows        Int                 @default(0) @map("totalrows")
+  errorMessage     String?             @map("errormessage")
+  createdAt        DateTime            @default(now()) @map("createdat")
+  updatedAt        DateTime?           @map("updatedat")
+  files            BiUploadFile[]
+  processingJob    BiProcessingJob?
+  dashboards       BiDashboard[]
   analysisRequests BiAnalysisRequest[]
+  biRequest        BiRequest?          @relation(fields: [requestId], references: [id], onDelete: SetNull)
 
   @@map("bi_uploads")
 }
 
 model BiUploadFile {
-  id           String   @id @default(cuid())
-  uploadId     String
-  fileName     String
-  rowCount     Int      @default(0)
-  fileSize     Int      @default(0)
-  status       String   @default("PENDING")
-  errorMessage String?
-  createdAt    DateTime @default(now())
-  upload       BiUpload @relation(fields: [uploadId], references: [id], onDelete: Cascade)
+  id           String    @id @default(cuid())
+  uploadId     String?   @map("uploadid")
+  fileName     String?   @map("filename")
+  rowCount     Int       @default(0) @map("rowcount")
+  fileSize     Int       @default(0) @map("filesize")
+  status       String    @default("PENDING")
+  errorMessage String?   @map("errormessage")
+  createdAt    DateTime  @default(now()) @map("createdat")
+  upload       BiUpload? @relation(fields: [uploadId], references: [id], onDelete: Cascade)
 
   @@map("bi_upload_files")
 }
 
 model BiProcessingJob {
-  id             String   @id @default(cuid())
-  uploadId       String   @unique
-  status         String   @default("QUEUED")
-  startedAt      DateTime?
-  completedAt    DateTime?
-  errorMessage   String?
-  recordsLoaded  Int      @default(0)
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
-  upload         BiUpload @relation(fields: [uploadId], references: [id], onDelete: Cascade)
-  logs           BiProcessingLog[]
+  id            String            @id @default(cuid())
+  uploadId      String?           @unique @map("uploadid")
+  status        String            @default("QUEUED")
+  startedAt     DateTime?         @map("startedat")
+  completedAt   DateTime?         @map("completedat")
+  errorMessage  String?           @map("errormessage")
+  recordsLoaded Int               @default(0) @map("recordsloaded")
+  createdAt     DateTime          @default(now()) @map("createdat")
+  updatedAt     DateTime?         @map("updatedat")
+  upload        BiUpload?         @relation(fields: [uploadId], references: [id], onDelete: Cascade)
+  logs          BiProcessingLog[]
 
   @@map("bi_processing_jobs")
 }
 
 model BiProcessingLog {
-  id        String   @id @default(cuid())
-  jobId     String
-  level     String   @default("INFO")
+  id        String           @id @default(cuid())
+  jobId     String?          @map("jobid")
+  level     String           @default("INFO")
   step      String
   message   String
   details   Json?
-  createdAt DateTime @default(now())
-  job       BiProcessingJob @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  createdAt DateTime         @default(now()) @map("createdat")
+  job       BiProcessingJob? @relation(fields: [jobId], references: [id], onDelete: Cascade)
 
   @@map("bi_processing_logs")
 }
@@ -463,12 +539,12 @@ model BiProcessingLog {
 // ──────────────────────────────────────────────
 
 model DimClient {
-  id           String   @id @default(cuid())
-  tenantId     String   @unique
-  exportId     String
+  id           String     @id @default(cuid())
+  tenantId     String?    @unique
+  exportId     String?
   name         String
-  businessType String
-  createdAt    DateTime @default(now())
+  businessType String?
+  createdAt    DateTime   @default(now())
   factSales    FactSale[]
 
   @@map("dim_clients")
@@ -476,9 +552,9 @@ model DimClient {
 
 model DimProduct {
   id            String          @id @default(cuid())
-  tenantId      String
-  exportId      String
-  productId     String
+  tenantId      String?
+  exportId      String?
+  productId     String?
   name          String
   category      String?
   family        String?
@@ -492,9 +568,9 @@ model DimProduct {
 
 model DimSupplier {
   id         String   @id @default(cuid())
-  tenantId   String
-  exportId   String
-  supplierId String
+  tenantId   String?
+  exportId   String?
+  supplierId String?
   name       String
   contact    String?
   phone      String?
@@ -511,8 +587,8 @@ model DimTime {
   quarter           Int
   month             Int
   day               Int
-  dayOfWeek         Int
-  isWeekend         Boolean
+  dayOfWeek         Int?
+  isWeekend         Boolean?
   createdAt         DateTime           @default(now())
   factSales         FactSale[]
   factInventory     FactInventory[]
@@ -527,13 +603,13 @@ model DimTime {
 // ──────────────────────────────────────────────
 
 model FactSale {
-  id            String  @id @default(cuid())
-  tenantId      String
-  exportId      String
+  id            String   @id @default(cuid())
+  tenantId      String?
+  exportId      String?
   dimClientId   String?
   dimProductId  String?
   dimTimeId     Int?
-  saleId        String
+  saleId        String?
   total         Float
   tax           Float?
   discount      Float?
@@ -550,15 +626,15 @@ model FactSale {
 
 model FactInventory {
   id           String   @id @default(cuid())
-  tenantId     String
-  exportId     String
-  rowIndex     Int
+  tenantId     String?
+  exportId     String?
+  rowIndex     Int?
   dimProductId String?
   dimTimeId    Int?
-  productName  String
+  productName  String?
   stock        Int
   price        Float?
-  timesSold    Int
+  timesSold    Int?
   createdAt    DateTime @default(now())
 
   dimProduct DimProduct? @relation(fields: [dimProductId], references: [id])

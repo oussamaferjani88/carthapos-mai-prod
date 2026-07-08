@@ -12,6 +12,16 @@ export class AppConfig {
         phone: '',
         email: ''
       },
+      license: {
+        licenseType: 'LIFETIME',
+        bindingType: 'MACHINE',
+        machineId: null,
+        expirationDate: null,
+        isActive: true,
+        isActivated: false,
+        activatedAt: null,
+        lastValidatedAt: null
+      },
       theme: {
         primary: '#3b82f6',
         secondary: '#f8fafc', 
@@ -37,7 +47,6 @@ export class AppConfig {
         'tables',
         'kitchen',
         'menu-management',
-        'quick-service',
         'takeaway',
         'loyalty',
         'payment-advanced',

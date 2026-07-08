@@ -10,6 +10,8 @@ export default function Step4License({
   expirationDate,
   onLicenseTypeChange,
   onExpirationDateChange,
+  bindingType,
+  onBindingTypeChange,
   usbDrives,
   selectedUSB,
   onUSBChange,
@@ -24,6 +26,8 @@ export default function Step4License({
       expirationDate={expirationDate}
       onLicenseTypeChange={onLicenseTypeChange}
       onExpirationDateChange={onExpirationDateChange}
+      bindingType={bindingType}
+      onBindingTypeChange={onBindingTypeChange}
       usbDrives={usbDrives}
       selectedUSB={selectedUSB}
       onUSBChange={onUSBChange}

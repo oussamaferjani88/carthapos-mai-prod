@@ -21,15 +21,30 @@ class ModuleService {
   }
 
   /**
-   * Get modules by category
+   * Modules no longer independent — now part of pos-core
+   */
+  getDeprecatedModuleSlugs() {
+    return ['inventory', 'quick-service'];
+  }
+
+  /**
+   * Get modules by category, filtering out deprecated ones
    * @returns {Promise<Object>} Modules grouped by category
    */
   async getModulesByCategory() {
     try {
       console.log('Fetching modules by category from API...');
       const response = await modulesApi.getByCategory();
-      console.log('Modules by category response:', response);
-      return response.data;
+      const data = response.data;
+      const deprecated = this.getDeprecatedModuleSlugs();
+      const filtered = {};
+      for (const [category, modules] of Object.entries(data)) {
+        const filteredModules = (modules || []).filter(m => !deprecated.includes(m.name));
+        if (filteredModules.length > 0) {
+          filtered[category] = filteredModules;
+        }
+      }
+      return filtered;
     } catch (error) {
       console.error('Error fetching modules by category:', error);
       console.error('Error details:', {

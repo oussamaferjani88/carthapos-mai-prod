@@ -47,19 +47,36 @@ export function useLicense() {
       } else {
         console.log('validateLicense: Using fallback (web mode)');
         // En mode développement web, simuler une licence valide
-        setLicense({
+        // Try reading from embedded app-config.json first
+        let embeddedLicense = null;
+        try {
+          if (window.__POS_CONFIG__ && window.__POS_CONFIG__.license) {
+            embeddedLicense = window.__POS_CONFIG__.license;
+          }
+        } catch (e) {
+          // ignore
+        }
+
+        const devLicense = embeddedLicense || {
           licenseKey: 'DEV-LICENSE',
           clientName: 'Development Mode',
           sector: 'development',
           licenseType: 'LIFETIME',
+          bindingType: 'MACHINE',
+          machineId: null,
+          expirationDate: null,
+          isActivated: false,
+          activatedAt: null,
+          lastValidatedAt: null,
           modules: [
             { name: 'pos-core', displayName: 'Caisse de base', isEnabled: true },
             { name: 'inventory', displayName: 'Gestion des stocks', isEnabled: true },
             { name: 'reports', displayName: 'Rapports', isEnabled: true }
           ]
-        });
+        };
+        setLicense(devLicense);
         setIsValid(true);
-        console.log('validateLicense: Set development license');
+        console.log('validateLicense: Set development license', devLicense);
       }
       console.log('validateLicense: License validation completed successfully');
     } catch (err) {

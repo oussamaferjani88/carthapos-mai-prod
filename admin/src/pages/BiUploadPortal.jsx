@@ -10,6 +10,10 @@ import {
   RefreshCw,
   Search,
   Download,
+  Play,
+  Link2,
+  LayoutDashboard,
+  ShieldCheck,
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
 import { Button } from '../components/ui/button';
@@ -115,6 +119,7 @@ export default function BiUploadPortal() {
     }
 
     const manualBusinessType = window.prompt('Type d\'activité (restaurant/cafe/pharmacy/retail) :', 'restaurant');
+    const manualRequestId = window.prompt('ID requête BI (optionnel) :') || '';
 
     setUploading(true);
     setUploadProgress(0);
@@ -124,6 +129,7 @@ export default function BiUploadPortal() {
       formData.append('file', file);
       formData.append('clientId', manualClientId);
       formData.append('businessType', manualBusinessType || 'unknown');
+      if (manualRequestId) formData.append('requestId', manualRequestId);
 
       // Simulate progress
       const progressInterval = setInterval(() => {
@@ -275,6 +281,7 @@ export default function BiUploadPortal() {
                     <th className="pb-3 pr-4 font-medium">Client</th>
                     <th className="pb-3 pr-4 font-medium">Fichier</th>
                     <th className="pb-3 pr-4 font-medium">Type</th>
+                    <th className="pb-3 pr-4 font-medium">Requête</th>
                     <th className="pb-3 pr-4 font-medium">Taille</th>
                     <th className="pb-3 pr-4 font-medium">Statut</th>
                     <th className="pb-3 pr-4 font-medium">Lignes</th>
@@ -298,6 +305,16 @@ export default function BiUploadPortal() {
                         </td>
                         <td className="py-3 pr-4">
                           <Badge variant="outline">{u.businessType}</Badge>
+                        </td>
+                        <td className="py-3 pr-4">
+                          {u.biRequest ? (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-purple-100 text-purple-700">
+                              <Link2 className="h-3 w-3" />
+                              {u.biRequest.id.substring(0, 8)}...
+                            </span>
+                          ) : (
+                            <span className="text-muted-foreground text-xs">—</span>
+                          )}
                         </td>
                         <td className="py-3 pr-4">{formatBytes(u.fileSize)}</td>
                         <td className="py-3 pr-4">
@@ -407,18 +424,52 @@ export default function BiUploadPortal() {
   );
 }
 
+// ─── ETL Progress Helper ────────────────────────────────────────
+
+const ETL_STEP_PROGRESS = {
+  'init': 5,
+  'extract': 10,
+  'metadata': 20,
+  'schema-check': 25,
+  'validate': 35,
+  'EXTRACT': 40,
+  'LOAD': 60,
+  'LOAD_DIMS': 60,
+  'LOAD_FACTS': 75,
+  'CANCELLED': 100,
+  'COMPLETE': 90,
+};
+
+function getProgressPercent(step, status) {
+  if (status === 'COMPLETED') return 100;
+  if (status === 'FAILED') return 100;
+  if (step && ETL_STEP_PROGRESS[step] !== undefined) return ETL_STEP_PROGRESS[step];
+  if (status === 'QUEUED') return 5;
+  if (status === 'PROCESSING') return 30;
+  return 0;
+}
+
 // ─── Detail Modal ───────────────────────────────────────────────
 
 function DetailModal({ upload, loading, onClose, onRefresh }) {
   const [logs, setLogs] = useState([]);
+  const logsEndRef = useRef(null);
 
   useEffect(() => {
-    if (upload?.id) {
-      api.get(`/bi-uploads/${upload.id}/logs`)
+    if (!upload?.id) return;
+    const id = upload.id;
+    const fetchLogs = () =>
+      api.get(`/bi-uploads/${id}/logs`)
         .then(res => setLogs(res.data?.data || []))
         .catch(() => {});
-    }
+    fetchLogs();
+    const poll = setInterval(fetchLogs, 5000);
+    return () => clearInterval(poll);
   }, [upload?.id]);
+
+  useEffect(() => {
+    logsEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [logs]);
 
   const job = upload?.processingJob;
   const hasError = upload?.status === 'FAILED';
@@ -498,6 +549,52 @@ function DetailModal({ upload, loading, onClose, onRefresh }) {
                 </CardContent>
               </Card>
 
+              {/* Linked Request */}
+              {upload.biRequest && (
+                <Card>
+                  <CardHeader><CardTitle className="text-sm">Requête liée</CardTitle></CardHeader>
+                  <CardContent className="text-sm space-y-2">
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">ID :</span>
+                      <span className="font-mono text-xs">{upload.biRequest.id}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Nom :</span>
+                      <span>{upload.biRequest.businessName}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Statut :</span>
+                      <Badge variant={upload.biRequest.status === 'APPROVED' ? 'default' : 'secondary'}>
+                        {upload.biRequest.status}
+                      </Badge>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Type :</span>
+                      <Badge variant="outline">{upload.biRequest.dashboardType}</Badge>
+                    </div>
+                    {/* Start ETL button — only for APPROVED requests not already processing/completed */}
+                    {upload.biRequest.status === 'APPROVED' && !['VALIDATING', 'PROCESSING', 'COMPLETED'].includes(upload.status) && (
+                      <div className="pt-2">
+                        <StartEtlButton uploadId={upload.id} onComplete={onRefresh} />
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+              )}
+
+              {/* Admin Quick Approve — for walk-in clients with no existing request */}
+              {!upload.biRequest && !['VALIDATING', 'PROCESSING', 'COMPLETED'].includes(upload.status) && (
+                <Card className="border-green-200">
+                  <CardHeader><CardTitle className="text-sm text-green-700">Approbation Rapide Admin</CardTitle></CardHeader>
+                  <CardContent className="text-sm">
+                    <p className="text-muted-foreground text-xs mb-3">
+                      Client venu en personne ? Paiement en espèces ? Créez une demande BI avec approbation immédiate.
+                    </p>
+                    <AdminQuickApproveButton uploadId={upload.id} onComplete={onRefresh} />
+                  </CardContent>
+                </Card>
+              )}
+
               {/* Processing Job */}
               {job && (
                 <Card>
@@ -512,6 +609,18 @@ function DetailModal({ upload, loading, onClose, onRefresh }) {
                     <div className="flex justify-between">
                       <span className="text-muted-foreground">Étape en cours :</span>
                       <span className="font-mono text-xs">{currentStep}</span>
+                    </div>
+                    <div className="space-y-1">
+                      <div className="flex justify-between text-xs">
+                        <span className="text-muted-foreground">Progression</span>
+                        <span className="font-medium">{getProgressPercent(currentStep, job?.status)}%</span>
+                      </div>
+                      <div className="w-full bg-muted rounded-full h-2.5">
+                        <div
+                          className="bg-primary h-2.5 rounded-full transition-all duration-1000 ease-out"
+                          style={{ width: `${getProgressPercent(currentStep, job?.status)}%` }}
+                        />
+                      </div>
                     </div>
                     {duration && (
                       <div className="flex justify-between">
@@ -544,6 +653,44 @@ function DetailModal({ upload, loading, onClose, onRefresh }) {
                   </CardContent>
                 </Card>
               )}
+
+              {/* Dashboard */}
+              {(() => {
+                const dashboard = upload.dashboards?.[0];
+                const canGenerate = upload.status === 'COMPLETED' && upload.biRequest?.status === 'APPROVED' && !dashboard;
+                return (
+                  <Card>
+                    <CardHeader><CardTitle className="text-sm">Dashboard</CardTitle></CardHeader>
+                    <CardContent className="text-sm space-y-2">
+                      {dashboard ? (
+                        <>
+                          <div className="flex justify-between items-center">
+                            <span className="text-muted-foreground">Statut :</span>
+                            <Badge variant={dashboard.status === 'PUBLISHED' ? 'default' : 'secondary'}>
+                              {dashboard.status}
+                            </Badge>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="text-muted-foreground">Nom :</span>
+                            <span className="font-medium">{dashboard.name}</span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="text-muted-foreground">ID :</span>
+                            <span className="font-mono text-xs">{dashboard.id}</span>
+                          </div>
+                        </>
+                      ) : (
+                        <p className="text-muted-foreground text-xs">Aucun dashboard généré pour cet upload.</p>
+                      )}
+                      {canGenerate && (
+                        <div className="pt-2">
+                          <GenerateDashboardButton uploadId={upload.id} onComplete={onRefresh} />
+                        </div>
+                      )}
+                    </CardContent>
+                  </Card>
+                );
+              })()}
 
               {/* Error message (non-job) */}
               {hasError && upload.errorMessage && !job?.errorMessage && (
@@ -586,6 +733,7 @@ function DetailModal({ upload, loading, onClose, onRefresh }) {
                           {log.message}
                         </div>
                       ))}
+                      <div ref={logsEndRef} />
                     </div>
                   </CardContent>
                 </Card>
@@ -608,5 +756,156 @@ function DetailModal({ upload, loading, onClose, onRefresh }) {
         </div>
       </div>
     </div>
+  );
+}
+
+// ─── Generate Dashboard Button ────────────────────────────────────
+
+function GenerateDashboardButton({ uploadId, onComplete }) {
+  const [generating, setGenerating] = useState(false);
+
+  const handleGenerate = async () => {
+    if (!window.confirm('Générer un dashboard à partir de cet upload ?')) return;
+    setGenerating(true);
+    try {
+      const res = await api.post('/bi/dashboards/generate-from-upload', { uploadId });
+      toast.success('Dashboard créé avec succès');
+      if (onComplete) onComplete();
+    } catch (err) {
+      toast.error('Erreur génération dashboard: ' + (err.response?.data?.error || err.message));
+    } finally {
+      setGenerating(false);
+    }
+  };
+
+  return (
+    <Button size="sm" className="w-full" onClick={handleGenerate} disabled={generating}>
+      <LayoutDashboard className="h-4 w-4 mr-2" />
+      {generating ? 'Génération...' : 'Générer Dashboard'}
+    </Button>
+  );
+}
+
+// ─── Start ETL Button ────────────────────────────────────────────
+
+function StartEtlButton({ uploadId, onComplete }) {
+  const [starting, setStarting] = useState(false);
+
+  const handleStart = async () => {
+    if (!window.confirm('Lancer le traitement ETL pour cet upload ?')) return;
+    setStarting(true);
+    try {
+      await api.post(`/bi-uploads/${uploadId}/start-etl`);
+      toast.success('Pipeline ETL démarré. Le traitement est en cours en arrière-plan.');
+      if (onComplete) onComplete();
+    } catch (err) {
+      toast.error('Erreur démarrage ETL: ' + (err.response?.data?.error || err.message));
+    } finally {
+      setStarting(false);
+    }
+  };
+
+  return (
+    <Button
+      size="sm"
+      className="w-full"
+      disabled={starting}
+      onClick={handleStart}
+    >
+      <Play className="h-4 w-4 mr-2" />
+      {starting ? 'Démarrage...' : 'Lancer ETL'}
+    </Button>
+  );
+}
+
+// ─── Admin Quick Approve Button ──────────────────────────────────────
+
+function AdminQuickApproveButton({ uploadId, onComplete }) {
+  const [approving, setApproving] = useState(false);
+  const [showModal, setShowModal] = useState(false);
+  const [businessType, setBusinessType] = useState('restaurant');
+  const [businessName, setBusinessName] = useState('');
+
+  const handleConfirm = async () => {
+    if (!businessName.trim()) {
+      toast.error('Veuillez saisir un nom d\'entreprise.');
+      return;
+    }
+    setApproving(true);
+    try {
+      await api.post(`/bi-uploads/${uploadId}/admin-approve`, {
+        businessType,
+        businessName: businessName.trim(),
+      });
+      toast.success('Approbation rapide effectuée. La demande BI est créée et liée au téléversement.');
+      setShowModal(false);
+      if (onComplete) onComplete();
+    } catch (err) {
+      toast.error('Erreur: ' + (err.response?.data?.error || err.message));
+    } finally {
+      setApproving(false);
+    }
+  };
+
+  return (
+    <>
+      <Button
+        size="sm"
+        className="w-full bg-green-600 hover:bg-green-700 text-white"
+        onClick={() => setShowModal(true)}
+      >
+        <ShieldCheck className="h-4 w-4 mr-2" />
+        Approbation Rapide Admin
+      </Button>
+
+      {showModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={() => setShowModal(false)}>
+          <div className="bg-background rounded-lg shadow-xl w-full max-w-md m-4 p-6" onClick={(e) => e.stopPropagation()}>
+            <h3 className="text-lg font-bold mb-4">Approbation Rapide Admin</h3>
+            <p className="text-sm text-muted-foreground mb-4">
+              Client venu en personne ? Paiement en espèces ? Remplissez les informations ci-dessous pour créer une demande BI approuvée et la lier à ce téléversement.
+            </p>
+
+            <div className="space-y-4">
+              <div>
+                <label className="text-sm font-medium">Nom de l'entreprise</label>
+                <Input
+                  value={businessName}
+                  onChange={(e) => setBusinessName(e.target.value)}
+                  placeholder="Ex: Café de la Paix"
+                />
+              </div>
+              <div>
+                <label className="text-sm font-medium">Type d'activité</label>
+                <Select value={businessType} onValueChange={setBusinessType}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="restaurant">Restaurant</SelectItem>
+                    <SelectItem value="cafe">Café</SelectItem>
+                    <SelectItem value="retail">Commerce</SelectItem>
+                    <SelectItem value="pharmacy">Pharmacie</SelectItem>
+                    <SelectItem value="salon">Salon</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="bg-amber-50 border border-amber-200 rounded p-3 text-xs text-amber-800">
+                <AlertTriangle className="h-4 w-4 inline mr-1" />
+                Cela va créer une demande BI avec statut <strong>APPROUVÉ</strong> et paiement <strong>VÉRIFIÉ</strong>, puis la lier à ce téléversement.
+              </div>
+
+              <div className="flex justify-end gap-2 pt-2">
+                <Button variant="outline" onClick={() => setShowModal(false)}>Annuler</Button>
+                <Button onClick={handleConfirm} disabled={approving} className="bg-green-600 hover:bg-green-700 text-white">
+                  {approving ? 'Création...' : 'Confirmer l\'approbation'}
+                </Button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
   );
 }

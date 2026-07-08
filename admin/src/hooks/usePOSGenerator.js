@@ -135,6 +135,7 @@ export const usePOSGenerator = () => {
         clientId: formData.clientId,
         sector: formData.sector,
         licenseType: formData.licenseType,
+        bindingType: formData.bindingType || 'MACHINE',
         expirationDate: formData.licenseType === 'SUBSCRIPTION' ? formData.expirationDate : null,
         modules: formData.selectedModules,
         configuration: formData.configuration,

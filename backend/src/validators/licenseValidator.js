@@ -1,8 +1,10 @@
 const Joi = require('joi');
 
+const validSectors = ['restaurant', 'cafe', 'boutique', 'pharmacy', 'bakery', 'grocery', 'beauty', 'other'];
+
 const createLicenseSchema = Joi.object({
   clientId: Joi.string().required(),
-  sector: Joi.string().required().valid('restaurant', 'cafe', 'boutique', 'pharmacy', 'bakery', 'grocery', 'other'),
+  sector: Joi.string().required().valid(...validSectors),
   licenseType: Joi.string().required().valid('SUBSCRIPTION', 'LIFETIME'),
   expirationDate: Joi.date().when('licenseType', {
     is: 'SUBSCRIPTION',
@@ -13,12 +15,32 @@ const createLicenseSchema = Joi.object({
   moduleIds: Joi.array().items(Joi.string()).optional()
 });
 
+const adminCreateLicenseSchema = Joi.object({
+  clientId: Joi.string().required(),
+  sector: Joi.string().required().valid(...validSectors),
+  licenseType: Joi.string().required().valid('SUBSCRIPTION', 'LIFETIME'),
+  bindingType: Joi.string().optional().valid('MACHINE', 'USB', 'HYBRID').default('MACHINE'),
+  expirationDate: Joi.date().when('licenseType', {
+    is: 'SUBSCRIPTION',
+    then: Joi.required(),
+    otherwise: Joi.forbidden()
+  }),
+  machineId: Joi.string().optional().allow('', null),
+  moduleIds: Joi.array().items(Joi.string()).optional(),
+  configuration: Joi.object().optional()
+});
+
 const updateLicenseSchema = Joi.object({
-  sector: Joi.string().optional().valid('restaurant', 'cafe', 'boutique', 'pharmacy', 'bakery', 'grocery', 'other'),
+  sector: Joi.string().optional().valid(...validSectors),
   licenseType: Joi.string().optional().valid('SUBSCRIPTION', 'LIFETIME'),
   expirationDate: Joi.date().optional().allow(null),
   isActive: Joi.boolean().optional(),
-  machineId: Joi.string().optional().allow('', null)
+  machineId: Joi.string().optional().allow('', null),
+  bindingType: Joi.string().optional().valid('MACHINE', 'USB', 'HYBRID'),
+  usbSerialNumber: Joi.string().optional().allow('', null),
+  isActivated: Joi.boolean().optional(),
+  activatedAt: Joi.date().optional().allow(null),
+  lastValidatedAt: Joi.date().optional().allow(null)
 }).min(1);
 
 const updateConfigurationSchema = Joi.object({
@@ -49,6 +71,7 @@ const expiringQuerySchema = Joi.object({
 
 module.exports = {
   createLicenseSchema,
+  adminCreateLicenseSchema,
   updateLicenseSchema,
   updateConfigurationSchema,
   toggleModuleSchema,

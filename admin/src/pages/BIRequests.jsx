@@ -7,13 +7,20 @@ import { Textarea } from '../components/ui/textarea';
 import { Input } from '../components/ui/input';
 import api from '../lib/api';
 
-const STATUS_OPTIONS = ['PENDING', 'IN_REVIEW', 'DELIVERED', 'REJECTED'];
+const STATUS_OPTIONS = ['PENDING_REVIEW', 'APPROVED', 'REJECTED', 'REQUEST_INFO'];
 
 function getStatusClasses(status) {
-  if (status === 'DELIVERED') return 'bg-green-100 text-green-700';
-  if (status === 'IN_REVIEW') return 'bg-blue-100 text-blue-700';
+  if (status === 'APPROVED') return 'bg-green-100 text-green-700';
+  if (status === 'PENDING_REVIEW') return 'bg-amber-100 text-amber-700';
   if (status === 'REJECTED') return 'bg-red-100 text-red-700';
+  if (status === 'REQUEST_INFO') return 'bg-blue-100 text-blue-700';
   return 'bg-amber-100 text-amber-700';
+}
+
+function getPaymentStatusClasses(paymentStatus) {
+  if (paymentStatus === 'VERIFIED') return 'bg-green-100 text-green-700';
+  if (paymentStatus === 'REJECTED') return 'bg-red-100 text-red-700';
+  return 'bg-gray-100 text-gray-700';
 }
 
 export default function BIRequests() {
@@ -28,6 +35,10 @@ export default function BIRequests() {
   const [total, setTotal] = useState(0);
   const [updatingId, setUpdatingId] = useState(null);
   const [notesById, setNotesById] = useState({});
+  const [adminNotesById, setAdminNotesById] = useState({});
+  const [paymentMethodById, setPaymentMethodById] = useState({});
+  const [paymentNotesById, setPaymentNotesById] = useState({});
+  const [requestInfoNoteById, setRequestInfoNoteById] = useState({});
 
   const loadRequests = async () => {
     setLoading(true);
@@ -58,6 +69,42 @@ export default function BIRequests() {
         });
         return next;
       });
+      setAdminNotesById((prev) => {
+        const next = { ...prev };
+        data.forEach((item) => {
+          if (!(item.id in next)) {
+            next[item.id] = item.adminNotes || '';
+          }
+        });
+        return next;
+      });
+      setPaymentMethodById((prev) => {
+        const next = { ...prev };
+        data.forEach((item) => {
+          if (!(item.id in next)) {
+            next[item.id] = '';
+          }
+        });
+        return next;
+      });
+      setPaymentNotesById((prev) => {
+        const next = { ...prev };
+        data.forEach((item) => {
+          if (!(item.id in next)) {
+            next[item.id] = '';
+          }
+        });
+        return next;
+      });
+      setRequestInfoNoteById((prev) => {
+        const next = { ...prev };
+        data.forEach((item) => {
+          if (!(item.id in next)) {
+            next[item.id] = '';
+          }
+        });
+        return next;
+      });
     } catch (error) {
       console.error(error);
       toast.error('Impossible de charger les demandes BI');
@@ -81,12 +128,96 @@ export default function BIRequests() {
       await api.patch(`/bi-requests/${id}/status`, {
         status,
         specialistNotes: notesById[id] || '',
+        adminNotes: adminNotesById[id] || '',
       });
       toast.success('Statut BI mis a jour');
       await loadRequests();
     } catch (error) {
       console.error(error);
       toast.error('Echec de mise a jour du statut');
+    } finally {
+      setUpdatingId(null);
+    }
+  };
+
+  const verifyPayment = async (id) => {
+    setUpdatingId(id);
+    try {
+      await api.patch(`/bi-requests/${id}/payment`, {
+        paymentStatus: 'VERIFIED',
+        paymentMethod: paymentMethodById[id] || '',
+        paymentNotes: paymentNotesById[id] || '',
+      });
+      toast.success('Paiement verifie');
+      await loadRequests();
+    } catch (error) {
+      console.error(error);
+      toast.error(error.response?.data?.error || 'Echec de verification du paiement');
+    } finally {
+      setUpdatingId(null);
+    }
+  };
+
+  const rejectPayment = async (id) => {
+    setUpdatingId(id);
+    try {
+      await api.patch(`/bi-requests/${id}/payment`, {
+        paymentStatus: 'REJECTED',
+        paymentNotes: paymentNotesById[id] || '',
+      });
+      toast.success('Paiement rejete');
+      await loadRequests();
+    } catch (error) {
+      console.error(error);
+      toast.error(error.response?.data?.error || 'Echec de rejet du paiement');
+    } finally {
+      setUpdatingId(null);
+    }
+  };
+
+  const approveRequest = async (id) => {
+    setUpdatingId(id);
+    try {
+      await api.patch(`/bi-requests/${id}/approve`, {
+        adminNotes: adminNotesById[id] || '',
+      });
+      toast.success('Demande approuvee');
+      await loadRequests();
+    } catch (error) {
+      console.error(error);
+      toast.error(error.response?.data?.error || "Echec d'approbation");
+    } finally {
+      setUpdatingId(null);
+    }
+  };
+
+  const rejectRequest = async (id) => {
+    setUpdatingId(id);
+    try {
+      await api.patch(`/bi-requests/${id}/reject`, {
+        adminNotes: adminNotesById[id] || '',
+      });
+      toast.success('Demande rejetee');
+      await loadRequests();
+    } catch (error) {
+      console.error(error);
+      toast.error(error.response?.data?.error || 'Echec de rejet');
+    } finally {
+      setUpdatingId(null);
+    }
+  };
+
+  const requestInfo = async (id) => {
+    setUpdatingId(id);
+    try {
+      await api.patch(`/bi-requests/${id}/request-info`, {
+        adminNotes: requestInfoNoteById[id] || '',
+      });
+      toast.success('Informations demandees');
+      await loadRequests();
+    } catch (error) {
+      console.error(error);
+      toast.error(error.response?.data?.error || "Echec de la demande d'informations");
     } finally {
       setUpdatingId(null);
     }
@@ -160,6 +291,9 @@ export default function BIRequests() {
                     <span className={`px-2 py-1 rounded text-xs font-medium ${getStatusClasses(request.status)}`}>
                       {request.status}
                     </span>
+                    <span className={`px-2 py-1 rounded text-xs font-medium ${getPaymentStatusClasses(request.paymentStatus)}`}>
+                      {request.paymentStatus || 'PENDING'}
+                    </span>
                   </div>
 
                   <div className="text-sm">
@@ -169,6 +303,25 @@ export default function BIRequests() {
                     <span className="font-medium">Client:</span> {request.businessName || '-'}
                   </div>
                   <div className="text-sm text-muted-foreground">{request.message}</div>
+
+                  {Array.isArray(request.objectives) && request.objectives.length > 0 && (
+                    <div className="text-sm">
+                      <span className="font-medium">Objectives:</span>{' '}
+                      {request.objectives.join(', ')}
+                    </div>
+                  )}
+                  {Array.isArray(request.kpis) && request.kpis.length > 0 && (
+                    <div className="text-sm">
+                      <span className="font-medium">KPIs:</span>{' '}
+                      {request.kpis.join(', ')}
+                    </div>
+                  )}
+                  {request.dashboardRequirements?.trim() && (
+                    <div className="text-sm">
+                      <span className="font-medium">Dashboard requirements:</span>{' '}
+                      {request.dashboardRequirements}
+                    </div>
+                  )}
 
                   {Array.isArray(request.files) && request.files.length > 0 && (
                     <div className="text-sm">
@@ -189,51 +342,138 @@ export default function BIRequests() {
                     </div>
                   )}
 
+                  {request.paymentMethod && (
+                    <div className="text-sm">
+                      <span className="font-medium">Payment method:</span> {request.paymentMethod}
+                    </div>
+                  )}
+
+                  {request.paymentStatus === 'PENDING' && (
+                    <div className="border border-dashed border-border rounded p-3 space-y-2">
+                      <div className="text-sm font-medium">Payment verification</div>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                        <Input
+                          placeholder="Payment method (e.g. Bank transfer)"
+                          value={paymentMethodById[request.id] || ''}
+                          onChange={(e) =>
+                            setPaymentMethodById((prev) => ({ ...prev, [request.id]: e.target.value }))
+                          }
+                        />
+                        <Input
+                          placeholder="Payment notes"
+                          value={paymentNotesById[request.id] || ''}
+                          onChange={(e) =>
+                            setPaymentNotesById((prev) => ({ ...prev, [request.id]: e.target.value }))
+                          }
+                        />
+                      </div>
+                      <div className="flex gap-2">
+                        <Button
+                          size="sm"
+                          variant="default"
+                          disabled={updatingId === request.id}
+                          onClick={() => verifyPayment(request.id)}
+                        >
+                          {updatingId === request.id ? '...' : 'Verify Payment'}
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="destructive"
+                          disabled={updatingId === request.id}
+                          onClick={() => rejectPayment(request.id)}
+                        >
+                          {updatingId === request.id ? '...' : 'Reject Payment'}
+                        </Button>
+                      </div>
+                    </div>
+                  )}
+
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                    <Select
-                      value={request.status}
-                      onValueChange={(value) => updateStatus(request.id, value)}
-                      disabled={updatingId === request.id}
-                    >
-                      <SelectTrigger>
-                        <SelectValue placeholder="Changer statut" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {STATUS_OPTIONS.map((status) => (
-                          <SelectItem key={status} value={status}>
-                            {status}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+                    <div className="flex flex-wrap gap-2 items-center">
+                      <Button
+                        size="sm"
+                        variant="default"
+                        disabled={updatingId === request.id || request.paymentStatus !== 'VERIFIED' || (request.status !== 'PENDING_REVIEW' && request.status !== 'REQUEST_INFO')}
+                        onClick={() => approveRequest(request.id)}
+                      >
+                        {updatingId === request.id ? '...' : 'Approve'}
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="destructive"
+                        disabled={updatingId === request.id || request.status === 'APPROVED' || request.status === 'REJECTED'}
+                        onClick={() => rejectRequest(request.id)}
+                      >
+                        {updatingId === request.id ? '...' : 'Reject'}
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        disabled={updatingId === request.id || request.status !== 'PENDING_REVIEW'}
+                        onClick={() => requestInfo(request.id)}
+                      >
+                        {updatingId === request.id ? '...' : 'Request Info'}
+                      </Button>
+                    </div>
                     <div className="text-xs text-muted-foreground self-center">
                       Cree le {new Date(request.createdAt).toLocaleString()}
                     </div>
                   </div>
 
-                  <div>
-                    <div className="text-sm font-medium mb-1">Notes specialistes</div>
-                    <Textarea
-                      rows={3}
-                      value={notesById[request.id] || ''}
-                      onChange={(e) =>
-                        setNotesById((prev) => ({
-                          ...prev,
-                          [request.id]: e.target.value,
-                        }))
-                      }
-                      placeholder="Ajoutez une note pour cette demande"
-                    />
-                    <div className="mt-2 flex justify-end">
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        disabled={updatingId === request.id}
-                        onClick={() => updateStatus(request.id, request.status)}
-                      >
-                        {updatingId === request.id ? 'Sauvegarde...' : 'Sauvegarder note'}
-                      </Button>
+                  {request.status === 'REQUEST_INFO' && (
+                    <div className="border border-dashed border-blue-200 bg-blue-50 rounded p-2">
+                      <div className="text-xs font-medium text-blue-700 mb-1">Info requested from client</div>
+                      <Textarea
+                        rows={2}
+                        value={requestInfoNoteById[request.id] || ''}
+                        onChange={(e) =>
+                          setRequestInfoNoteById((prev) => ({ ...prev, [request.id]: e.target.value }))
+                        }
+                        placeholder="What additional information is needed?"
+                        className="text-xs"
+                      />
                     </div>
+                  )}
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    <div>
+                      <div className="text-sm font-medium mb-1">Notes specialistes</div>
+                      <Textarea
+                        rows={3}
+                        value={notesById[request.id] || ''}
+                        onChange={(e) =>
+                          setNotesById((prev) => ({
+                            ...prev,
+                            [request.id]: e.target.value,
+                          }))
+                        }
+                        placeholder="Ajoutez une note pour cette demande"
+                      />
+                    </div>
+                    <div>
+                      <div className="text-sm font-medium mb-1">Notes admin</div>
+                      <Textarea
+                        rows={3}
+                        value={adminNotesById[request.id] || ''}
+                        onChange={(e) =>
+                          setAdminNotesById((prev) => ({
+                            ...prev,
+                            [request.id]: e.target.value,
+                          }))
+                        }
+                        placeholder="Notes internes (non visible par le client)"
+                      />
+                    </div>
+                  </div>
+                  <div className="mt-2 flex justify-end">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      disabled={updatingId === request.id}
+                      onClick={() => updateStatus(request.id, request.status)}
+                    >
+                      {updatingId === request.id ? 'Sauvegarde...' : 'Sauvegarder notes'}
+                    </Button>
                   </div>
                 </div>
               ))}

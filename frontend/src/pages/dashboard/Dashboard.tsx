@@ -82,8 +82,12 @@ type BIRequest = {
   dashboardType: string;
   message: string;
   businessName?: string;
-  status: "PENDING" | "IN_REVIEW" | "DELIVERED" | "REJECTED";
+  status: "PENDING_REVIEW" | "APPROVED" | "REJECTED" | "REQUEST_INFO";
   specialistNotes?: string;
+  objectives?: string[] | null;
+  kpis?: string[] | null;
+  dashboardRequirements?: string | null;
+  paymentStatus?: string;
   createdAt: string;
   updatedAt?: string;
   files?: Array<{
@@ -155,6 +159,9 @@ const Dashboard = () => {
     businessName: "",
     dashboardType: "sales-overview",
     message: "",
+    objectives: "",
+    kpis: "",
+    dashboardRequirements: "",
     csvFiles: [] as File[],
   });
 
@@ -464,6 +471,20 @@ const Dashboard = () => {
       if (user?.id) formData.append("userId", user.id);
       if (user?.email) formData.append("userEmail", user.email);
 
+      const objectives = biForm.objectives
+        .split("\n")
+        .map((s) => s.trim())
+        .filter(Boolean);
+      formData.append("objectives", JSON.stringify(objectives));
+
+      const kpis = biForm.kpis
+        .split("\n")
+        .map((s) => s.trim())
+        .filter(Boolean);
+      formData.append("kpis", JSON.stringify(kpis));
+
+      formData.append("dashboardRequirements", biForm.dashboardRequirements.trim());
+
       biForm.csvFiles.forEach((file) => formData.append("csvFiles", file));
 
       const response = await fetch(`${API_BASE_URL}/bi-requests`, {
@@ -475,7 +496,14 @@ const Dashboard = () => {
         throw new Error("Failed to submit BI request");
       }
 
-      setBiForm((prev) => ({ ...prev, message: "", csvFiles: [] }));
+      setBiForm((prev) => ({
+        ...prev,
+        message: "",
+        objectives: "",
+        kpis: "",
+        dashboardRequirements: "",
+        csvFiles: [],
+      }));
       await loadBiRequests(selectedLicense.id);
     } catch (error) {
       console.error(error);
@@ -485,10 +513,11 @@ const Dashboard = () => {
   };
 
   const getBiStatusClasses = (status: BIRequest["status"]) => {
-    if (status === "DELIVERED") return "bg-green-500/10 text-green-600";
-    if (status === "IN_REVIEW") return "bg-blue-500/10 text-blue-600";
+    if (status === "APPROVED") return "bg-green-500/10 text-green-600";
+    if (status === "PENDING_REVIEW") return "bg-amber-500/10 text-amber-600";
     if (status === "REJECTED") return "bg-red-500/10 text-red-600";
-    return "bg-amber-500/10 text-amber-600";
+    if (status === "REQUEST_INFO") return "bg-blue-500/10 text-blue-600";
+    return "bg-gray-500/10 text-gray-600";
   };
 
   const stats = [
@@ -792,6 +821,37 @@ const Dashboard = () => {
                   />
                 </div>
 
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  <div>
+                    <div className="text-muted-foreground mb-1">Objectives (one per line)</div>
+                    <Textarea
+                      value={biForm.objectives}
+                      onChange={(e) => setBiForm((prev) => ({ ...prev, objectives: e.target.value }))}
+                      placeholder="Increase sales by 20%&#10;Reduce inventory costs&#10;Improve customer retention"
+                      rows={3}
+                    />
+                  </div>
+                  <div>
+                    <div className="text-muted-foreground mb-1">KPIs (one per line)</div>
+                    <Textarea
+                      value={biForm.kpis}
+                      onChange={(e) => setBiForm((prev) => ({ ...prev, kpis: e.target.value }))}
+                      placeholder="Monthly revenue&#10;Inventory turnover rate&#10;Customer acquisition cost"
+                      rows={3}
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <div className="text-muted-foreground mb-1">Dashboard requirements</div>
+                  <Textarea
+                    value={biForm.dashboardRequirements}
+                    onChange={(e) => setBiForm((prev) => ({ ...prev, dashboardRequirements: e.target.value }))}
+                    placeholder="Specific charts, filters, time ranges, or any special requirements"
+                    rows={2}
+                  />
+                </div>
+
                 <div>
                   <div className="text-muted-foreground mb-1">Upload CSV files (optional)</div>
                   <Input
@@ -839,6 +899,21 @@ const Dashboard = () => {
                             </span>
                           </div>
                           <div className="text-xs text-muted-foreground mb-1">{request.message}</div>
+                          {Array.isArray(request.objectives) && request.objectives.length > 0 && (
+                            <div className="text-[11px] mb-0.5">
+                              <span className="font-medium">Objectives:</span> {request.objectives.join(", ")}
+                            </div>
+                          )}
+                          {Array.isArray(request.kpis) && request.kpis.length > 0 && (
+                            <div className="text-[11px] mb-0.5">
+                              <span className="font-medium">KPIs:</span> {request.kpis.join(", ")}
+                            </div>
+                          )}
+                          {request.dashboardRequirements?.trim() && (
+                            <div className="text-[11px] mb-0.5">
+                              <span className="font-medium">Requirements:</span> {request.dashboardRequirements}
+                            </div>
+                          )}
                           {request.specialistNotes?.trim() && (
                             <div className="text-xs mb-1">
                               <span className="font-medium">Specialist note:</span> {request.specialistNotes}
@@ -860,7 +935,7 @@ const Dashboard = () => {
                               ))}
                             </div>
                           )}
-                          {request.status === "DELIVERED" && Array.isArray(request.files) && request.files.length > 0 && (
+                          {request.status === "APPROVED" && Array.isArray(request.files) && request.files.length > 0 && (
                             <div className="mb-1 rounded border border-green-200 bg-green-50 px-2 py-1">
                               <div className="text-[11px] font-medium text-green-700">Delivered assets ready</div>
                               <div className="text-[11px] text-green-700/90">

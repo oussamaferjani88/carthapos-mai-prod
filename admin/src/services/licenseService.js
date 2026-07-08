@@ -27,6 +27,16 @@ class LicenseService {
     }
   }
 
+  async adminCreateLicense(licenseData) {
+    try {
+      const response = await licensesApi.adminCreate(licenseData);
+      return response.data;
+    } catch (error) {
+      console.error('Error creating admin license:', error);
+      throw new Error(error.response?.data?.error || 'Failed to create admin license');
+    }
+  }
+
   /**
    * Generate license file
    * @param {string} licenseId - License ID

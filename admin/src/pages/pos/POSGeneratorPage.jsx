@@ -54,6 +54,7 @@ export default function POSGenerator() {
     clientId: '',
     sector: '',
     licenseType: 'LIFETIME',
+    bindingType: 'MACHINE',
     expirationDate: '',
     selectedUSB: '',
     forcePortableMode: false
@@ -96,6 +97,7 @@ export default function POSGenerator() {
       clientId: formData.clientId,
       sector: formData.sector,
       licenseType: formData.licenseType,
+      bindingType: formData.bindingType,
       expirationDate: formData.expirationDate,
       selectedModules: modulesHook.selectedModules,
       configuration: {
@@ -236,7 +238,7 @@ export default function POSGenerator() {
         sector: 'Café',
         description: 'Template optimisé pour cafés et coffee shops',
         color: '#8B4513',
-        features: ['Caisse rapide', 'Gestion stocks', 'Rapports'],
+        features: ['Caisse rapide', 'Rapports'],
         preview: '☕'
       },
       {
@@ -254,7 +256,7 @@ export default function POSGenerator() {
         sector: 'Commerce',
         description: 'Template pour boutiques et magasins',
         color: '#3B82F6',
-        features: ['Ventes rapides', 'Inventaire', 'Fidélité', 'Promotions'],
+        features: ['Ventes rapides', 'Fidélité', 'Promotions'],
         preview: '🛍️'
       },
       {
@@ -263,7 +265,7 @@ export default function POSGenerator() {
         sector: 'Santé',
         description: 'Template spécialisé pour pharmacies',
         color: '#059669',
-        features: ['Ordonnances', 'Stocks médicaux', 'Contrôle qualité'],
+        features: ['Ordonnances', 'Contrôle qualité'],
         preview: '💊'
       }
     ];
@@ -544,6 +546,8 @@ export default function POSGenerator() {
             expirationDate={formData.expirationDate}
             onLicenseTypeChange={(value) => setFormData(prev => ({ ...prev, licenseType: value }))}
             onExpirationDateChange={(value) => setFormData(prev => ({ ...prev, expirationDate: value }))}
+            bindingType={formData.bindingType}
+            onBindingTypeChange={(value) => setFormData(prev => ({ ...prev, bindingType: value }))}
             usbDrives={usbHook.usbDrives}
             selectedUSB={formData.selectedUSB}
             onUSBChange={(value) => setFormData(prev => ({ ...prev, selectedUSB: value }))}

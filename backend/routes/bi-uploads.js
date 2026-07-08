@@ -56,12 +56,24 @@ router.post('/', upload.single('file'), async (req, res) => {
       return res.status(400).json({ error: 'No file uploaded' });
     }
 
-    const { clientId, businessType } = req.body;
-    console.log(`[UPLOAD] Request received  filename=${req.file.originalname} size=${req.file.size} clientId=${clientId}`);
+    const { clientId, businessType, requestId } = req.body;
+    console.log(`[UPLOAD] Request received  filename=${req.file.originalname} size=${req.file.size} clientId=${clientId} requestId=${requestId || '(none)'}`);
 
     if (!clientId) {
       fs.unlinkSync(req.file.path);
       return res.status(400).json({ error: 'clientId is required' });
+    }
+
+    if (requestId) {
+      const linkedRequest = await prisma.biRequest.findUnique({ where: { id: requestId }, select: { id: true, status: true } });
+      if (!linkedRequest) {
+        fs.unlinkSync(req.file.path);
+        return res.status(400).json({ error: `BiRequest "${requestId}" not found` });
+      }
+      if (linkedRequest.status !== 'APPROVED') {
+        fs.unlinkSync(req.file.path);
+        return res.status(400).json({ error: `Cannot link upload to a request with status "${linkedRequest.status}". Only APPROVED requests can be linked.` });
+      }
     }
 
     // ── Tenant validation ───────────────────────────────────────
@@ -93,7 +105,7 @@ router.post('/', upload.single('file'), async (req, res) => {
           await prisma.biProcessingJob.delete({ where: { id: existingDuplicate.processingJob.id } });
         }
         if (existingDuplicate.files.length > 0) {
-          await prisma.biUploadedFile.deleteMany({ where: { uploadId: existingDuplicate.id } });
+          await prisma.biUploadFile.deleteMany({ where: { uploadId: existingDuplicate.id } });
         }
         if (existingDuplicate.filePath && fs.existsSync(existingDuplicate.filePath)) {
           fs.unlinkSync(existingDuplicate.filePath);
@@ -117,27 +129,18 @@ router.post('/', upload.single('file'), async (req, res) => {
     const uploadRecord = await prisma.biUpload.create({
       data: {
         clientId,
+        requestId: requestId || null,
         businessType: businessType || client.name || 'unknown',
         fileHash,
         fileName: req.file.originalname,
         fileSize,
         filePath,
-        status: 'UPLOADED',
+        status: 'PENDING_PAYMENT_VERIFICATION',
         totalFiles: 0,
         totalRows: 0,
       },
     });
-    console.log(`[UPLOAD] Record created  uploadId=${uploadRecord.id} status=UPLOADED`);
-
-    // Trigger ETL async with safe wrapper
-    console.log(`[UPLOAD] Starting ETL worker...`);
-    etlPipeline.run(uploadRecord.id, filePath)
-      .then(result => {
-        console.log(`[JOB] uploadId=${uploadRecord.id} status=COMPLETED records=${result.recordsLoaded}`);
-      })
-      .catch(err => {
-        console.error(`[JOB] uploadId=${uploadRecord.id} status=FAILED error=${err.message}`);
-      });
+    console.log(`[UPLOAD] Record created  uploadId=${uploadRecord.id} status=PENDING_PAYMENT_VERIFICATION`);
 
     res.status(201).json({
       success: true,
@@ -150,7 +153,7 @@ router.post('/', upload.single('file'), async (req, res) => {
         status: uploadRecord.status,
         createdAt: uploadRecord.createdAt,
       },
-      message: 'Upload accepted. ETL processing started.',
+      message: 'Upload accepted. Awaiting payment verification.',
     });
     console.log(`[UPLOAD] Response sent (201)`);
   } catch (error) {
@@ -184,6 +187,13 @@ router.get('/', async (req, res) => {
         include: {
           processingJob: {
             select: { status: true, recordsLoaded: true, startedAt: true, completedAt: true },
+          },
+          biRequest: {
+            select: { id: true, status: true, businessName: true, dashboardType: true },
+          },
+          dashboards: {
+            select: { id: true, status: true, name: true },
+            take: 1,
           },
         },
       }),
@@ -222,6 +232,14 @@ router.get('/:id', async (req, res) => {
             },
           },
         },
+        biRequest: {
+          select: { id: true, status: true, businessName: true, dashboardType: true, message: true, businessType: true },
+        },
+        dashboards: {
+          select: { id: true, status: true, name: true },
+          orderBy: { createdAt: 'desc' },
+          take: 1,
+        },
       },
     });
 
@@ -247,7 +265,7 @@ router.get('/:id/logs', async (req, res) => {
       return res.status(404).json({ error: 'Upload not found' });
     }
 
-    const job = await prisma.biProcessingJob.findUnique({
+    const job = await prisma.biProcessingJob.findFirst({
       where: { uploadId: req.params.id },
     });
 
@@ -312,7 +330,7 @@ router.delete('/:id', async (req, res) => {
 
     // Delete uploaded file records
     if (upload.files.length > 0) {
-      await prisma.biUploadedFile.deleteMany({ where: { uploadId: upload.id } });
+      await prisma.biUploadFile.deleteMany({ where: { uploadId: upload.id } });
     }
 
     // Delete the upload record itself
@@ -344,7 +362,7 @@ router.post('/:id/cancel', async (req, res) => {
       return res.status(404).json({ error: 'Upload not found' });
     }
 
-    if (!['UPLOADED', 'VALIDATING', 'PROCESSING'].includes(upload.status)) {
+    if (!['UPLOADED', 'PENDING_PAYMENT_VERIFICATION', 'VALIDATING', 'PROCESSING'].includes(upload.status)) {
       return res.status(400).json({ error: `Cannot cancel upload with status "${upload.status}"` });
     }
 
@@ -403,6 +421,162 @@ router.get('/clients/list', async (req, res) => {
     });
     res.json({ success: true, data: clients });
   } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ─── POST /api/bi-uploads/:id/start-etl — Manual ETL trigger ────
+
+router.post('/:id/start-etl', async (req, res) => {
+  try {
+    const upload = await prisma.biUpload.findUnique({
+      where: { id: req.params.id },
+      include: { processingJob: true },
+    });
+
+    if (!upload) {
+      return res.status(404).json({ error: 'Upload not found' });
+    }
+
+    if (!upload.requestId) {
+      return res.status(400).json({ error: 'Upload is not linked to any BI request. Provide a requestId during upload.' });
+    }
+
+    const linkedRequest = await prisma.biRequest.findUnique({
+      where: { id: upload.requestId },
+      select: { id: true, status: true },
+    });
+
+    if (!linkedRequest) {
+      return res.status(400).json({ error: 'Linked BI request not found.' });
+    }
+
+    if (linkedRequest.status !== 'APPROVED') {
+      return res.status(400).json({
+        error: `Cannot start ETL. Linked request has status "${linkedRequest.status}". Only APPROVED requests can be processed.`,
+      });
+    }
+
+    const PROCESSING_STATUSES = ['VALIDATING', 'PROCESSING'];
+    if (PROCESSING_STATUSES.includes(upload.status)) {
+      return res.status(400).json({ error: 'ETL is already running for this upload.' });
+    }
+
+    const COMPLETED_STATUSES = ['COMPLETED'];
+    if (COMPLETED_STATUSES.includes(upload.status)) {
+      return res.status(400).json({ error: 'ETL has already been completed for this upload.' });
+    }
+
+    // Update upload status to VALIDATING
+    await prisma.biUpload.update({
+      where: { id: upload.id },
+      data: { status: 'VALIDATING', errorMessage: null },
+    });
+
+    // Create or update processing job
+    const existingJob = await prisma.biProcessingJob.findFirst({ where: { uploadId: upload.id } });
+    if (existingJob) {
+      await prisma.biProcessingJob.update({
+        where: { id: existingJob.id },
+        data: { status: 'QUEUED', startedAt: new Date(), errorMessage: null, completedAt: null, recordsLoaded: 0 },
+      });
+    } else {
+      await prisma.biProcessingJob.create({
+        data: { uploadId: upload.id, status: 'QUEUED', startedAt: new Date() },
+      });
+    }
+
+    // Fire ETL in background (don't await)
+    etlPipeline.run(upload.id, upload.filePath)
+      .then((result) => {
+        console.log(`[UPLOAD] ETL completed for uploadId=${upload.id}: ${result.recordsLoaded} records in ${result.elapsed}s`);
+      })
+      .catch((err) => {
+        console.error(`[UPLOAD] ETL failed for uploadId=${upload.id}:`, err.message);
+      });
+
+    res.status(202).json({
+      success: true,
+      message: 'ETL pipeline started. Check upload details for progress.',
+      uploadId: upload.id,
+    });
+  } catch (error) {
+    console.error('[UPLOAD] Start ETL failed:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ─── POST /api/bi-uploads/:id/admin-approve — Quick admin approval for in-person requests ──
+
+router.post('/:id/admin-approve', async (req, res) => {
+  try {
+    const { businessType, businessName, licenseId } = req.body;
+
+    const upload = await prisma.biUpload.findUnique({
+      where: { id: req.params.id },
+      select: { id: true, clientId: true, businessType: true, requestId: true, status: true },
+    });
+
+    if (!upload) {
+      return res.status(404).json({ error: 'Upload not found' });
+    }
+
+    if (upload.requestId) {
+      const existing = await prisma.biRequest.findUnique({ where: { id: upload.requestId }, select: { status: true } });
+      if (existing && existing.status === 'APPROVED') {
+        return res.status(400).json({ error: 'Upload already linked to an approved request.' });
+      }
+    }
+
+    // Create BiRequest with APPROVED + VERIFIED
+    const biRequest = await prisma.biRequest.create({
+      data: {
+        clientId: upload.clientId,
+        licenseId: licenseId || null,
+        businessType: businessType || upload.businessType || 'unknown',
+        businessName: businessName || `Client ${upload.clientId}`,
+        message: 'Admin quick approval — in-person request, cash payment',
+        status: 'APPROVED',
+        paymentStatus: 'VERIFIED',
+        paymentMethod: 'cash',
+        paymentNotes: 'Payment verified in person by admin',
+        files: [],
+      },
+    });
+
+    // Link upload to the new request
+    await prisma.biUpload.update({
+      where: { id: upload.id },
+      data: { requestId: biRequest.id },
+    });
+
+    // Notifications
+    await prisma.biNotification.create({
+      data: {
+        clientId: upload.clientId,
+        type: 'PAYMENT_VERIFIED',
+        title: 'Paiement Vérifié',
+        message: `Paiement en espèces vérifié par l'administrateur pour la demande BI.`,
+      },
+    });
+
+    await prisma.biNotification.create({
+      data: {
+        clientId: upload.clientId,
+        type: 'REQUEST_APPROVED',
+        title: 'Demande BI Approuvée',
+        message: `La demande de tableau de bord pour "${businessName || upload.clientId}" a été approuvée.`,
+      },
+    });
+
+    console.log(`[ADMIN-APPROVE] Created requestId=${biRequest.id} for uploadId=${upload.id}`);
+    res.status(201).json({
+      success: true,
+      data: { biRequest, uploadId: upload.id },
+      message: 'Approbation rapide effectuée. Demande créée et liée au téléversement.',
+    });
+  } catch (error) {
+    console.error('[ADMIN-APPROVE] Failed:', error);
     res.status(500).json({ error: error.message });
   }
 });

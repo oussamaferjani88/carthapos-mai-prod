@@ -110,6 +110,7 @@ export const licensesApi = {
   getAll: () => api.get('/licenses'),
   getById: (id) => api.get(`/licenses/${id}`),
   create: (data) => api.post('/licenses', data),
+  adminCreate: (data) => api.post('/licenses/admin-create', data),
   update: (id, data) => api.put(`/licenses/${id}`, data),
   delete: (id) => api.delete(`/licenses/${id}`),
   generateFile: (id, machineId) => api.post(`/licenses/${id}/generate-file`, { machineId }),

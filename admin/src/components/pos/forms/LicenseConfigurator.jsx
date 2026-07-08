@@ -11,13 +11,15 @@ import { Input } from '../../ui/input';
 import { Button } from '../../ui/button';
 import { Separator } from '../../ui/separator';
 import { Checkbox } from '../../ui/checkbox';
-import { CreditCard, Usb, HardDrive, CheckCircle } from 'lucide-react';
+import { CreditCard, Usb, HardDrive, Monitor, CheckCircle } from 'lucide-react';
 
 export default function LicenseConfigurator({
   licenseType,
   expirationDate,
   onLicenseTypeChange,
   onExpirationDateChange,
+  bindingType,
+  onBindingTypeChange,
   usbDrives,
   selectedUSB,
   onUSBChange,
@@ -67,6 +69,45 @@ export default function LicenseConfigurator({
             />
           </div>
         )}
+
+        {/* Binding Type */}
+        <div className="grid gap-2">
+          <Label>Type de liaison</Label>
+          <Select
+            value={bindingType || 'MACHINE'}
+            onValueChange={onBindingTypeChange}
+            disabled={loading}
+          >
+            <SelectTrigger>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="MACHINE">
+                <div className="flex items-center gap-2">
+                  <Monitor className="h-4 w-4" />
+                  Machine fixe
+                </div>
+              </SelectItem>
+              <SelectItem value="USB">
+                <div className="flex items-center gap-2">
+                  <Usb className="h-4 w-4" />
+                  Clé USB
+                </div>
+              </SelectItem>
+              <SelectItem value="HYBRID">
+                <div className="flex items-center gap-2">
+                  <HardDrive className="h-4 w-4" />
+                  Hybride (Machine + USB)
+                </div>
+              </SelectItem>
+            </SelectContent>
+          </Select>
+          <p className="text-xs text-muted-foreground">
+            {bindingType === 'MACHINE' && 'La licence est liée à une machine spécifique.'}
+            {bindingType === 'USB' && 'La licence est liée à une clé USB.'}
+            {bindingType === 'HYBRID' && 'La licence nécessite à la fois une machine et une clé USB.'}
+          </p>
+        </div>
 
         <Separator />
 
