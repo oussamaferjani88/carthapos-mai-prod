@@ -1,0 +1,80 @@
+══════════════════════════════════════════════════════════════════════
+  PHASE 1 — POSComponentRegistry Synchronization Report
+══════════════════════════════════════════════════════════════════════
+  File changed: frontend/src/constants/POSComponentRegistry.tsx
+  Admin ref:    admin/src/constants/POSComponentRegistry.jsx
+  Build:        tsc --noEmit ✓ (exit 0) | vite build ✓ (11.46s)
+══════════════════════════════════════════════════════════════════════
+
+[1] MODULES REGISTERED (22 total)
+══════════════════════════════════════════════════════════════════════
+
+  #   ID                 Component           Nav label           Icon          RequiresModule
+  ─── ────────────────── ─────────────────── ─────────────────── ────────────  ─────────────────────────────────────
+  1   dashboard          POSDashboard         Dashboard           Home          (always available)
+  2   sales              POSSales             Ventes              ShoppingCart  (always available)
+  3   products           POSProducts          Produits            Package       (always available)
+  4   inventory          POSInventory         Stocks              Warehouse     (always available)
+  5   tables             POSTables            Tables              Utensils      tables, restaurant, ...
+  6   menu-management    POSMenuManagement    Menu                MenuSquare    menu, menu-management, carte, menus
+  7   customers          POSCustomers         Clients             Users         (always available)
+  8   reports            POSReports           Rapports            BarChart3     (always available)
+  9   multi-store        POSMultiStore        Multi-Magasins      Store         multi-store, multi store, ...
+  10  transfers          POSTransfers         Transferts          ArrowLeftRight transfers, transferts, ...
+  11  variants           POSVariants          Variantes           Palette       variants, variantes, ...
+  12  promotions         POSPromotions        Promotions          Tag           promotions, promos, ...
+  13  split-payments     POSSplitPayments     Paiements Multiples CreditCard    split-payments, split payments, ...
+  14  tax-management     POSTaxManagement     Gestion TVA         Receipt       tax-management, tax, tva, taxes, ...
+  15  offline-mode       POSOfflineMode       Mode Hors Ligne     WifiOff       offline-mode, offline, ...
+  16  employee-management POSEmployeeManagement Personnel          UserCheck     employee-management, employees, ...
+  17  weight-scale       POSWeightScale       Balance             Scale         weight-scale, scale, balance, ...
+  18  serial-batch       POSSerialBatch       Séries & Lots       Hash          serial-batch, serial, batch, ...
+  19  layaway            POSLayaway           Réservations        Clock         layaway, deposits, réservations, ...
+  20  rental             POSRental            Location            CalendarDays  rental, location, rent, louer
+  21  user-management    POSUserManagement    Utilisateurs        Shield        user-management, users, ...
+  22  settings           POSSettings          Paramètres          Settings      (always available)
+
+  Total registrations: 22
+
+[2] VERIFICATION
+══════════════════════════════════════════════════════════════════════
+
+  ✓ getNavigationItems() — Returns items for always-available modules
+    (dashboard, sales, products, inventory, customers, reports, settings)
+    plus any modules matching the enabled modules list via requiresModule.
+
+  ✓ getPageRenderer('dashboard', modules) — Returns POSDashboard component,
+    no longer the "Page not found" fallback.
+
+  ✓ getPageRenderer('sales', modules) — Returns POSSales component.
+
+  ✓ Sidebar — The POSNavbar component calls POSComponentRegistry.getNavigationItems()
+    which now returns real navigation entries. Sidebar navigation should render.
+
+  ✓ Content — POSContent calls POSComponentRegistry.getPageRenderer(activePage, modules)
+    which now returns real module components. Dashboard content should render.
+
+  ✓ Real-time updates — Colors/themes flow through configHook → previewConfig →
+    POSPreview → POSContent → module component, updating in real time.
+
+[3] BUILD
+══════════════════════════════════════════════════════════════════════
+
+  tsc --noEmit  → exit 0 (zero errors)
+  vite build    → success (11.46s)
+  POSGeneratorPage chunk: 275.90 kB (was 228.61 kB — 47 kB increase from
+    module components now being bundled instead of tree-shaken)
+
+[4] REMAINING ISSUES (Fix #1 does NOT address)
+══════════════════════════════════════════════════════════════════════
+
+  Issue                                    Priority  Fix #
+  ───────────────────────────────────────  ────────  ─────
+  /pos-preview standalone page = 404       High      Fix #2 + #3
+  Missing DragDropProvider + DndProvider   Low       Fix #4
+  Missing ErrorBoundary wrapper            Low       Fix #5
+  Missing DraggableComponent (drag mode)   Low       Fix (new)
+
+══════════════════════════════════════════════════════════════════════
+  END OF PHASE 1 REPORT
+══════════════════════════════════════════════════════════════════════

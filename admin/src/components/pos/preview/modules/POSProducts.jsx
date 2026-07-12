@@ -1,11 +1,11 @@
 import React, { useState } from 'react';
-import { Card, CardContent, CardHeader, CardTitle } from '../../../ui/card';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../../../ui/card';
 import { Button } from '../../../ui/button';
 import { Input } from '../../../ui/input';
 import { Label } from '../../../ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../../ui/select';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '../../../ui/dialog';
-import { Plus, Search, Barcode, Sparkles, Upload, Scan, X, Filter, Package, Edit, Trash2 } from 'lucide-react';
+import { Plus, Search, Barcode, Sparkles, Upload, Scan, X, Filter, Package, Edit, Trash2, AlertTriangle } from 'lucide-react';
 import { cn } from '../../../../lib/utils';
 
 export const POSProducts = ({ 
@@ -71,6 +71,17 @@ export const POSProducts = ({
     setFormData({ ...formData, barcode: barcode });
   };
 
+  const handleEdit = (product) => {
+    setFormData({ name: product.name, family: product.family, price: product.price.toString(), barcode: product.barcode, description: product.description });
+    setShowAddForm(true);
+  };
+
+  const handleDelete = (product) => {
+    if (window.confirm(`Êtes-vous sûr de vouloir supprimer "${product.name}" ?`)) {
+      setProducts(products.filter(p => p.id !== product.id));
+    }
+  };
+
   const filteredProducts = selectedFamily === 'Tout' 
     ? products.filter(product => 
         product.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -94,53 +105,70 @@ export const POSProducts = ({
   };
 
   return (
-    <div className="h-full flex flex-col space-y-3 bg-gray-50 relative" style={{ fontFamily: config.fontFamily }}>
-      {/* Compact Header */}
-      <div className="flex justify-between items-center px-4 py-3 bg-white border-b shadow-sm">
+    <div className="h-full flex flex-col space-y-3 bg-gray-50 relative" style={{ fontFamily: config.fontFamily, backgroundColor: config.backgroundColor }}>
+      {/* Header */}
+      <div className="flex justify-between items-center">
         <div>
-          <h1 className="text-lg font-bold flex items-center gap-2" style={{ color: config.textColor }}>
-            📦 Produits
-          </h1>
-          <p className="text-xs text-gray-500">Catalogue</p>
+          <h1 className="text-3xl font-bold" style={{ color: config.textColor }}>Produits</h1>
+          <p className="text-sm mt-1" style={{ color: config.textMutedColor }}>
+            Gérez votre catalogue de produits
+          </p>
         </div>
-        <Button
-          onClick={handleAddProduct}
-          style={{ backgroundColor: config.primaryColor }}
-          className="text-white hover:opacity-90 px-3 py-1.5 text-sm"
-          size="sm"
-        >
-          <Plus className="mr-1.5 h-3 w-3" />
-          Ajouter
-        </Button>
+        <div className="flex gap-2">
+          <Button variant="outline" onClick={() => {}}>
+            <Barcode className="mr-2 h-4 w-4" />
+            Générer codes-barres
+          </Button>
+          <Button
+            onClick={handleAddProduct}
+            style={{ backgroundColor: config.primaryColor }}
+            className="text-white hover:opacity-90"
+          >
+            <Plus className="mr-2 h-4 w-4" />
+            Nouveau produit
+          </Button>
+        </div>
       </div>
 
-      {/* Compact Search Bar */}
-      <div className="px-4 py-2 bg-white border-b">
-        <div className="flex gap-2">
-          <div className="flex-1 relative">
-            <Search className="absolute left-2.5 top-1/2 transform -translate-y-1/2 text-gray-400 h-3 w-3" />
-            <Input
-              placeholder="Rechercher..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="pl-8 py-1.5 text-sm h-8"
-            />
+      {/* Filters */}
+      <Card style={{ backgroundColor: config.backgroundColor, borderColor: config.cardBorderColor }}>
+        <CardHeader>
+          <CardTitle style={{ color: config.textColor }}>Filtres</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="flex flex-col md:flex-row gap-4">
+            <div className="flex-1">
+              <Label htmlFor="search">Rechercher</Label>
+              <div className="relative">
+                <Search className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
+                <Input
+                  id="search"
+                  placeholder="Nom du produit ou code-barres..."
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  className="pl-10"
+                />
+              </div>
+            </div>
+            <div className="w-full md:w-48">
+              <Label htmlFor="family">Famille</Label>
+              <Select value={selectedFamily} onValueChange={setSelectedFamily}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="Tout">Toutes les familles</SelectItem>
+                  {families.map((family) => (
+                    <SelectItem key={family} value={family}>
+                      {family}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
           </div>
-          <Select value={selectedFamily} onValueChange={setSelectedFamily}>
-            <SelectTrigger className="w-28 h-8 text-xs">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="Tout">Toutes</SelectItem>
-              {families.map((family) => (
-                <SelectItem key={family} value={family} className="text-xs">
-                  {family}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-      </div>
+        </CardContent>
+      </Card>
 
       {/* Products List with blur effect when form is open */}
       <div className={`flex-1 transition-all duration-300 ${showAddForm ? 'filter blur-sm' : ''}`}>
@@ -149,8 +177,8 @@ export const POSProducts = ({
       {filteredProducts.length === 0 ? (
         <Card style={styles.card}>
           <CardContent className="text-center py-12">
-            <div className="mx-auto h-12 w-12 text-muted-foreground mb-4">📦</div>
-            <h3 className="text-lg font-medium mb-2">
+            <Package className="mx-auto h-12 w-12 text-muted-foreground mb-4" />
+            <h3 className="text-lg font-medium mb-2" style={{ color: config.textColor }}>
               {searchTerm || selectedFamily !== 'Tout' ? 'Aucun produit trouvé' : 'Aucun produit'}
             </h3>
             <p className="text-muted-foreground mb-4">
@@ -168,76 +196,50 @@ export const POSProducts = ({
           </CardContent>
         </Card>
       ) : (
-        <div className="px-4 pb-4">
-          <div className="grid grid-cols-2 gap-2.5">
-            {filteredProducts.map((product) => (
-              <Card key={product.id} className="hover:shadow-md transition-shadow bg-white border border-gray-200">
-                <CardContent className="p-3">
-                  <div className="space-y-2">
-                    {/* Compact Image */}
-                    <div className="w-full h-16 bg-gray-100 rounded-md flex items-center justify-center">
-                      {product.image ? (
-                        <img
-                          src={product.image}
-                          alt={product.name}
-                          className="w-full h-full object-cover rounded-md"
-                        />
-                      ) : (
-                        <Package className="h-5 w-5 text-gray-400" />
-                      )}
-                    </div>
-
-                    {/* Product Info */}
-                    <div className="space-y-1">
-                      <div className="flex justify-between items-start">
-                        <h3 className="font-medium text-sm truncate pr-2">{product.name}</h3>
-                        <span className="font-bold text-green-600 text-sm whitespace-nowrap">
-                          {product.price.toFixed(2)}€
-                        </span>
-                      </div>
-
-                      <div className="space-y-0.5 text-xs text-gray-500">
-                        <div className="flex justify-between">
-                          <span>Famille:</span>
-                          <span className="font-medium truncate ml-1">{product.family}</span>
-                        </div>
-
-                        {product.barcode ? (
-                          <div className="flex items-center text-green-600">
-                            <Barcode className="h-3 w-3 mr-1" />
-                            <span className="text-xs truncate">{product.barcode}</span>
-                          </div>
-                        ) : (
-                          <div className="flex items-center text-orange-500">
-                            <span className="text-xs">⚠️ Pas de code-barres</span>
-                          </div>
-                        )}
-                      </div>
-                    </div>
-
-                    {/* Compact Actions */}
-                    <div className="flex gap-1.5 pt-1">
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="flex-1 h-6 text-xs px-2"
-                      >
-                        <Edit className="mr-1 h-3 w-3" />
-                        Modifier
-                      </Button>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="text-red-600 hover:text-red-700 h-6 px-2"
-                      >
-                        <Trash2 className="h-3 w-3" />
-                      </Button>
-                    </div>
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          {filteredProducts.map((product) => (
+            <Card key={product.id} className="hover:shadow-md transition-shadow" style={{ backgroundColor: config.backgroundColor, borderColor: config.cardBorderColor }}>
+              <CardHeader>
+                <div className="flex justify-between items-start">
+                  <div className="flex-1">
+                    <CardTitle className="text-lg" style={{ color: config.textColor }}>{product.name}</CardTitle>
+                    <CardDescription>{product.family}</CardDescription>
                   </div>
-                </CardContent>
-              </Card>
-            ))}
-          </div>
+                  <div className="flex space-x-1">
+                    <Button variant="ghost" size="sm" onClick={() => handleEdit(product)}>
+                      <Edit className="h-4 w-4" />
+                    </Button>
+                    <Button variant="ghost" size="sm" onClick={() => handleDelete(product)} className="text-destructive hover:text-destructive">
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                  </div>
+                </div>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-3">
+                  <div className="flex justify-between items-center">
+                    <span className="text-2xl font-bold" style={{ color: config.primaryColor }}>{product.price.toFixed(2)}€</span>
+                    <Badge variant="outline" className="text-orange-600 border-orange-600">En stock</Badge>
+                  </div>
+
+                  <div className="text-sm" style={{ color: config.textMutedColor }}>
+                    <p>Stock: 150 unités</p>
+                    {product.barcode ? (
+                      <div className="flex items-center mt-1">
+                        <Barcode className="h-3 w-3 mr-1 text-green-600" />
+                        <p>Code-barres: {product.barcode}</p>
+                      </div>
+                    ) : (
+                      <div className="flex items-center mt-1 text-orange-600">
+                        <AlertTriangle className="h-3 w-3 mr-1" />
+                        <p>Aucun code-barres</p>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          ))}
         </div>
       )}
       </div>

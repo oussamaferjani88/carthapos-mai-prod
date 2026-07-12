@@ -50,7 +50,7 @@ app.use(cors({
   origin: '*', // Allow all origins for development
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization']
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Access-Mode', 'X-User-Id', 'x-user-id', 'X-User-Email', 'x-user-email', 'x-access-mode']
 }));
 app.use(morgan('combined'));
 app.use(express.json({ limit: '10mb' }));

@@ -2314,5 +2314,203 @@
       }
     ],
     "timestamp": "2026-06-29T16:51:38.018Z"
+  },
+  {
+    "generationId": "gen-1783874617461-p4bc1t",
+    "licenseId": "cmri0vzta0001a0av5zomw3za",
+    "clientId": "cmpb0pfd00000k2bm903auzi1",
+    "startTime": "2026-07-12T16:43:37.462Z",
+    "endTime": "2026-07-12T16:51:33.693Z",
+    "totalDurationMs": 476229,
+    "totalDurationSec": 476.23,
+    "steps": [
+      {
+        "name": "Validate License",
+        "durationMs": 4,
+        "percentage": 0,
+        "status": "OK"
+      },
+      {
+        "name": "Create Output Directory",
+        "durationMs": 1,
+        "percentage": 0,
+        "status": "OK"
+      },
+      {
+        "name": "Copy Template",
+        "durationMs": 411,
+        "percentage": 0.09,
+        "status": "OK"
+      },
+      {
+        "name": "Ensure Preload File",
+        "durationMs": 6,
+        "percentage": 0,
+        "status": "OK"
+      },
+      {
+        "name": "Rename Electron Files",
+        "durationMs": 5,
+        "percentage": 0,
+        "status": "OK"
+      },
+      {
+        "name": "Create Config File",
+        "durationMs": 16,
+        "percentage": 0,
+        "status": "OK"
+      },
+      {
+        "name": "Module Filter - Filter Modules",
+        "durationMs": 2,
+        "percentage": 0,
+        "status": "OK"
+      },
+      {
+        "name": "Module Filter - Navbar",
+        "durationMs": 11,
+        "percentage": 0,
+        "status": "OK"
+      },
+      {
+        "name": "Module Filter - Cleanup Routes",
+        "durationMs": 21,
+        "percentage": 0,
+        "status": "OK"
+      },
+      {
+        "name": "Dependency Manager - Package JSON",
+        "durationMs": 4,
+        "percentage": 0,
+        "status": "OK"
+      },
+      {
+        "name": "Dependency Manager - Tailwind Dirs",
+        "durationMs": 5,
+        "percentage": 0,
+        "status": "OK"
+      },
+      {
+        "name": "Dependency Manager - Config Files",
+        "durationMs": 2,
+        "percentage": 0,
+        "status": "OK"
+      },
+      {
+        "name": "copy node_modules (robocopy)",
+        "durationMs": 31089,
+        "percentage": 6.53,
+        "status": "FAIL"
+      },
+      {
+        "name": "Dependency Manager - Build Install",
+        "durationMs": 31093,
+        "percentage": 6.53,
+        "status": "OK"
+      },
+      {
+        "name": "Theme Customizer - CSS Files",
+        "durationMs": 4,
+        "percentage": 0,
+        "status": "OK"
+      },
+      {
+        "name": "Theme Customizer - Tailwind Config",
+        "durationMs": 6,
+        "percentage": 0,
+        "status": "OK"
+      },
+      {
+        "name": "Theme Customizer - Global Styles",
+        "durationMs": 5,
+        "percentage": 0,
+        "status": "OK"
+      },
+      {
+        "name": "Theme Customizer - Component Styles",
+        "durationMs": 3,
+        "percentage": 0,
+        "status": "OK"
+      },
+      {
+        "name": "Theme Customizer - App Config",
+        "durationMs": 14,
+        "percentage": 0,
+        "status": "OK"
+      },
+      {
+        "name": "File Patcher - Remove Unnecessary",
+        "durationMs": 2,
+        "percentage": 0,
+        "status": "OK"
+      },
+      {
+        "name": "File Patcher - Fix Electron",
+        "durationMs": 4,
+        "percentage": 0,
+        "status": "OK"
+      },
+      {
+        "name": "File Patcher - PostCSS Config",
+        "durationMs": 7,
+        "percentage": 0,
+        "status": "OK"
+      },
+      {
+        "name": "File Patcher - Tailwind Config",
+        "durationMs": 1,
+        "percentage": 0,
+        "status": "OK"
+      },
+      {
+        "name": "File Patcher - Fix Vite Config",
+        "durationMs": 3,
+        "percentage": 0,
+        "status": "OK"
+      },
+      {
+        "name": "File Patcher - Ensure Preload",
+        "durationMs": 3,
+        "percentage": 0,
+        "status": "OK"
+      },
+      {
+        "name": "File Patcher - UI Components",
+        "durationMs": 13,
+        "percentage": 0,
+        "status": "OK"
+      },
+      {
+        "name": "File Patcher - Dashboard Patch",
+        "durationMs": 6,
+        "percentage": 0,
+        "status": "OK"
+      },
+      {
+        "name": "File Patcher - Package JSON",
+        "durationMs": 11,
+        "percentage": 0,
+        "status": "OK"
+      },
+      {
+        "name": "vite build",
+        "durationMs": 43400,
+        "percentage": 9.11,
+        "status": "OK"
+      },
+      {
+        "name": "electron-builder",
+        "durationMs": 401077,
+        "percentage": 84.22,
+        "status": "OK"
+      },
+      {
+        "name": "Build Electron",
+        "durationMs": 444533,
+        "percentage": 93.34,
+        "status": "OK"
+      }
+    ],
+    "timestamp": "2026-07-12T16:51:33.694Z"
   }
 ]

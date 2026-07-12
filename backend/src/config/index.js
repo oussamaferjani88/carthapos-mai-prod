@@ -18,7 +18,8 @@ module.exports = {
   
   cors: {
     origin: process.env.CORS_ORIGIN || '*',
-    credentials: true
+    credentials: true,
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-Access-Mode', 'X-User-Id', 'x-user-id', 'X-User-Email', 'x-user-email', 'x-access-mode']
   },
   
   pos: {

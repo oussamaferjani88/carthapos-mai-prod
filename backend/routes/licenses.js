@@ -515,18 +515,50 @@ router.post('/', async (req, res) => {
 
     // Ajouter les modules à la licence
     if (modules && modules.length > 0) {
-      // Vérifier que tous les modules existent
-      const foundModules = await prisma.module.findMany({
-        where: { id: { in: modules } }
+      // Résoudre les identifiants: chaque module peut être référencé par son
+      // ID Prisma (CUID) ou par son name unique.
+      const uniqueIdentifiers = [...new Set(modules)];
+
+      // 1. Chercher par ID d'abord
+      const byId = await prisma.module.findMany({
+        where: { id: { in: uniqueIdentifiers } }
       });
-      if (foundModules.length !== modules.length) {
+      const foundIds = new Set(byId.map(m => m.id));
+
+      // 2. Ce qui reste : chercher par name
+      const remainingNames = uniqueIdentifiers.filter(id => !foundIds.has(id));
+      let byName = [];
+      if (remainingNames.length > 0) {
+        byName = await prisma.module.findMany({
+          where: { name: { in: remainingNames } }
+        });
+      }
+
+      const foundModules = [...byId, ...byName];
+      const resolvedIdentifiers = new Set([
+        ...foundModules.map(m => m.id),
+        ...foundModules.map(m => m.name)
+      ]);
+
+      // Vérifier que chaque identifiant unique correspond à un module existant
+      const allResolved = uniqueIdentifiers.every(id => resolvedIdentifiers.has(id));
+      if (!allResolved) {
         return res.status(400).json({ error: 'Un ou plusieurs modules sont invalides.' });
       }
-      const licenseModules = modules.map(moduleId => ({
-        licenseId: license.id,
-        moduleId,
-        isEnabled: true
-      }));
+
+      // Utiliser l'ID Prisma réel pour la relation (évite les doublons)
+      const usedIds = new Set();
+      const licenseModules = foundModules
+        .filter(m => {
+          if (usedIds.has(m.id)) return false;
+          usedIds.add(m.id);
+          return true;
+        })
+        .map(m => ({
+          licenseId: license.id,
+          moduleId: m.id,
+          isEnabled: true
+        }));
 
       await prisma.licenseModule.createMany({
         data: licenseModules
@@ -617,19 +649,40 @@ router.post('/admin-create', async (req, res) => {
 
     // Ajouter les modules
     if (moduleIds && moduleIds.length > 0) {
-      const foundModules = await prisma.module.findMany({
-        where: { id: { in: moduleIds } }
+      const uniqueIdentifiers = [...new Set(moduleIds)];
+      const byId = await prisma.module.findMany({
+        where: { id: { in: uniqueIdentifiers } }
       });
-      if (foundModules.length !== moduleIds.length) {
+      const foundIds = new Set(byId.map(m => m.id));
+      const remainingNames = uniqueIdentifiers.filter(id => !foundIds.has(id));
+      let byName = [];
+      if (remainingNames.length > 0) {
+        byName = await prisma.module.findMany({
+          where: { name: { in: remainingNames } }
+        });
+      }
+      const foundModules = [...byId, ...byName];
+      const resolved = new Set([
+        ...foundModules.map(m => m.id),
+        ...foundModules.map(m => m.name)
+      ]);
+      const allResolved = uniqueIdentifiers.every(id => resolved.has(id));
+      if (!allResolved) {
         return res.status(400).json({ error: 'Un ou plusieurs modules sont invalides.' });
       }
-      await prisma.licenseModule.createMany({
-        data: moduleIds.map(moduleId => ({
+      const usedIds = new Set();
+      const licenseModuleData = foundModules
+        .filter(m => {
+          if (usedIds.has(m.id)) return false;
+          usedIds.add(m.id);
+          return true;
+        })
+        .map(m => ({
           licenseId: license.id,
-          moduleId,
+          moduleId: m.id,
           isEnabled: true
-        }))
-      });
+        }));
+      await prisma.licenseModule.createMany({ data: licenseModuleData });
     }
 
     // Ajouter la configuration

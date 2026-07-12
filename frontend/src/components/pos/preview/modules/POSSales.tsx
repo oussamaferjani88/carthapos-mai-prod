@@ -1,0 +1,708 @@
+import { useState, useEffect, useRef, useMemo } from 'react';
+import {
+  ShoppingCart, Search, Plus, Minus, Trash2, X,
+  CreditCard, Printer, Calculator, Utensils, User,
+  Package, Receipt, Clock, PauseCircle, Play, Check
+} from 'lucide-react';
+
+const DEMO_PRODUCTS = [
+  { id: 1, name: 'Café Espresso', price: 2.50, category: 'Boissons', stock: 50, image: '☕' },
+  { id: 2, name: 'Café Long', price: 3.00, category: 'Boissons', stock: 40, image: '☕' },
+  { id: 3, name: 'Café Latte', price: 3.50, category: 'Boissons', stock: 35, image: '☕' },
+  { id: 4, name: 'Cappuccino', price: 3.50, category: 'Boissons', stock: 30, image: '☕' },
+  { id: 5, name: 'Thé Vert', price: 2.80, category: 'Boissons', stock: 45, image: '🍵' },
+  { id: 6, name: 'Thé Noir', price: 2.80, category: 'Boissons', stock: 40, image: '🍵' },
+  { id: 7, name: 'Chocolat Chaud', price: 3.50, category: 'Boissons', stock: 25, image: '☕' },
+  { id: 8, name: 'Jus d\'Orange', price: 3.00, category: 'Boissons', stock: 20, image: '🧃' },
+  { id: 9, name: 'Croissant', price: 1.80, category: 'Pâtisseries', stock: 30, image: '🥐' },
+  { id: 10, name: 'Pain au Chocolat', price: 2.00, category: 'Pâtisseries', stock: 25, image: '🥐' },
+  { id: 11, name: 'Muffin Myrtille', price: 2.50, category: 'Pâtisseries', stock: 20, image: '🧁' },
+  { id: 12, name: 'Tarte aux Pommes', price: 3.00, category: 'Pâtisseries', stock: 15, image: '🥧' },
+];
+
+const DEMO_CATEGORIES = ['Tous', 'Boissons', 'Pâtisseries', 'Sandwichs', 'Salades'];
+
+export const POSSales = ({ config, modules = [] }: { config: any; modules?: any[] }) => {
+  useEffect(() => {
+    const style = document.createElement('style');
+    style.textContent = `
+      .cart-scroll::-webkit-scrollbar { width: 5px; }
+      .cart-scroll::-webkit-scrollbar-track { background: transparent; }
+      .cart-scroll::-webkit-scrollbar-thumb { background: #d1d5db; border-radius: 999px; }
+      .cart-scroll::-webkit-scrollbar-thumb:hover { background: #9ca3af; }
+      .cat-scroll::-webkit-scrollbar { height: 4px; }
+      .cat-scroll::-webkit-scrollbar-track { background: transparent; }
+      .cat-scroll::-webkit-scrollbar-thumb { background: #d1d5db; border-radius: 999px; }
+    `;
+    document.head.appendChild(style);
+    return () => document.head.removeChild(style);
+  }, []);
+
+  const hasTablesModule = modules.some((m: any) => {
+    const moduleName = typeof m === 'string' ? m : (m.name || m.displayName || '');
+    return moduleName.toLowerCase().includes('table');
+  });
+
+  const [cart, setCart] = useState<any[]>([]);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [animatingCard, setAnimatingCard] = useState<number | null>(null);
+  const [selectedCard, setSelectedCard] = useState<number | null>(null);
+  const [keypadValue, setKeypadValue] = useState("");
+  const [drawerStatus, setDrawerStatus] = useState('closed');
+  const [showPaymentMethods, setShowPaymentMethods] = useState(false);
+  const [selectedCategory, setSelectedCategory] = useState('Tous');
+  const [localNotification, setLocalNotification] = useState<string | null>(null);
+  const [showCalculator, setShowCalculator] = useState(false);
+  const [calculatorPosition, setCalculatorPosition] = useState({ x: 50, y: 50 });
+  const [isDragging, setIsDragging] = useState(false);
+  const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
+  const [selectedTable, setSelectedTable] = useState<any>(null);
+  const [showTableSelector, setShowTableSelector] = useState(false);
+  const [heldOrders, setHeldOrders] = useState<any[]>([]);
+  const [showHeldOrders, setShowHeldOrders] = useState(false);
+
+  const tables = [
+    { id: 1, table_number: 1, status: 'available', capacity: 4 },
+    { id: 2, table_number: 2, status: 'occupied', capacity: 2 },
+    { id: 3, table_number: 3, status: 'available', capacity: 6 },
+    { id: 4, table_number: 4, status: 'occupied', capacity: 4 },
+    { id: 5, table_number: 5, status: 'reserved', capacity: 8 },
+    { id: 6, table_number: 6, status: 'available', capacity: 2 },
+    { id: 7, table_number: 7, status: 'available', capacity: 4 },
+    { id: 8, table_number: 8, status: 'occupied', capacity: 6 },
+  ];
+
+  const formatPrice = (price: number) => {
+    const currency = config.currency || '€';
+    const position = config.currencyPosition || 'after';
+    if (position === 'before') return `${currency}${price.toFixed(2)}`;
+    return `${price.toFixed(2)} ${currency}`;
+  };
+
+  useEffect(() => {
+    const handleMouseMove = (e: MouseEvent) => {
+      if (isDragging) {
+        setCalculatorPosition({
+          x: Math.max(0, Math.min(window.innerWidth - 280, e.clientX - dragOffset.x)),
+          y: Math.max(0, Math.min(window.innerHeight - 400, e.clientY - dragOffset.y))
+        });
+      }
+    };
+    const handleMouseUp = () => setIsDragging(false);
+    if (isDragging) {
+      document.addEventListener('mousemove', handleMouseMove);
+      document.addEventListener('mouseup', handleMouseUp);
+    }
+    return () => {
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, [isDragging, dragOffset]);
+
+  const categories = DEMO_CATEGORIES;
+
+  const filteredProducts = useMemo(() => {
+    return DEMO_PRODUCTS.filter(product => {
+      const matchesSearch = product.name.toLowerCase().includes(searchTerm.toLowerCase());
+      const matchesCategory = selectedCategory === 'Tous' || product.category === selectedCategory;
+      return matchesSearch && matchesCategory;
+    });
+  }, [searchTerm, selectedCategory]);
+
+  const addToCart = (product: typeof DEMO_PRODUCTS[0]) => {
+    setAnimatingCard(product.id);
+    setSelectedCard(product.id);
+    setCart(prevCart => {
+      const existingItem = prevCart.find((item: any) => item.id === product.id);
+      if (existingItem) {
+        return prevCart.map((item: any) =>
+          item.id === product.id ? { ...item, quantity: item.quantity + 1 } : item
+        );
+      }
+      return [...prevCart, { ...product, quantity: 1 }];
+    });
+    setTimeout(() => {
+      setAnimatingCard(null);
+      setSelectedCard(null);
+    }, 300);
+    setLocalNotification(`${product.name} ajouté`);
+    setTimeout(() => setLocalNotification(null), 2000);
+  };
+
+  const updateQuantity = (productId: number, newQuantity: number) => {
+    if (newQuantity <= 0) {
+      removeFromCart(productId);
+      return;
+    }
+    setCart(prevCart =>
+      prevCart.map((item: any) =>
+        item.id === productId ? { ...item, quantity: newQuantity } : item
+      )
+    );
+  };
+
+  const removeFromCart = (productId: number) => {
+    setCart(prevCart => prevCart.filter((item: any) => item.id !== productId));
+  };
+
+  const clearCart = () => {
+    setCart([]);
+    setLocalNotification("Panier vidé");
+    setTimeout(() => setLocalNotification(null), 2000);
+  };
+
+  const subtotal = cart.reduce((sum: number, item: any) => sum + (item.price * item.quantity), 0);
+  const tax = subtotal * 0.2;
+  const finalTotal = subtotal + tax;
+  const cartTotal = subtotal;
+
+  const getTotalItems = () => cart.reduce((sum: number, item: any) => sum + item.quantity, 0);
+
+  const processPayment = () => {
+    if (cart.length === 0) return;
+    setShowPaymentMethods(true);
+  };
+
+  const confirmPayment = (method: string) => {
+    setLocalNotification(`Paiement ${method}: ${formatPrice(finalTotal)}`);
+    setCart([]);
+    setSelectedTable(null);
+    setShowPaymentMethods(false);
+    setTimeout(() => setLocalNotification(null), 3000);
+  };
+
+  const handleKeypadClick = (value: string) => {
+    if (value === 'C') {
+      setKeypadValue("");
+    } else if (value === '=') {
+      try {
+        const result = new Function('return ' + (keypadValue || "0"))();
+        setKeypadValue(result.toString());
+      } catch {
+        setLocalNotification("Erreur de calcul");
+        setTimeout(() => setLocalNotification(null), 2000);
+      }
+    } else {
+      setKeypadValue(prev => prev + value);
+    }
+  };
+
+  const selectTable = (table: any) => {
+    setSelectedTable(table);
+    setShowTableSelector(false);
+    setLocalNotification(`Table ${table.table_number} sélectionnée`);
+    setTimeout(() => setLocalNotification(null), 2000);
+  };
+
+  const changeTable = () => {
+    setShowTableSelector(true);
+    setSelectedTable(null);
+    setCart([]);
+  };
+
+  const holdOrder = () => {
+    if (cart.length === 0) return;
+    const heldOrder = {
+      id: Date.now(),
+      items: [...cart],
+      table: selectedTable,
+      total: finalTotal,
+      subtotal: subtotal,
+      tax: tax,
+      timestamp: new Date().toLocaleString('fr-FR'),
+      itemCount: getTotalItems()
+    };
+    setHeldOrders(prev => [...prev, heldOrder]);
+    setCart([]);
+    setSelectedTable(null);
+    setLocalNotification('Commande mise en attente');
+    setTimeout(() => setLocalNotification(null), 2000);
+  };
+
+  const restoreOrder = (order: any) => {
+    setCart(order.items);
+    setSelectedTable(order.table);
+    setHeldOrders(prev => prev.filter((o: any) => o.id !== order.id));
+    setShowHeldOrders(false);
+    setLocalNotification('Commande restaurée');
+    setTimeout(() => setLocalNotification(null), 2000);
+  };
+
+  const getTableStatusColor = (status: string) => {
+    switch(status) {
+      case 'available': return 'bg-emerald-500';
+      case 'occupied': return 'bg-red-500';
+      case 'reserved': return 'bg-blue-500';
+      default: return 'bg-gray-400';
+    }
+  };
+
+  const getTableStatusLabel = (status: string) => {
+    switch(status) {
+      case 'available': return 'Libre';
+      case 'occupied': return 'Fermée';
+      case 'reserved': return 'Réservée';
+      default: return 'Inconnue';
+    }
+  };
+
+  return (
+    <div className="h-full bg-gray-50 overflow-hidden flex">
+      {/* Notification */}
+      {localNotification && (
+        <div className="fixed top-4 left-1/2 -translate-x-1/2 z-50 animate-in slide-in-from-top-2 duration-300">
+          <div className="bg-emerald-500 text-white px-5 py-2.5 rounded-xl shadow-lg flex items-center gap-2.5 backdrop-blur-sm bg-emerald-500/95">
+            <span className="font-medium text-sm">{localNotification}</span>
+          </div>
+        </div>
+      )}
+
+      {/* Table Selector Modal */}
+      {showTableSelector && (
+        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white w-full max-w-4xl max-h-[90vh] overflow-auto relative rounded-2xl shadow-2xl animate-in zoom-in-95 duration-200" onClick={(e) => e.stopPropagation()}>
+            <div className="sticky top-0 bg-white z-10 px-6 py-5 border-b border-gray-100 rounded-t-2xl">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h2 className="flex items-center gap-2.5 text-xl font-bold text-gray-900">
+                    <Utensils className="w-5 h-5 text-emerald-500" />
+                    Sélection de Table
+                  </h2>
+                  <p className="text-sm text-gray-500 mt-0.5">Choisissez une table pour commencer la commande</p>
+                </div>
+                <div className="flex items-center gap-3">
+                  <div className="flex items-center gap-2 text-xs text-gray-400">
+                    <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-full bg-emerald-500" /> Libre</span>
+                    <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-full bg-blue-500" /> Réservée</span>
+                    <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-full bg-red-500" /> Fermée</span>
+                  </div>
+                  <button onClick={() => setShowTableSelector(false)} className="p-2 rounded-xl hover:bg-gray-100 transition-colors"><X className="w-5 h-5 text-gray-400" /></button>
+                </div>
+              </div>
+            </div>
+            <div className="p-6">
+              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
+                {tables.map((table) => {
+                  const isOccupied = table.status === 'occupied';
+                  return (
+                    <button key={table.id}
+                      onClick={() => !isOccupied && selectTable(table)}
+                      disabled={isOccupied}
+                      className={`group relative flex flex-col items-center p-5 rounded-2xl border-2 transition-all duration-200 ${
+                        isOccupied
+                          ? 'border-red-200 bg-red-50/50 cursor-not-allowed opacity-60'
+                          : table.status === 'reserved'
+                          ? 'border-blue-200 bg-blue-50 hover:border-blue-300 hover:shadow-md hover:scale-[1.02] cursor-pointer active:scale-[0.98]'
+                          : 'border-emerald-200 bg-emerald-50 hover:border-emerald-300 hover:shadow-md hover:scale-[1.02] cursor-pointer active:scale-[0.98]'
+                      }`}>
+                      <div className={`absolute top-2 right-2 px-2 py-0.5 rounded-full text-[10px] font-semibold shadow-sm ${getTableStatusColor(table.status)} text-white`}>
+                        {getTableStatusLabel(table.status)}
+                      </div>
+                      <div className={`w-16 h-16 rounded-2xl flex items-center justify-center text-white font-bold text-xl shadow-sm mb-3 transition-transform group-hover:scale-110 ${getTableStatusColor(table.status)}`}>
+                        {table.table_number}
+                      </div>
+                      <div className="text-center">
+                        <div className="font-semibold text-sm text-gray-800">Table {table.table_number}</div>
+                        <div className="text-xs text-gray-400 mt-0.5">{table.capacity} places</div>
+                      </div>
+                      {!isOccupied && <div className="absolute inset-0 rounded-2xl ring-2 ring-transparent group-hover:ring-blue-400/40 pointer-events-none transition-all" />}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Main Layout */}
+      <div className="h-full w-full flex gap-0.5 p-0.5">
+        {/* Cart Panel - Left */}
+        <div className="w-[320px] min-w-[280px] flex flex-col h-full">
+          <div className="flex flex-col h-full bg-white rounded-2xl shadow-sm border border-gray-100 min-h-0">
+            {/* Cart Header */}
+            <div className="px-4 py-3 flex-shrink-0 border-b border-gray-100">
+              <div className="flex items-center justify-between">
+                <span className="flex items-center gap-2 font-semibold text-gray-800">
+                  <ShoppingCart className="w-4 h-4 text-gray-400" />
+                  Commande
+                  {selectedTable ? (
+                    <span className="text-xs font-medium bg-blue-50 text-blue-600 px-2 py-0.5 rounded-lg ml-1">
+                      Table {selectedTable.table_number}
+                    </span>
+                  ) : hasTablesModule && (
+                    <span className="text-xs font-medium bg-gray-100 text-gray-500 px-2 py-0.5 rounded-lg ml-1">
+                      Sans table
+                    </span>
+                  )}
+                  {heldOrders.length > 0 && (
+                    <button onClick={() => setShowHeldOrders(true)}
+                      className="text-xs font-medium bg-amber-50 text-amber-600 px-2 py-0.5 rounded-lg ml-1 hover:bg-amber-100 transition-colors flex items-center gap-1">
+                      <Clock className="w-3 h-3" />
+                      {heldOrders.length}
+                    </button>
+                  )}
+                </span>
+                <span className="text-xs font-medium bg-blue-50 text-blue-600 px-2 py-0.5 rounded-lg">
+                  {getTotalItems()}
+                </span>
+              </div>
+            </div>
+
+            {/* Cart Items */}
+            <div className="flex-1 min-h-0 overflow-y-auto cart-scroll px-3 py-2 space-y-1.5">
+              {cart.length === 0 ? (
+                <div className="flex flex-col items-center justify-center h-full text-gray-400">
+                  <ShoppingCart className="w-10 h-10 mb-2 opacity-30" />
+                  <p className="text-sm font-medium">Panier vide</p>
+                  <p className="text-xs mt-0.5">Cliquez sur un produit</p>
+                </div>
+              ) : (
+                cart.map((item: any) => (
+                  <div key={item.id} className="flex items-center gap-2 p-2.5 bg-gray-50 rounded-xl border border-gray-100 hover:border-gray-200 transition-colors">
+                    <div className="flex-1 min-w-0">
+                      <div className="font-medium text-sm text-gray-800 truncate">{item.name}</div>
+                      <div className="text-xs text-gray-400 mt-0.5">{formatPrice(item.price)}</div>
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      <button onClick={() => updateQuantity(item.id, item.quantity - 1)}
+                        className="w-7 h-7 bg-white border border-gray-200 rounded-lg hover:bg-red-50 hover:border-red-200 hover:text-red-500 flex items-center justify-center text-gray-500 transition-all">
+                        <Minus className="w-3 h-3" />
+                      </button>
+                      <span className="w-7 text-center font-semibold text-sm text-gray-800">{item.quantity}</span>
+                      <button onClick={() => updateQuantity(item.id, item.quantity + 1)}
+                        className="w-7 h-7 bg-white border border-gray-200 rounded-lg hover:bg-emerald-50 hover:border-emerald-200 hover:text-emerald-500 flex items-center justify-center text-gray-500 transition-all">
+                        <Plus className="w-3 h-3" />
+                      </button>
+                      <button onClick={() => removeFromCart(item.id)}
+                        className="w-7 h-7 bg-white border border-gray-200 rounded-lg hover:bg-red-50 hover:border-red-200 hover:text-red-500 flex items-center justify-center text-gray-400 transition-all ml-0.5">
+                        <Trash2 className="w-3 h-3" />
+                      </button>
+                    </div>
+                    <div className="text-sm font-semibold text-blue-600 min-w-[70px] text-right">
+                      {formatPrice(item.price * item.quantity)}
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+
+            {/* Totals & Actions */}
+            <div className="border-t border-gray-100 px-3 py-3 space-y-2.5">
+              <div className="flex justify-between items-center bg-gradient-to-r from-blue-500 to-blue-600 rounded-xl px-4 py-3 shadow-sm">
+                <span className="text-white font-semibold text-sm">TOTAL</span>
+                <span className="text-white font-bold text-lg">{formatPrice(cartTotal)}</span>
+              </div>
+
+              <div className="grid grid-cols-2 gap-2">
+                <button onClick={processPayment} disabled={cart.length === 0}
+                  className="py-2.5 px-3 rounded-xl text-white font-semibold text-sm transition-all hover:shadow-md hover:scale-[1.01] active:scale-[0.99] disabled:opacity-40 disabled:hover:shadow-none disabled:hover:scale-100"
+                  style={{ backgroundColor: config.primaryColor || '#3b82f6' }}>
+                  ENCAISSER
+                </button>
+                <button onClick={clearCart}
+                  className="py-2.5 px-3 rounded-xl bg-gray-100 hover:bg-red-100 text-gray-600 hover:text-red-600 font-semibold text-sm transition-all">
+                  VIDER
+                </button>
+              </div>
+
+              <div className="flex gap-2">
+                {hasTablesModule && selectedTable && (
+                  <button onClick={changeTable}
+                    className="flex-1 py-2 px-3 rounded-xl bg-purple-50 hover:bg-purple-100 text-purple-700 text-xs font-medium transition-all flex items-center justify-center gap-1.5">
+                    <Utensils className="w-3.5 h-3.5" />
+                    Changer Table
+                  </button>
+                )}
+                {!selectedTable && hasTablesModule && (
+                  <button onClick={() => setShowTableSelector(true)}
+                    className="flex-1 py-2 px-3 rounded-xl bg-emerald-50 hover:bg-emerald-100 text-emerald-700 text-xs font-medium transition-all flex items-center justify-center gap-1.5">
+                    <Utensils className="w-3.5 h-3.5" />
+                    Assigner Table
+                  </button>
+                )}
+                <button onClick={() => setShowCalculator(true)}
+                  className="flex-1 py-2 px-3 rounded-xl bg-gray-50 hover:bg-gray-100 text-gray-600 text-xs font-medium transition-all flex items-center justify-center gap-1.5">
+                  <Calculator className="w-3.5 h-3.5" />
+                  Calculatrice
+                </button>
+              </div>
+
+              <div className={`grid ${hasTablesModule ? 'grid-cols-5' : 'grid-cols-4'} gap-1.5`}>
+                {hasTablesModule && (
+                  <button onClick={() => setShowTableSelector(true)}
+                    className="bg-emerald-50 hover:bg-emerald-100 text-emerald-700 rounded-xl font-medium text-[10px] h-10 flex flex-col items-center justify-center gap-0.5 transition-all" title="Sélectionner Table">
+                    <Utensils className="w-4 h-4" />
+                    <span>Table</span>
+                  </button>
+                )}
+                <button onClick={() => { setLocalNotification("Gestion client"); setTimeout(() => setLocalNotification(null), 2000); }}
+                  className="bg-purple-50 hover:bg-purple-100 text-purple-700 rounded-xl font-medium text-[10px] h-10 flex flex-col items-center justify-center gap-0.5 transition-all" title="Client">
+                  <User className="w-4 h-4" />
+                  <span>Client</span>
+                </button>
+                <button onClick={() => { setLocalNotification("Rapports"); setTimeout(() => setLocalNotification(null), 2000); }}
+                  className="bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded-xl font-medium text-[10px] h-10 flex flex-col items-center justify-center gap-0.5 transition-all" title="Rapports">
+                  <Receipt className="w-4 h-4" />
+                  <span>Rapports</span>
+                </button>
+                <button onClick={() => { setLocalNotification("Impression ticket"); setTimeout(() => setLocalNotification(null), 2000); }}
+                  className="bg-orange-50 hover:bg-orange-100 text-orange-700 rounded-xl font-medium text-[10px] h-10 flex flex-col items-center justify-center gap-0.5 transition-all" title="Ticket">
+                  <Receipt className="w-4 h-4" />
+                  <span>Ticket</span>
+                </button>
+                <button onClick={() => { setDrawerStatus('open'); setLocalNotification("Tiroir ouvert !"); setTimeout(() => { setDrawerStatus('closed'); setLocalNotification(null); }, 3000); }}
+                  className={`rounded-xl font-medium text-[10px] h-10 flex flex-col items-center justify-center gap-0.5 transition-all ${drawerStatus === 'open' ? 'bg-emerald-100 text-emerald-700' : 'bg-gray-50 hover:bg-gray-100 text-gray-600'}`} title="Tiroir caisse">
+                  <CreditCard className="w-4 h-4" />
+                  <span>Caisse</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Products Panel - Right */}
+        <div className="flex-1 h-full min-w-0">
+          <div className="h-full bg-white rounded-2xl shadow-sm border border-gray-100 flex flex-col">
+            <div className="px-4 py-3 flex-shrink-0 border-b border-gray-100 space-y-3">
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                <input type="text" placeholder="Rechercher un produit..."
+                  value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)}
+                  className="w-full pl-9 pr-3 py-2.5 text-sm bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 transition-all" />
+                <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-medium text-blue-600 bg-blue-50 px-2 py-0.5 rounded-lg">
+                  {filteredProducts.length}
+                </span>
+              </div>
+              <div className="flex gap-1.5 overflow-x-auto cat-scroll pb-0.5">
+                {categories.map((category) => {
+                  const isActive = selectedCategory === category;
+                  return (
+                    <button key={category} onClick={() => setSelectedCategory(category)}
+                      className={`flex flex-col items-center gap-1 px-3 py-2 rounded-xl text-xs font-medium transition-all whitespace-nowrap min-w-[60px] ${
+                        isActive ? 'text-white shadow-sm' : 'bg-gray-50 text-gray-500 hover:bg-gray-100 hover:text-gray-700 border border-gray-100'
+                      }`}
+                      style={isActive ? { backgroundColor: config.primaryColor || '#3b82f6' } : {}}>
+                      <span>{category === 'Tous' ? 'Tout' : category}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div className="flex-1 p-3 overflow-auto">
+              {filteredProducts.length === 0 ? (
+                <div className="flex flex-col items-center justify-center h-full text-center py-16">
+                  <div className="w-20 h-20 bg-gray-100 rounded-2xl flex items-center justify-center mb-4">
+                    <Package className="w-10 h-10 text-gray-300" />
+                  </div>
+                  <h3 className="text-lg font-semibold text-gray-700 mb-1">Aucun produit disponible</h3>
+                  <p className="text-sm text-gray-400 mb-6 max-w-md">Ajoutez des produits dans la section Produits pour commencer les ventes</p>
+                </div>
+              ) : (
+                <div className="grid grid-cols-5 xl:grid-cols-6 gap-2 auto-rows-[minmax(90px,1fr)]">
+                  {filteredProducts.map((product) => (
+                    <div key={product.id} onClick={() => addToCart(product)}
+                      className={`flex flex-col justify-between p-3 rounded-xl border cursor-pointer transition-all hover:shadow-md hover:border-blue-200 active:scale-[0.97] min-h-[90px] ${
+                        selectedCard === product.id
+                          ? 'ring-2 ring-blue-500 border-blue-300 shadow-md bg-blue-50/30'
+                          : 'border-gray-100 bg-white hover:bg-gray-50'
+                      } ${animatingCard === product.id ? 'animate-pulse' : ''}`}>
+                      {product.image && (
+                        <div className="flex items-center justify-center h-10 text-xl mb-1 bg-gray-50 -mx-3 -mt-3 rounded-t-xl">
+                          {product.image}
+                        </div>
+                      )}
+                      <div className="space-y-1">
+                        <span className="font-semibold text-sm text-gray-800 leading-tight line-clamp-2">{product.name}</span>
+                        <div className="flex items-center gap-1">
+                          <span className="text-[10px] text-gray-400 truncate bg-gray-50 px-1.5 py-0.5 rounded">{product.category}</span>
+                        </div>
+                      </div>
+                      <div className="flex items-center justify-between mt-1">
+                        <span className="font-bold text-sm text-blue-600">{formatPrice(product.price)}</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Held Orders Modal */}
+      {showHeldOrders && (
+        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white w-full max-w-2xl max-h-[90vh] overflow-auto relative rounded-2xl shadow-2xl animate-in zoom-in-95 duration-200">
+            <div className="sticky top-0 bg-white z-10 px-6 py-5 border-b border-gray-100 rounded-t-2xl flex items-center justify-between">
+              <div>
+                <h2 className="flex items-center gap-2.5 text-xl font-bold text-gray-900">
+                  <Clock className="w-5 h-5 text-amber-500" />
+                  Commandes en attente
+                </h2>
+                <p className="text-sm text-gray-500 mt-0.5">{heldOrders.length} commande(s) en attente</p>
+              </div>
+              <button onClick={() => setShowHeldOrders(false)} className="p-2 rounded-xl hover:bg-gray-100 transition-colors"><X className="w-5 h-5 text-gray-400" /></button>
+            </div>
+            <div className="p-6">
+              {heldOrders.length === 0 ? (
+                <div className="flex flex-col items-center justify-center py-16 text-gray-400">
+                  <Clock className="w-16 h-16 mb-4 opacity-30" />
+                  <p className="text-lg font-medium text-gray-500">Aucune commande en attente</p>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {heldOrders.map((order: any) => (
+                    <div key={order.id} className="border rounded-xl p-4 hover:border-gray-300 transition-colors">
+                      <div className="flex items-start justify-between mb-3">
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <h3 className="font-semibold text-gray-900">Commande #{order.id.toString().slice(-6)}</h3>
+                            {order.table && <span className="text-xs font-medium bg-blue-50 text-blue-600 px-2 py-0.5 rounded-lg">Table {order.table.table_number}</span>}
+                          </div>
+                          <p className="text-xs text-gray-400 mt-0.5">{order.timestamp}</p>
+                        </div>
+                        <span className="text-lg font-bold text-blue-600">{formatPrice(order.total)}</span>
+                      </div>
+                      <div className="bg-gray-50 rounded-lg p-3 mb-3 space-y-1">
+                        {order.items.map((item: any) => (
+                          <div key={item.id} className="flex justify-between text-sm">
+                            <span className="text-gray-700">{item.name}<span className="text-gray-400 ml-1">×{item.quantity}</span></span>
+                            <span className="font-medium text-gray-700">{formatPrice(item.price * item.quantity)}</span>
+                          </div>
+                        ))}
+                      </div>
+                      <div className="flex gap-2">
+                        <button onClick={() => restoreOrder(order)}
+                          className="flex-1 py-2 px-3 rounded-xl bg-blue-500 hover:bg-blue-600 text-white text-sm font-medium transition-all flex items-center justify-center gap-1.5">
+                          <Play className="w-4 h-4" />Reprendre
+                        </button>
+                        <button onClick={() => setHeldOrders((prev: any[]) => prev.filter((o: any) => o.id !== order.id))}
+                          className="py-2 px-3 rounded-xl bg-red-50 hover:bg-red-100 text-red-600 text-sm font-medium transition-all">
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Payment Modal */}
+      {showPaymentMethods && (
+        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50">
+          <div className="bg-white w-full max-w-md rounded-2xl shadow-2xl max-h-[90vh] overflow-y-auto animate-in zoom-in-95 duration-200">
+            <div className="p-5 border-b border-gray-100">
+              <h2 className="text-lg font-bold text-gray-900">Confirmation Paiement</h2>
+            </div>
+            <div className="p-5 space-y-4">
+              <div className="bg-gray-50 rounded-xl p-4 max-h-44 overflow-y-auto space-y-1.5">
+                <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Articles</p>
+                {cart.map((item: any) => (
+                  <div key={item.id} className="flex justify-between text-sm py-1.5 border-b border-gray-100 last:border-0">
+                    <div className="flex-1">
+                      <div className="font-medium text-gray-800">{item.name}</div>
+                      <div className="text-xs text-gray-400">{item.quantity}x {formatPrice(item.price)}</div>
+                    </div>
+                    <div className="text-right font-semibold text-gray-800 whitespace-nowrap ml-3">{formatPrice(item.price * item.quantity)}</div>
+                  </div>
+                ))}
+              </div>
+              <div className="bg-blue-50 rounded-xl p-4 space-y-1.5 text-sm">
+                <div className="flex justify-between text-gray-500"><span>Sous-total</span><span className="font-medium text-gray-700">{formatPrice(subtotal)}</span></div>
+                <div className="flex justify-between text-gray-500"><span>TVA (20%)</span><span className="font-medium text-emerald-600">{formatPrice(tax)}</span></div>
+                <div className="flex justify-between border-t-2 border-blue-200 pt-1.5">
+                  <span className="font-bold text-gray-800">TOTAL</span>
+                  <span className="font-bold text-lg text-blue-600">{formatPrice(finalTotal)}</span>
+                </div>
+              </div>
+              <div className="space-y-2">
+                <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Mode de paiement</p>
+                <div className="grid grid-cols-2 gap-2">
+                  {[
+                    { label: 'Espèces', color: 'bg-emerald-500 hover:bg-emerald-600', icon: '💵' },
+                    { label: 'Carte', color: 'bg-blue-500 hover:bg-blue-600', icon: '💳' },
+                    { label: 'Chèque', color: 'bg-purple-500 hover:bg-purple-600', icon: '📝' },
+                    { label: 'Mobile', color: 'bg-orange-500 hover:bg-orange-600', icon: '📱' }
+                  ].map(method => (
+                    <button key={method.label} onClick={() => confirmPayment(method.label)}
+                      className={`p-3 ${method.color} text-white rounded-xl font-semibold text-sm transition-all hover:shadow-md active:scale-[0.98] flex items-center justify-center gap-2`}>
+                      <span>{method.icon}</span>{method.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <button onClick={() => setShowPaymentMethods(false)}
+                className="w-full py-2.5 bg-gray-100 hover:bg-gray-200 text-gray-600 rounded-xl text-sm font-medium transition-all">
+                Annuler
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Draggable Calculator */}
+      {showCalculator && (
+        <div className="fixed bg-white border border-gray-200 rounded-2xl shadow-2xl z-50 select-none overflow-hidden"
+          style={{ left: `${calculatorPosition.x}px`, top: `${calculatorPosition.y}px`, width: '260px', cursor: isDragging ? 'grabbing' : 'grab' }}
+          onMouseDown={(e) => {
+            if ((e.target as HTMLElement).closest('.calculator-button')) return;
+            setIsDragging(true);
+            setDragOffset({ x: e.clientX - calculatorPosition.x, y: e.clientY - calculatorPosition.y });
+          }}>
+          <div className="bg-blue-500 text-white px-3 py-2.5 flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Calculator className="w-4 h-4" />
+              <span className="font-semibold text-sm">Calculatrice</span>
+            </div>
+            <button onClick={() => { setShowCalculator(false); setKeypadValue(""); }}
+              className="calculator-button w-6 h-6 bg-white/20 hover:bg-white/30 rounded-lg flex items-center justify-center transition-colors">
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </div>
+          <div className="p-3 bg-gray-50">
+            <div className="bg-gray-900 text-emerald-400 px-3 py-2.5 rounded-xl font-mono text-right text-lg min-h-[42px] flex items-center justify-end">
+              {keypadValue || "0"}
+            </div>
+          </div>
+          <div className="p-3">
+            <div className="grid grid-cols-4 gap-1.5">
+              {['C', '←', '%', '÷', '7', '8', '9', '×', '4', '5', '6', '-', '1', '2', '3', '+'].map((btn, i) => (
+                <button key={i} onClick={() => {
+                  if (btn === '←') setKeypadValue(prev => prev.slice(0, -1));
+                  else if (btn === '÷') handleKeypadClick('/');
+                  else if (btn === '×') handleKeypadClick('*');
+                  else if (btn === '%') handleKeypadClick('/100*');
+                  else handleKeypadClick(btn);
+                }}
+                  className={`calculator-button h-11 rounded-xl font-semibold text-sm transition-all active:scale-95
+                    ${btn === 'C' ? 'bg-red-100 hover:bg-red-200 text-red-600' :
+                      ['÷', '×', '-', '+', '%', '←'].includes(btn) ? 'bg-blue-50 hover:bg-blue-100 text-blue-600' :
+                      'bg-gray-100 hover:bg-gray-200 text-gray-700'}`}>
+                  {btn}
+                </button>
+              ))}
+            </div>
+            <div className="grid grid-cols-4 gap-1.5 mt-1.5">
+              <button onClick={() => handleKeypadClick('0')}
+                className="calculator-button col-span-2 h-11 rounded-xl font-semibold text-sm transition-all active:scale-95 bg-gray-100 hover:bg-gray-200 text-gray-700">0</button>
+              <button onClick={() => handleKeypadClick('.')}
+                className="calculator-button h-11 rounded-xl font-semibold text-sm transition-all active:scale-95 bg-gray-100 hover:bg-gray-200 text-gray-700">.</button>
+              <button onClick={() => handleKeypadClick('=')}
+                className="calculator-button h-11 rounded-xl font-semibold text-sm transition-all active:scale-95 bg-blue-500 hover:bg-blue-600 text-white">=</button>
+            </div>
+          </div>
+          <div className="text-center py-1 bg-gray-50 rounded-b-lg">
+            <div className="inline-flex w-8 h-1 bg-gray-300 rounded-full"></div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+export default POSSales;

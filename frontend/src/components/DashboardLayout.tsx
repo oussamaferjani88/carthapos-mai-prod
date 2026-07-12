@@ -41,7 +41,7 @@ const DashboardLayout = () => {
     },
     {
       name: t('dashboard.nav.generator'),
-      href: '/dashboard/generator',
+      href: '/pos-generator',
       icon: Package
     },
     {

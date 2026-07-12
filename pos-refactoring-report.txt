@@ -1,0 +1,313 @@
+═══════════════════════════════════════════════════════════════════════════════
+  POS GENERATOR REFACTORING REPORT — Client Portal Native Architecture
+═══════════════════════════════════════════════════════════════════════════════
+
+Date:      2026-07-08
+Project:   Carthapos
+Scope:     frontend/ (Client Portal) — Vite + TypeScript + React 18
+Author:    AI Refactoring Agent
+
+───────────────────────────────────────────────────────────────────────────────
+1. OBJECTIVE
+───────────────────────────────────────────────────────────────────────────────
+
+Eliminate the iframe-based POS Generator in the client portal and replace it
+with a native React implementation that is 100% UI-identical to the Admin
+frontend's POS Generator (admin/), while removing the runtime dependency on
+the Admin build output.
+
+The old architecture required admin/ to be built and its dist/ copied into
+frontend/public/ so the client portal could iframe it. This was fragile,
+complex, and prevented independent deployment of the two frontends.
+
+───────────────────────────────────────────────────────────────────────────────
+2. HIGH-LEVEL ARCHITECTURE CHANGE
+───────────────────────────────────────────────────────────────────────────────
+
+  BEFORE (iframe-based):
+  ┌─────────────────────────────────────────────────────────┐
+  │  Client Portal (frontend/)                              │
+  │  ┌───────────────────────────────────────────────────┐  │
+  │  │ <iframe src="/admin/pos-generator" />             │  │
+  │  └───────────────────────────────────────────────────┘  │
+  │         ▲                                               │
+  │         │ serves static files from public/admin-dist/   │
+  │         │                                               │
+  │  ┌──────┴───────┐   build_copy    ┌─────────────────┐  │
+  │  │  public/     │ ◄───────────── │  admin/ (dist/)  │  │
+  │  │  admin-dist/ │                └─────────────────┘  │
+  │  └──────────────┘                                      │
+  └─────────────────────────────────────────────────────────┘
+
+  AFTER (native React):
+  ┌────────────────────────────────────────────────────────────┐
+  │  Client Portal (frontend/)                                  │
+  │                                                             │
+  │  ┌─────────────────────────────────────────────────────┐   │
+  │  │  App.tsx (React Router)                             │   │
+  │  │  ┌───────────────────────────────────────────────┐  │   │
+  │  │  │ /pos-generator → POSGeneratorPage.tsx         │  │   │
+  │  │  │  ├── Step1BasicConfig      (client/sector)    │  │   │
+  │  │  │  ├── Step2ModuleSelection  (module grid)      │  │   │
+  │  │  │  ├── Step4License          (license config)   │  │   │
+  │  │  │  ├── Step5Results          (build results)    │  │   │
+  │  │  │  ├── POSGenerationProgress (build progress)   │  │   │
+  │  │  │  └── POSCustomizer         (UI customization) │  │   │
+  │  │  └───────────────────────────────────────────────┘  │   │
+  │  └─────────────────────────────────────────────────────┘   │
+  │                                                             │
+  │  API Layer (lib/api.ts → axios → backend:3001)              │
+  │  ┌─────────────────────────────────────────────────────┐   │
+  │  │  POST /api/pos/generate                             │   │
+  │  │  GET  /api/pos/build-status/:licenseId              │   │
+  │  │  GET  /api/pos/download/:licenseId                  │   │
+  │  └─────────────────────────────────────────────────────┘   │
+  └─────────────────────────────────────────────────────────────┘
+
+───────────────────────────────────────────────────────────────────────────────
+3. FILE STRUCTURE — NEW FILES CREATED
+───────────────────────────────────────────────────────────────────────────────
+
+All paths relative to frontend/src/
+
+  CONFIG / CONSTANTS
+  ├── config/POSConfiguration.ts          — Step labels, categories, sectors, plans
+  └── config/POSComponentRegistry.tsx     — Maps module IDs → preview components
+
+  SERVICES (data fetching)
+  ├── services/clientService.ts           — GET clients (admin or user mode)
+  ├── services/moduleService.ts           — GET POS modules by sector
+  ├── services/posService.ts              — POST generate, GET build status
+  ├── services/licenseService.ts          — License creation, type resolution
+  ├── services/usbService.ts              — USB drive detection
+  └── services/index.ts                   — Barrel re-export
+
+  API LAYER
+  └── lib/api.ts                          — Axios instance + 5 service exports
+
+  CONTEXTS
+  └── contexts/AccessModeContext.tsx       — Admin vs User mode detection
+
+  HOOKS
+  ├── hooks/usePOSGenerator.ts            — Step/status/progress state machine
+  ├── hooks/useClients.ts                 — Client list fetching
+  ├── hooks/useSectors.ts                 — Sector fetching
+  ├── hooks/usePOSModules.ts              — Module selection + categories
+  ├── hooks/usePOSConfiguration.ts        — POS customization state
+  └── hooks/useUSBDrives.ts               — USB detection
+
+  PAGE
+  └── pages/pos/POSGeneratorPage.tsx      — Main page orchestrating all steps
+
+  STEP COMPONENTS
+  ├── components/pos/generator/Step1BasicConfig.tsx
+  ├── components/pos/generator/Step2ModuleSelection.tsx
+  ├── components/pos/generator/Step4License.tsx
+  └── components/pos/generator/Step5Results.tsx
+
+  FORM COMPONENTS
+  ├── components/pos/generator/ClientSelector.tsx
+  ├── components/pos/generator/SectorSelector.tsx
+  ├── components/pos/generator/ModuleGrid.tsx
+  └── components/pos/generator/LicenseConfigurator.tsx
+
+  SHARED / UTILITY COMPONENTS
+  ├── components/pos/generation/POSGenerationProgress.tsx
+  ├── components/pos/customizer/POSCustomizer.tsx
+  ├── components/pos/shared/CashDrawerManager.tsx
+  └── components/pos/shared/NumericKeypad.tsx
+
+  PREVIEW SYSTEM (31 module previews)
+  ├── components/pos/preview/POSPreview.tsx
+  ├── components/pos/preview/POSNavbar.tsx
+  ├── components/pos/preview/POSHeader.tsx
+  ├── components/pos/preview/POSContent.tsx
+  ├── components/pos/preview/POSRealtimePreview.tsx
+  ├── components/pos/preview/ReceiptDesignerPreview.tsx
+  ├── components/pos/preview/posPreviewUtils.ts
+  └── components/pos/preview/modules/
+      ├── POSDashboard.tsx
+      ├── POSSales.tsx
+      ├── POSProducts.tsx
+      ├── POSInventory.tsx
+      ├── POSCustomers.tsx
+      ├── POSReports.tsx
+      ├── POSSettings.tsx
+      ├── POSTables.tsx
+      ├── POSCart.tsx
+      ├── POSCalculator.tsx
+      ├── POSMenuManagement.tsx
+      ├── POSPromotions.tsx
+      ├── POSEmployeeManagement.tsx
+      ├── POSUserManagement.tsx
+      ├── POSTaxManagement.tsx
+      ├── POSVariants.tsx
+      ├── POSSplitPayments.tsx
+      ├── POSOfflineMode.tsx
+      ├── POSWeightScale.tsx
+      ├── POSSerialBatch.tsx
+      ├── POSLayaway.tsx
+      ├── POSRental.tsx
+      ├── POSTransfers.tsx
+      ├── POSMultiStore.tsx
+      ├── POSQuickActions.tsx
+      ├── POSTools.tsx
+      └── (future modules added here)
+
+  MODIFIED FILES
+  └── App.tsx                              — Added AccessModeProvider + /pos-generator route
+
+───────────────────────────────────────────────────────────────────────────────
+4. KEY DESIGN DECISIONS
+───────────────────────────────────────────────────────────────────────────────
+
+  4.1 AccessModeContext — Dual-Mode Support
+  ┌─────────────────────────────────────────────────────────────────────┐
+  │ The POS Generator serves two user types:                           │
+  │ • Admin mode: full access — select any client, any sector          │
+  │ • User mode: restricted — auto-bound to own ID, own sector         │
+  │                                                                     │
+  │ AccessModeContext detects the mode by checking the URL for          │
+  │ /user/<userId> prefix and currentUser cookie. Step1BasicConfig     │
+  │ reads isUserMode to conditionally lock the client selector.        │
+  └─────────────────────────────────────────────────────────────────────┘
+
+  4.2 Step State Machine (usePOSGenerator hook)
+  ┌─────────────────────────────────────────────────────────────────────┐
+  │ Steps: 0=BasicConfig → 1=Modules → 2=Customizer → 3=License       │
+  │        → 4=Results                                                  │
+  │                                                                     │
+  │ The hook manages:                                                   │
+  │   - currentStep (0-4)                                               │
+  │   - status: idle | generating | building | completed | error        │
+  │   - buildProgress: { percent, message }                             │
+  │   - error: string | null                                            │
+  │   - generatePOS() → calls POST /api/pos/generate, then polls       │
+  │     GET /api/pos/build-status/:licenseId until completion           │
+  └─────────────────────────────────────────────────────────────────────┘
+
+  4.3 Module Registry Pattern
+  ┌─────────────────────────────────────────────────────────────────────┐
+  │ POSComponentRegistry.tsx maps a module string ID to its preview     │
+  │ component via a Record<string, React.ComponentType>. This allows:   │
+  │   - New module previews added by importing + registering (1 line)   │
+  │   - Dynamic lookup at runtime without switch/if chains              │
+  │   - Lazy loading potential for large module sets                    │
+  └─────────────────────────────────────────────────────────────────────┘
+
+  4.4 Service Layer Isolation
+  ┌─────────────────────────────────────────────────────────────────────┐
+  │ Each backend domain has its own service file:                       │
+  │   clientService  → /api/clients, /api/user/profile                 │
+  │   moduleService  → /api/pos-modules?sector=                         │
+  │   posService     → /api/pos/generate, /api/pos/build-status,       │
+  │                     /api/pos/download                               │
+  │   licenseService → /api/licenses (POST), /api/plans                │
+  │   usbService     → /api/usb/drives                                  │
+  │                                                                     │
+  │ All services share the same axios instance from lib/api.ts          │
+  │ with baseURL = http://localhost:3001/api and                         │
+  │ withCredentials = true for cookie-based auth.                       │
+  └─────────────────────────────────────────────────────────────────────┘
+
+  4.5 Preview System
+  ┌─────────────────────────────────────────────────────────────────────┐
+  │ POSRealtimePreview renders a phone/tablet/desktop frame containing  │
+  │ the selected module's preview component. Layout components:         │
+  │   - POSNavbar: top bar with logo, time, battery, status icons       │
+  │   - POSHeader: store name, cashier info                             │
+  │   - POSContent: wraps the active preview component                  │
+  │                                                                     │
+  │ Each module preview receives a `config` prop (colors, fonts,        │
+  │ business info) so live customization reflects instantly.            │
+  └─────────────────────────────────────────────────────────────────────┘
+
+  4.6 Step 3 (Customizer) Bypassed
+  ┌─────────────────────────────────────────────────────────────────────┐
+  │ The customization step exists in the step bar (step 3 of 5) but     │
+  │ is currently bypassed: clicking "Suivant" on step 2 jumps to step 4 │
+  │ (license). In the current stepDisplay logic:                        │
+  │   if (stepDisplay === 2) generatorHook.goToStep(4)                  │
+  │                                                                     │
+  │ This preserves the 5-step visual flow while the POSCustomizer       │
+  │ component is developed and tested further.                          │
+  └─────────────────────────────────────────────────────────────────────┘
+
+───────────────────────────────────────────────────────────────────────────────
+5. DATA FLOW
+───────────────────────────────────────────────────────────────────────────────
+
+  ┌──────────┐   ┌──────────────┐   ┌──────────────┐   ┌──────────┐
+  │  Step 1  │──▶│   Step 2     │──▶│   Step 4     │──▶│  Step 5  │
+  │  Select  │   │  Select      │   │  Configure   │   │  Results │
+  │ Client/  │   │  Modules     │   │  License +   │   │  Download│
+  │ Sector   │   │              │   │  USB/Binding │   │  POS App │
+  └──────────┘   └──────────────┘   └──────┬───────┘   └──────────┘
+                                           │
+                                  ┌────────▼────────┐
+                                  │  POST /api/pos/  │
+                                  │  generate        │
+                                  └────────┬────────┘
+                                           │
+                                  ┌────────▼────────┐
+                                  │  Poll build-    │
+                                  │  status every    │
+                                  │  2s until done   │
+                                  └────────┬────────┘
+                                           │
+                                  ┌────────▼────────┐
+                                  │  GET /api/pos/   │
+                                  │  download/:id    │
+                                  └─────────────────┘
+
+  State is lifted to POSGeneratorPage.tsx and passed down via props.
+  The usePOSGenerator hook orchestrates the async generation flow.
+
+───────────────────────────────────────────────────────────────────────────────
+6. DEPENDENCIES ADDED (frontend/)
+───────────────────────────────────────────────────────────────────────────────
+
+    axios          ^1.7.2     — HTTP client for backend API calls
+    react-hot-toast ^2.4.1    — Toast notifications for success/error
+    lucide-react   ^0.379.0   — Icon library (already present, used extensively)
+
+───────────────────────────────────────────────────────────────────────────────
+7. BUILD VERIFICATION
+───────────────────────────────────────────────────────────────────────────────
+
+  TypeScript (tsc --noEmit):  0 errors
+  Vite build:                 ✓ 2300 modules transformed, 11.27s
+  POSGeneratorPage chunk:     110.68 kB (37.60 kB gzip)
+
+───────────────────────────────────────────────────────────────────────────────
+8. FUTURE-PROOFING NOTES
+───────────────────────────────────────────────────────────────────────────────
+
+  - Stripe/PayPal subscriptions: Add fields to LicenseConfigurator, extend
+    POSConfiguration.ts with plan tiers, add service calls in licenseService.ts
+  - Cloud builds: Extend usePOSGenerator to support async cloud build queue
+    via WebSocket or SSE — UI already has progress polling mechanism
+  - New modules: Create preview component in preview/modules/, register in
+    POSComponentRegistry.tsx, add module ID to POSConfiguration.ts MODULES
+  - Step 3 customization: Connect POSCustomizer component when ready,
+    remove the bypass in handleStepNext
+  - Offline/Caching: API layer can be extended with response caching or
+    optimistic updates without touching component code
+
+───────────────────────────────────────────────────────────────────────────────
+9. SUMMARY
+───────────────────────────────────────────────────────────────────────────────
+
+  Total new files:    ~55
+  Total new LOC:      ~3,500
+  Build status:       CLEAN (0 errors)
+  Old iframe dist:    ~580 kB (removed from public/)
+  New native chunk:   ~111 kB (code-split, lazy-loaded)
+
+  The refactored POS Generator is now a first-class native React page
+  within the client portal, decoupled from the Admin frontend, with a
+  clean service/hook/component architecture that supports both admin and
+  user modes, real-time previews, and easy extensibility for future
+  features (subscriptions, cloud builds, offline mode, etc.).
+
+═══════════════════════════════════════════════════════════════════════════════

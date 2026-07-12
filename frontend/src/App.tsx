@@ -8,6 +8,7 @@ import { lazy, Suspense } from "react";
 import Navbar from "./components/Navbar";
 import Footer from "./components/Footer";
 import DashboardLayout from "./components/DashboardLayout";
+import { AccessModeProvider } from "@/contexts/AccessModeContext";
 import PageSkeleton from "./components/skeletons/PageSkeleton";
 import BlogSkeleton from "./components/skeletons/BlogSkeleton";
 import DocsSkeleton from "./components/skeletons/DocsSkeleton";
@@ -26,6 +27,7 @@ const Dashboard = lazy(() => import("./pages/dashboard/Dashboard"));
 const Generator = lazy(() => import("./pages/dashboard/Generator"));
 const BiExportDeploy = lazy(() => import("./pages/dashboard/BiExportDeploy"));
 const BIDashboardViewer = lazy(() => import("./pages/dashboard/BIDashboardViewer"));
+const POSGeneratorPage = lazy(() => import("./pages/pos/POSGeneratorPage"));
 const NotFound = lazy(() => import("./pages/NotFound"));
 
 const queryClient = new QueryClient();
@@ -125,6 +127,19 @@ const App = () => (
                 <Suspense fallback={<PageSkeleton />}>
                   <BIDashboardViewer />
                 </Suspense>
+              } />
+            </Route>
+
+            {/* POS Generator Route (with DashboardLayout sidebar) */}
+            <Route path="/pos-generator" element={
+              <DashboardLayout />
+            }>
+              <Route index element={
+                <AccessModeProvider>
+                  <Suspense fallback={<PageSkeleton />}>
+                    <POSGeneratorPage />
+                  </Suspense>
+                </AccessModeProvider>
               } />
             </Route>
 

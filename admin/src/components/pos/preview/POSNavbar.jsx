@@ -2,6 +2,7 @@ import React, { useState, useMemo } from 'react';
 import { cn } from '../../../lib/utils';
 import DraggableComponent from '../../drag-drop/DraggableComponent';
 import { POSComponentRegistry } from '../../../constants/POSComponentRegistry';
+import { POSConfiguration } from '../../../config/POSConfiguration';
 import { 
   ShoppingCart, 
   CreditCard, 
@@ -28,6 +29,10 @@ export const POSNavbar = ({
 }) => {
   const [isOverlayOpen, setIsOverlayOpen] = useState(false);
   
+  // Get animation classes from configuration
+  const animationTypeClass = POSConfiguration.getAnimationTypeClass(config);
+  const animationSpeedClass = POSConfiguration.getAnimationSpeedClass(config);
+  
   // Génère dynamiquement les items de navigation basés sur les modules sélectionnés
   const navigationItems = useMemo(() => {
     return POSComponentRegistry.getNavigationItems(modules);
@@ -49,7 +54,7 @@ export const POSNavbar = ({
         </button>
 
         {/* Navigation Icons */}
-        <nav className="flex-1 py-4">
+        <nav className="flex-1 py-4 overflow-y-auto scrollbar-hide">
           {navigationItems.map((item) => {
             const Icon = item.icon;
             const isActive = activePage === item.id;
@@ -59,7 +64,9 @@ export const POSNavbar = ({
                 key={item.id}
                 onClick={() => setActivePage(item.id)}
                 className={cn(
-                  'w-full p-3 flex items-center justify-center transition-colors relative group',
+                  'w-full p-3 flex items-center justify-center relative group',
+                  animationTypeClass,
+                  animationSpeedClass,
                   isActive 
                     ? 'bg-white/20 text-white' 
                     : 'text-white/80 hover:bg-white/10 hover:text-white'
@@ -98,7 +105,7 @@ export const POSNavbar = ({
         {/* Header */}
         <div className="px-4 py-4 border-b flex items-center justify-between" style={{ borderColor: config.accentColor + '20' }}>
           <h2 className="text-xl font-bold" style={{ color: config.textColor }}>
-            {config.restaurantName || 'POS System'}
+            {config.businessName || 'POS System'}
           </h2>
           <button
             onClick={() => setIsOverlayOpen(false)}
@@ -109,7 +116,7 @@ export const POSNavbar = ({
         </div>
 
         {/* Navigation Items */}
-        <nav className="flex-1 overflow-y-auto py-4 px-3">
+        <nav className="flex-1 overflow-y-auto py-4 px-3 h-[calc(100vh-8rem)] scrollbar-hide">
           {navigationItems.map((item) => {
             const Icon = item.icon;
             const isActive = activePage === item.id;
@@ -122,12 +129,19 @@ export const POSNavbar = ({
                   setIsOverlayOpen(false);
                 }}
                 className={cn(
-                  'w-full flex items-center space-x-3 px-3 py-3 rounded-lg transition-colors text-left mb-1 group',
+                  'w-full flex items-center space-x-3 px-3 py-3 rounded-lg text-left mb-1 group',
+                  animationTypeClass,
+                  animationSpeedClass,
                   isActive 
                     ? 'text-white shadow-md' 
                     : 'hover:bg-gray-100'
                 )}
-                style={isActive ? { backgroundColor: config.primaryColor } : {}}
+                style={isActive ? { 
+                  backgroundColor: config.primaryColor,
+                  color: '#ffffff'
+                } : {
+                  color: config.textColor
+                }}
               >
                 <Icon className="w-5 h-5 flex-shrink-0" />
                 <span className="font-medium flex-1">{item.label}</span>
@@ -145,7 +159,10 @@ export const POSNavbar = ({
           <div className="flex items-center space-x-2 text-xs" style={{ color: config.textMutedColor }}>
             <Shield className="w-3 h-3" />
             <div>
-              <div>POS System v2.0</div>
+              <div>{config.businessName || 'POS System'} v2.1.0</div>
+              {config.currentUser && (
+                <div className="text-xs mt-1">Connecté: {config.currentUser.name}</div>
+              )}
               {config.isPreviewMode && (
                 <div className="text-xs text-blue-600 mt-1">Mode Prévisualisation</div>
               )}
@@ -168,12 +185,12 @@ export const POSNavbar = ({
       {/* Header avec titre */}
       <div className="px-4 flex-1 flex items-center justify-between">
         <h2 className="text-xl font-bold" style={{ color: config.textColor }}>
-          {config.restaurantName || 'POS System'}
+          {config.businessName || 'POS System'}
         </h2>
       </div>
 
       {/* Menu Items */}
-      <nav className="flex flex-row space-x-2 px-4">
+      <nav className="hidden lg:flex flex-row space-x-2 px-4 overflow-x-auto scrollbar-hide">
         {navigationItems.map((item) => {
           const Icon = item.icon;
           const isActive = activePage === item.id;
@@ -183,12 +200,17 @@ export const POSNavbar = ({
               key={item.id}
               onClick={() => setActivePage(item.id)}
               className={cn(
-                'flex items-center space-x-3 px-3 py-2 rounded-lg transition-colors text-left nav-item whitespace-nowrap',
+                'flex items-center space-x-2 px-3 py-2 rounded-lg transition-colors text-left whitespace-nowrap',
                 isActive 
                   ? 'text-white' 
                   : 'hover:bg-gray-100'
               )}
-              style={isActive ? { backgroundColor: config.primaryColor } : {}}
+              style={isActive ? { 
+                backgroundColor: config.primaryColor,
+                color: '#ffffff'
+              } : {
+                color: config.textColor
+              }}
             >
               <Icon className="w-5 h-5 flex-shrink-0" />
               <span className="font-medium">{item.label}</span>
@@ -196,6 +218,11 @@ export const POSNavbar = ({
           );
         })}
       </nav>
+
+      {/* Mobile menu button */}
+      <button className="lg:hidden p-2 mr-4" onClick={() => {}}>
+        <Menu className="w-6 h-6" />
+      </button>
     </div>
   );
 

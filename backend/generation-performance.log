@@ -1606,3 +1606,140 @@
 
 ======================================================================
 
+
+============================================================
+  GENERATION START
+  ID:       gen-1783874617461-p4bc1t
+  License:  cmri0vzta0001a0av5zomw3za
+  Client:   cmpb0pfd00000k2bm903auzi1
+  Time:     2026-07-12T16:43:37.462Z
+============================================================
+
+[GENERATION] Validate License                                    4 ms  OK
+[GENERATION] Create Output Directory                             1 ms  OK
+[GENERATION] Copy Template                                     411 ms  OK
+[GENERATION] Ensure Preload File                                 6 ms  OK
+[GENERATION] Rename Electron Files                               5 ms  OK
+[GENERATION] Create Config File                                 16 ms  OK
+[GENERATION] Module Filter - Filter Modules                      2 ms  OK
+[GENERATION] Module Filter - Navbar                             11 ms  OK
+[GENERATION] Module Filter - Cleanup Routes                     21 ms  OK
+[GENERATION] Dependency Manager - Package JSON                   4 ms  OK
+[GENERATION] Dependency Manager - Tailwind Dirs                  5 ms  OK
+[GENERATION] Dependency Manager - Config Files                   2 ms  OK
+[GENERATION] copy node_modules (robocopy)                    31089 ms  FAIL
+[GENERATION] Dependency Manager - Build Install              31093 ms  OK
+[GENERATION] Theme Customizer - CSS Files                        4 ms  OK
+[GENERATION] Theme Customizer - Tailwind Config                  6 ms  OK
+[GENERATION] Theme Customizer - Global Styles                    5 ms  OK
+[GENERATION] Theme Customizer - Component Styles                 3 ms  OK
+[GENERATION] Theme Customizer - App Config                      14 ms  OK
+[GENERATION] File Patcher - Remove Unnecessary                   2 ms  OK
+[GENERATION] File Patcher - Fix Electron                         4 ms  OK
+[GENERATION] File Patcher - PostCSS Config                       7 ms  OK
+[GENERATION] File Patcher - Tailwind Config                      1 ms  OK
+[GENERATION] File Patcher - Fix Vite Config                      3 ms  OK
+[GENERATION] File Patcher - Ensure Preload                       3 ms  OK
+[GENERATION] File Patcher - UI Components                       13 ms  OK
+[GENERATION] File Patcher - Dashboard Patch                      6 ms  OK
+[GENERATION] File Patcher - Package JSON                        11 ms  OK
+[GENERATION] vite build                                      43400 ms  OK
+[GENERATION] electron-builder                                  6m 41s  OK
+[GENERATION] Build Electron                                    7m 25s  OK
+[GENERATION] Total Generation                                  7m 56s  OK
+
+------------------------------------------------------------
+  GENERATION COMPLETE
+  ID:       gen-1783874617461-p4bc1t
+  Total:    7m 56s
+  Steps:    31
+  Time:     2026-07-12T16:51:33.693Z
+------------------------------------------------------------
+
+
+======================================================================
+  BUILD PERFORMANCE REPORT
+  Generation ID: gen-1783874617461-p4bc1t
+======================================================================
+
+  Total Duration: 7m 56s (476.23s)
+
+  --- Full Timing Table ---
+  Step                                            Duration       % Status
+                                                                       
+  Validate License                                    4 ms    0.0%  OK
+  Create Output Directory                             1 ms    0.0%  OK
+  Copy Template                                     411 ms    0.1%  OK
+  Ensure Preload File                                 6 ms    0.0%  OK
+  Rename Electron Files                               5 ms    0.0%  OK
+  Create Config File                                 16 ms    0.0%  OK
+  Module Filter - Filter Modules                      2 ms    0.0%  OK
+  Module Filter - Navbar                             11 ms    0.0%  OK
+  Module Filter - Cleanup Routes                     21 ms    0.0%  OK
+  Dependency Manager - Package JSON                   4 ms    0.0%  OK
+  Dependency Manager - Tailwind Dirs                  5 ms    0.0%  OK
+  Dependency Manager - Config Files                   2 ms    0.0%  OK
+  copy node_modules (robocopy)                    31089 ms    6.5%  FAIL
+  Dependency Manager - Build Install              31093 ms    6.5%  OK
+  Theme Customizer - CSS Files                        4 ms    0.0%  OK
+  Theme Customizer - Tailwind Config                  6 ms    0.0%  OK
+  Theme Customizer - Global Styles                    5 ms    0.0%  OK
+  Theme Customizer - Component Styles                 3 ms    0.0%  OK
+  Theme Customizer - App Config                      14 ms    0.0%  OK
+  File Patcher - Remove Unnecessary                   2 ms    0.0%  OK
+  File Patcher - Fix Electron                         4 ms    0.0%  OK
+  File Patcher - PostCSS Config                       7 ms    0.0%  OK
+  File Patcher - Tailwind Config                      1 ms    0.0%  OK
+  File Patcher - Fix Vite Config                      3 ms    0.0%  OK
+  File Patcher - Ensure Preload                       3 ms    0.0%  OK
+  File Patcher - UI Components                       13 ms    0.0%  OK
+  File Patcher - Dashboard Patch                      6 ms    0.0%  OK
+  File Patcher - Package JSON                        11 ms    0.0%  OK
+  vite build                                      43400 ms    9.1%  OK
+  electron-builder                                  6m 41s   84.2%  OK
+  Build Electron                                    7m 25s   93.3%  OK
+  Total Generation                                  7m 56s  100.0%  OK
+
+  --- Phase Breakdown (Percentage of Total) ---
+  Build Electron              46.7%  ███████████████████████
+  electron                    42.1%  █████████████████████
+  vite build                   4.6%  ██
+  Dependency Manager           3.3%  ██
+  copy node_modules (robocopy)    3.3%  ██
+  Copy Template                0.0%  
+  File Patcher                 0.0%  
+  Module Filter                0.0%  
+  Theme Customizer             0.0%  
+  Create Config File           0.0%  
+  Ensure Preload File          0.0%  
+  Rename Electron Files        0.0%  
+  Validate License             0.0%  
+  Create Output Directory      0.0%  
+
+  --- Top 10 Slowest Operations ---
+  1. Build Electron                                 7m 25s (93.3%)
+  2. electron-builder                               6m 41s (84.2%)
+  3. vite build                                   43400 ms (9.1%)
+  4. Dependency Manager - Build Install           31093 ms (6.5%)
+  5. copy node_modules (robocopy)                 31089 ms (6.5%)
+  6. Copy Template                                  411 ms (0.1%)
+  7. Module Filter - Cleanup Routes                  21 ms (0.0%)
+  8. Create Config File                              16 ms (0.0%)
+  9. Theme Customizer - App Config                   14 ms (0.0%)
+  10. File Patcher - UI Components                    13 ms (0.0%)
+
+  --- 80% Threshold Analysis ---
+  Steps consuming >80% of total time:
+    🔴 electron-builder - 84.2% of total (6m 41s)
+    🔴 Build Electron - 93.3% of total (7m 25s)
+
+  --- Skippable Operations Analysis ---
+
+  --- Repeated Operations ---
+  🔄 Module Filter appears 3 times
+  🔄 Dependency Manager appears 4 times
+  🔄 Theme Customizer appears 5 times
+  🔄 File Patcher appears 9 times
+
+======================================================================
+

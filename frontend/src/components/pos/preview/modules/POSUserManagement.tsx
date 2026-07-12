@@ -1,0 +1,44 @@
+import { Shield, UserPlus, Lock, Key } from 'lucide-react';
+
+export const POSUserManagement = ({ config }: { config: any }) => {
+  const users = [
+    { name: 'Admin', role: 'Administrateur', email: 'admin@pos.com', permissions: 'Tous' },
+    { name: 'Alice', role: 'Caissier', email: 'alice@pos.com', permissions: 'Ventes' },
+    { name: 'Bob', role: 'Manager', email: 'bob@pos.com', permissions: 'Ventes, Stocks' },
+  ];
+
+  return (
+    <div className="p-6">
+      <div className="flex items-center justify-between mb-6">
+        <h1 className="text-2xl font-bold" style={{ color: config.textColor }}>Gestion des utilisateurs</h1>
+        <button className="flex items-center gap-2 px-4 py-2 rounded-lg text-white" style={{ backgroundColor: config.primaryColor }}>
+          <UserPlus className="w-4 h-4" />Nouvel utilisateur
+        </button>
+      </div>
+      <div className="bg-white rounded-xl border overflow-hidden">
+        <table className="w-full">
+          <thead>
+            <tr className="bg-gray-50 border-b">
+              <th className="text-left p-3 text-sm font-medium text-gray-600">Utilisateur</th>
+              <th className="text-left p-3 text-sm font-medium text-gray-600">Rôle</th>
+              <th className="text-left p-3 text-sm font-medium text-gray-600">Permissions</th>
+              <th className="text-left p-3 text-sm font-medium text-gray-600">Statut</th>
+            </tr>
+          </thead>
+          <tbody>
+            {users.map((u) => (
+              <tr key={u.name} className="border-b hover:bg-gray-50">
+                <td className="p-3"><p className="text-sm font-medium">{u.name}</p><p className="text-xs text-gray-400">{u.email}</p></td>
+                <td className="p-3 text-sm">{u.role}</td>
+                <td className="p-3 text-sm text-gray-500">{u.permissions}</td>
+                <td className="p-3"><span className="px-2 py-0.5 bg-green-100 text-green-700 rounded-full text-xs">Actif</span></td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+};
+
+export default POSUserManagement;
