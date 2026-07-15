@@ -179,7 +179,7 @@ const Dashboard = () => {
         // Load low stock count (stock <= 5)
         console.log('[DASHBOARD] Query: low stock count');
         const lowStock = await window.electronAPI.query(
-          'SELECT COUNT(*) as count FROM products WHERE stock <= 5'
+          'SELECT COUNT(*) as count FROM products WHERE min_stock > 0 AND stock <= min_stock'
         );
         console.log('[DASHBOARD] Low stock result:', JSON.stringify(lowStock));
 
@@ -533,15 +533,27 @@ const Dashboard = () => {
         </CardContent>
       </Card>
 
-      {/* Chart Placeholder */}
-      <Card className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+      {/* Sales Chart */}
+      <Card>
         <CardHeader>
-          <CardTitle>Sales Overview</CardTitle>
+          <CardTitle>Revenus mensuels</CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="h-64 bg-gray-50 rounded-lg flex items-center justify-center">
-            <p className="text-gray-500">Chart will be displayed here</p>
-          </div>
+          {chartData.length === 0 ? (
+            <div className="h-64 flex items-center justify-center text-muted-foreground">
+              Aucune donnée de vente
+            </div>
+          ) : (
+            <ResponsiveContainer width="100%" height={300}>
+              <BarChart data={chartData}>
+                <CartesianGrid strokeDasharray="3 3" />
+                <XAxis dataKey="month" />
+                <YAxis />
+                <Tooltip formatter={(value) => [`${value.toFixed(2)}€`, 'Revenus']} />
+                <Bar dataKey="revenue" fill="#3B82F6" name="Revenus" radius={[4, 4, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          )}
         </CardContent>
       </Card>
     </div>

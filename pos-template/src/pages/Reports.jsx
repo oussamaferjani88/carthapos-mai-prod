@@ -1,14 +1,67 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
 import { Button } from '../components/ui/button';
 import { Badge } from '../components/ui/badge';
+import { Input } from '../components/ui/input';
+import { Table, TableHeader, TableBody, TableHead, TableRow, TableCell } from '../components/ui/table';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
-import { TrendingUp, Euro, ShoppingCart, Package, Calendar, Download } from 'lucide-react';
+import { TrendingUp, Euro, ShoppingCart, Package, Calendar, Download, Search, ArrowUpDown, ChevronLeft, ChevronRight, Receipt, Eye, X } from 'lucide-react';
 import BiExportModal from '../components/BiExportModal';
 import { POSConfiguration } from '../lib/POSConfiguration';
 import { useAppConfig } from '../hooks/useAppConfig';
 import { isPreviewMode, getPreviewData, logEnvironment } from '../utils/environment';
+
+const DEMO_HOURLY_DATA = [
+  { hour: '08h', sales: 5, revenue: 23.50 },
+  { hour: '09h', sales: 12, revenue: 67.80 },
+  { hour: '10h', sales: 18, revenue: 89.20 },
+  { hour: '11h', sales: 25, revenue: 134.70 },
+  { hour: '12h', sales: 45, revenue: 267.90 },
+  { hour: '13h', sales: 38, revenue: 198.40 },
+  { hour: '14h', sales: 22, revenue: 123.60 },
+  { hour: '15h', sales: 15, revenue: 78.30 },
+  { hour: '16h', sales: 19, revenue: 95.80 },
+  { hour: '17h', sales: 28, revenue: 156.20 },
+  { hour: '18h', sales: 12, revenue: 67.40 }
+];
+
+const DEMO_CATEGORY_DATA = [
+  { name: 'Boissons', value: 45, color: '#3B82F6' },
+  { name: 'Viennoiseries', value: 28, color: '#10B981' },
+  { name: 'Sandwichs', value: 18, color: '#F59E0B' },
+  { name: 'Salades', value: 12, color: '#EF4444' },
+  { name: 'Pâtisseries', value: 15, color: '#8B5CF6' },
+  { name: 'Autres', value: 8, color: '#6B7280' }
+];
+
+const DEMO_TRANSACTIONS = [
+  { id: 1, receiptNumber: 'RCP-2026-0001', date: '2026-07-13', time: '08:23', cashier: 'Sophie Martin', customer: 'Jean Dupont', table: 5, orderType: 'Dine-in', paymentMethod: 'Espèces', items: 3, discount: 0, tax: 4.75, total: 29.75, status: 'Complété' },
+  { id: 2, receiptNumber: 'RCP-2026-0002', date: '2026-07-13', time: '08:45', cashier: 'Marc Laurent', customer: 'Marie Lambert', table: null, orderType: 'À emporter', paymentMethod: 'Carte', items: 2, discount: 0, tax: 2.85, total: 17.85, status: 'Complété' },
+  { id: 3, receiptNumber: 'RCP-2026-0003', date: '2026-07-13', time: '09:12', cashier: 'Sophie Martin', customer: 'Pierre Moreau', table: 3, orderType: 'Dine-in', paymentMethod: 'Carte', items: 4, discount: 3.50, tax: 5.70, total: 35.20, status: 'Complété' },
+  { id: 4, receiptNumber: 'RCP-2026-0004', date: '2026-07-13', time: '09:30', cashier: 'Lucas Petit', customer: 'Client sans ticket', table: null, orderType: 'À emporter', paymentMethod: 'Mobile', items: 1, discount: 0, tax: 1.90, total: 11.90, status: 'Complété' },
+  { id: 5, receiptNumber: 'RCP-2026-0005', date: '2026-07-13', time: '10:05', cashier: 'Marc Laurent', customer: 'Anne Leroy', table: 2, orderType: 'Dine-in', paymentMethod: 'Espèces', items: 5, discount: 5.00, tax: 6.65, total: 41.65, status: 'En cours' },
+  { id: 6, receiptNumber: 'RCP-2026-0006', date: '2026-07-13', time: '10:30', cashier: 'Sophie Martin', customer: 'Thomas Dubois', table: 7, orderType: 'Dine-in', paymentMethod: 'Carte', items: 2, discount: 0, tax: 3.80, total: 23.80, status: 'Complété' },
+  { id: 7, receiptNumber: 'RCP-2026-0007', date: '2026-07-13', time: '11:15', cashier: 'Lucas Petit', customer: 'Claire Fontaine', table: 1, orderType: 'Dine-in', paymentMethod: 'Mobile', items: 3, discount: 2.00, tax: 4.37, total: 27.37, status: 'Complété' },
+  { id: 8, receiptNumber: 'RCP-2026-0008', date: '2026-07-13', time: '11:45', cashier: 'Marc Laurent', customer: 'Client sans ticket', table: null, orderType: 'Livraison', paymentMethod: 'Carte', items: 4, discount: 0, tax: 5.70, total: 35.70, status: 'Annulé' },
+  { id: 9, receiptNumber: 'RCP-2026-0009', date: '2026-07-13', time: '12:20', cashier: 'Sophie Martin', customer: 'Nicolas Girard', table: 4, orderType: 'Dine-in', paymentMethod: 'Espèces', items: 6, discount: 8.00, tax: 7.60, total: 47.60, status: 'Complété' },
+  { id: 10, receiptNumber: 'RCP-2026-0010', date: '2026-07-13', time: '12:50', cashier: 'Lucas Petit', customer: 'Julie Mercier', table: 6, orderType: 'Dine-in', paymentMethod: 'Carte', items: 2, discount: 0, tax: 3.23, total: 20.23, status: 'Complété' },
+  { id: 11, receiptNumber: 'RCP-2026-0011', date: '2026-07-13', time: '13:30', cashier: 'Marc Laurent', customer: 'Antoine Roux', table: 8, orderType: 'Dine-in', paymentMethod: 'Mobile', items: 3, discount: 0, tax: 4.75, total: 29.75, status: 'Complété' },
+  { id: 12, receiptNumber: 'RCP-2026-0012', date: '2026-07-13', time: '14:00', cashier: 'Sophie Martin', customer: 'Client sans ticket', table: null, orderType: 'À emporter', paymentMethod: 'Carte', items: 1, discount: 0, tax: 1.52, total: 9.52, status: 'Remboursé' },
+  { id: 13, receiptNumber: 'RCP-2026-0013', date: '2026-07-13', time: '14:45', cashier: 'Lucas Petit', customer: 'Sarah Bernard', table: null, orderType: 'Livraison', paymentMethod: 'Carte', items: 3, discount: 2.50, tax: 4.27, total: 26.77, status: 'Complété' },
+  { id: 14, receiptNumber: 'RCP-2026-0014', date: '2026-07-13', time: '15:20', cashier: 'Marc Laurent', customer: 'David Muller', table: 2, orderType: 'Dine-in', paymentMethod: 'Espèces', items: 2, discount: 0, tax: 2.85, total: 17.85, status: 'En cours' },
+  { id: 15, receiptNumber: 'RCP-2026-0015', date: '2026-07-13', time: '16:00', cashier: 'Sophie Martin', customer: 'Emma Colin', table: 5, orderType: 'Dine-in', paymentMethod: 'Carte', items: 4, discount: 0, tax: 6.65, total: 41.65, status: 'Complété' },
+  { id: 16, receiptNumber: 'RCP-2026-0016', date: '2026-07-12', time: '08:30', cashier: 'Sophie Martin', customer: 'Jean Dupont', table: 3, orderType: 'Dine-in', paymentMethod: 'Espèces', items: 2, discount: 0, tax: 2.85, total: 17.85, status: 'Complété' },
+  { id: 17, receiptNumber: 'RCP-2026-0017', date: '2026-07-12', time: '09:15', cashier: 'Marc Laurent', customer: 'Marie Lambert', table: null, orderType: 'À emporter', paymentMethod: 'Carte', items: 3, discount: 1.50, tax: 4.27, total: 26.77, status: 'Complété' },
+  { id: 18, receiptNumber: 'RCP-2026-0018', date: '2026-07-12', time: '10:00', cashier: 'Lucas Petit', customer: 'Pierre Moreau', table: 7, orderType: 'Dine-in', paymentMethod: 'Mobile', items: 5, discount: 0, tax: 7.60, total: 47.60, status: 'Complété' },
+  { id: 19, receiptNumber: 'RCP-2026-0019', date: '2026-07-12', time: '11:30', cashier: 'Sophie Martin', customer: 'Client sans ticket', table: null, orderType: 'Livraison', paymentMethod: 'Carte', items: 2, discount: 0, tax: 3.80, total: 23.80, status: 'Annulé' },
+  { id: 20, receiptNumber: 'RCP-2026-0020', date: '2026-07-12', time: '12:15', cashier: 'Marc Laurent', customer: 'Anne Leroy', table: 1, orderType: 'Dine-in', paymentMethod: 'Espèces', items: 4, discount: 5.00, tax: 5.70, total: 35.20, status: 'Complété' },
+  { id: 21, receiptNumber: 'RCP-2026-0021', date: '2026-07-11', time: '09:00', cashier: 'Lucas Petit', customer: 'Thomas Dubois', table: 4, orderType: 'Dine-in', paymentMethod: 'Carte', items: 3, discount: 0, tax: 4.75, total: 29.75, status: 'Complété' },
+  { id: 22, receiptNumber: 'RCP-2026-0022', date: '2026-07-11', time: '10:30', cashier: 'Sophie Martin', customer: 'Nicolas Girard', table: null, orderType: 'À emporter', paymentMethod: 'Mobile', items: 1, discount: 0, tax: 1.90, total: 11.90, status: 'Complété' },
+  { id: 23, receiptNumber: 'RCP-2026-0023', date: '2026-07-11', time: '13:00', cashier: 'Marc Laurent', customer: 'Julie Mercier', table: 6, orderType: 'Dine-in', paymentMethod: 'Carte', items: 4, discount: 3.00, tax: 5.89, total: 36.89, status: 'Complété' },
+  { id: 24, receiptNumber: 'RCP-2026-0024', date: '2026-07-10', time: '08:45', cashier: 'Lucas Petit', customer: 'Client sans ticket', table: null, orderType: 'À emporter', paymentMethod: 'Espèces', items: 2, discount: 0, tax: 1.90, total: 11.90, status: 'Complété' },
+  { id: 25, receiptNumber: 'RCP-2026-0025', date: '2026-07-10', time: '11:00', cashier: 'Sophie Martin', customer: 'Claire Fontaine', table: 2, orderType: 'Dine-in', paymentMethod: 'Carte', items: 3, discount: 0, tax: 4.75, total: 29.75, status: 'Complété' }
+];
 
 export default function Reports() {
   const [showBiExport, setShowBiExport] = useState(false);
@@ -46,6 +99,136 @@ export default function Reports() {
   const [selectedPeriod, setSelectedPeriod] = useState('today');
   const [salesData, setSalesData] = useState([]);
   const [categoryData, setCategoryData] = useState([]);
+
+  // Transaction table state
+  const [transactions, setTransactions] = useState([]);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [filterPeriod, setFilterPeriod] = useState('all');
+  const [filterCashier, setFilterCashier] = useState('all');
+  const [filterPayment, setFilterPayment] = useState('all');
+  const [filterStatus, setFilterStatus] = useState('all');
+  const [filterOrderType, setFilterOrderType] = useState('all');
+  const [sortField, setSortField] = useState('date');
+  const [sortDirection, setSortDirection] = useState('desc');
+  const [currentPage, setCurrentPage] = useState(1);
+  const [selectedTransaction, setSelectedTransaction] = useState(null);
+  const [showDetailModal, setShowDetailModal] = useState(false);
+  const rowsPerPage = 10;
+
+  const filteredTransactions = useMemo(() => {
+    let result = [...transactions];
+
+    // Search filter
+    if (searchTerm) {
+      const term = searchTerm.toLowerCase();
+      result = result.filter(tx =>
+        tx.receiptNumber.toLowerCase().includes(term) ||
+        tx.customer.toLowerCase().includes(term) ||
+        tx.cashier.toLowerCase().includes(term)
+      );
+    }
+
+    // Period filter
+    if (filterPeriod !== 'all') {
+      const now = new Date();
+      const today = now.toISOString().split('T')[0];
+      const yesterday = new Date(now);
+      yesterday.setDate(yesterday.getDate() - 1);
+      const yesterdayStr = yesterday.toISOString().split('T')[0];
+      const weekAgo = new Date(now);
+      weekAgo.setDate(weekAgo.getDate() - 7);
+      const monthAgo = new Date(now);
+      monthAgo.setMonth(monthAgo.getMonth() - 1);
+
+      result = result.filter(tx => {
+        const txDate = tx.date;
+        switch (filterPeriod) {
+          case 'today': return txDate === today;
+          case 'yesterday': return txDate === yesterdayStr;
+          case 'week': return new Date(txDate) >= weekAgo;
+          case 'month': return new Date(txDate) >= monthAgo;
+          default: return true;
+        }
+      });
+    }
+
+    // Cashier filter
+    if (filterCashier !== 'all') {
+      result = result.filter(tx => tx.cashier === filterCashier);
+    }
+
+    // Payment method filter
+    if (filterPayment !== 'all') {
+      result = result.filter(tx => tx.paymentMethod === filterPayment);
+    }
+
+    // Status filter
+    if (filterStatus !== 'all') {
+      result = result.filter(tx => tx.status === filterStatus);
+    }
+
+    // Order type filter
+    if (filterOrderType !== 'all') {
+      result = result.filter(tx => tx.orderType === filterOrderType);
+    }
+
+    // Sorting
+    result.sort((a, b) => {
+      let cmp = 0;
+      switch (sortField) {
+        case 'receiptNumber': cmp = a.receiptNumber.localeCompare(b.receiptNumber); break;
+        case 'date': cmp = a.date.localeCompare(b.date) || a.time.localeCompare(b.time); break;
+        case 'cashier': cmp = a.cashier.localeCompare(b.cashier); break;
+        case 'customer': cmp = a.customer.localeCompare(b.customer); break;
+        case 'table': cmp = (a.table || 0) - (b.table || 0); break;
+        case 'orderType': cmp = a.orderType.localeCompare(b.orderType); break;
+        case 'paymentMethod': cmp = a.paymentMethod.localeCompare(b.paymentMethod); break;
+        case 'items': cmp = a.items - b.items; break;
+        case 'total': cmp = a.total - b.total; break;
+        case 'status': cmp = a.status.localeCompare(b.status); break;
+        default: cmp = 0;
+      }
+      return sortDirection === 'asc' ? cmp : -cmp;
+    });
+
+    return result;
+  }, [transactions, searchTerm, filterPeriod, filterCashier, filterPayment, filterStatus, filterOrderType, sortField, sortDirection]);
+
+  const totalPages = Math.ceil(filteredTransactions.length / rowsPerPage);
+  const paginatedTransactions = filteredTransactions.slice(
+    (currentPage - 1) * rowsPerPage,
+    currentPage * rowsPerPage
+  );
+
+  const handleSort = (field) => {
+    if (sortField === field) {
+      setSortDirection(d => d === 'asc' ? 'desc' : 'asc');
+    } else {
+      setSortField(field);
+      setSortDirection('desc');
+    }
+  };
+
+  const openTransactionDetail = (tx) => {
+    setSelectedTransaction(tx);
+    setShowDetailModal(true);
+  };
+
+  const getStatusBadgeVariant = (status) => {
+    switch (status) {
+      case 'Complété': return 'default';
+      case 'En cours': return 'secondary';
+      case 'Annulé': return 'destructive';
+      case 'Remboursé': return 'outline';
+      default: return 'outline';
+    }
+  };
+
+  const uniqueCashiers = [...new Set(transactions.map(tx => tx.cashier))];
+  const uniquePayments = [...new Set(transactions.map(tx => tx.paymentMethod))];
+  const uniqueStatuses = [...new Set(transactions.map(tx => tx.status))];
+  const uniqueOrderTypes = [...new Set(transactions.map(tx => tx.orderType))];
+
   const [stats, setStats] = useState({
     totalSales: 0,
     totalRevenue: 0,
@@ -53,30 +236,6 @@ export default function Reports() {
     topProduct: null
   });
   const [loading, setLoading] = useState(true);
-
-  // Demo data for preview mode only
-  const DEMO_HOURLY_DATA = [
-    { hour: '08h', sales: 5, revenue: 23.50 },
-    { hour: '09h', sales: 12, revenue: 67.80 },
-    { hour: '10h', sales: 18, revenue: 89.20 },
-    { hour: '11h', sales: 25, revenue: 134.70 },
-    { hour: '12h', sales: 45, revenue: 267.90 },
-    { hour: '13h', sales: 38, revenue: 198.40 },
-    { hour: '14h', sales: 22, revenue: 123.60 },
-    { hour: '15h', sales: 15, revenue: 78.30 },
-    { hour: '16h', sales: 19, revenue: 95.80 },
-    { hour: '17h', sales: 28, revenue: 156.20 },
-    { hour: '18h', sales: 12, revenue: 67.40 }
-  ];
-
-  const DEMO_CATEGORY_DATA = [
-    { name: 'Boissons', value: 45, color: '#3B82F6' },
-    { name: 'Viennoiseries', value: 28, color: '#10B981' },
-    { name: 'Sandwichs', value: 18, color: '#F59E0B' },
-    { name: 'Salades', value: 12, color: '#EF4444' },
-    { name: 'Pâtisseries', value: 15, color: '#8B5CF6' },
-    { name: 'Autres', value: 8, color: '#6B7280' }
-  ];
 
   useEffect(() => {
     loadReportsData();
@@ -100,6 +259,8 @@ export default function Reports() {
           averageTicket: totalRevenue / totalSales,
           topProduct: 'Café Expresso'
         });
+
+        setTransactions(DEMO_TRANSACTIONS);
         
         setLoading(false);
         return;
@@ -212,7 +373,10 @@ export default function Reports() {
         averageTicket: totalSales > 0 ? totalRevenue / totalSales : 0,
         topProduct: topProductResult[0]?.name || null
       });
-      
+
+      // Load transactions from DB
+      await loadTransactions(dateRange);
+
     } catch (error) {
       console.error('❌ Error loading reports data:', error);
       setSalesData([]);
@@ -225,6 +389,55 @@ export default function Reports() {
       });
     } finally {
       setLoading(false);
+    }
+  };
+
+  // Load transactions from database
+  const loadTransactions = async (dateRange) => {
+    if (!window.electronAPI) {
+      setTransactions(DEMO_TRANSACTIONS);
+      return;
+    }
+    try {
+      const txQuery = `
+        SELECT 
+          s.id, s.total, s.tax, s.discount, s.discount_percentage, s.subtotal,
+          s.payment_method, s.table_id, s.created_at, s.notes,
+          u.full_name as cashier_name,
+          c.name as customer_name,
+          (SELECT COUNT(*) FROM sale_items si WHERE si.sale_id = s.id) as item_count
+        FROM sales s
+        LEFT JOIN users u ON u.id = s.user_id
+        LEFT JOIN customers c ON c.id = s.customer_id
+        WHERE s.created_at >= ? AND s.created_at < ?
+        ORDER BY s.created_at DESC
+        LIMIT 500
+      `;
+      const txData = await window.electronAPI.query(txQuery, [dateRange.start, dateRange.end]);
+      setTransactions((txData || []).map(row => {
+        const d = new Date(row.created_at);
+        return {
+          id: row.id,
+          receiptNumber: `RCP-${String(row.id).padStart(6, '0')}`,
+          date: d.toLocaleDateString('fr-CA'),
+          time: d.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }),
+          cashier: row.cashier_name || 'Inconnu',
+          customer: row.customer_name || 'Client sans ticket',
+          table: row.table_id,
+          orderType: row.table_id ? 'Dine-in' : 'À emporter',
+          paymentMethod: row.payment_method === 'cash' || row.payment_method === 'espèces' ? 'Espèces' :
+                         row.payment_method === 'card' || row.payment_method === 'carte' ? 'Carte' :
+                         row.payment_method === 'mobile' ? 'Mobile' : row.payment_method || 'Carte',
+          items: row.item_count || 0,
+          discount: row.discount || 0,
+          tax: row.tax || 0,
+          total: row.total || 0,
+          status: 'Complété'
+        };
+      }));
+    } catch (e) {
+      console.error('Error loading transactions:', e);
+      setTransactions(DEMO_TRANSACTIONS);
     }
   };
 
@@ -329,6 +542,7 @@ export default function Reports() {
   const hasData = salesData.length > 0 || stats.totalSales > 0;
 
   return (
+    <>
     <div className="space-y-6">
       <div className="flex justify-between items-center">
         <div>
@@ -537,7 +751,317 @@ export default function Reports() {
       </Card>
 
       <BiExportModal open={showBiExport} onOpenChange={setShowBiExport} />
+
+      {/* Sales Transactions Table */}
+      <Card>
+        <CardHeader>
+          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+            <div>
+              <CardTitle>Transactions</CardTitle>
+              <CardDescription>
+                {filteredTransactions.length} transaction(s) trouvée(s)
+              </CardDescription>
+            </div>
+            <div className="flex flex-col md:flex-row gap-2">
+              <div className="relative">
+                <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+                <Input
+                  placeholder="Rechercher reçu, client..."
+                  className="pl-8 w-56"
+                  value={searchTerm}
+                  onChange={(e) => { setSearchTerm(e.target.value); setCurrentPage(1); }}
+                />
+              </div>
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {/* Filters */}
+          <div className="flex flex-wrap gap-2">
+            <Select value={filterPeriod} onValueChange={(v) => { setFilterPeriod(v); setCurrentPage(1); }}>
+              <SelectTrigger className="w-36"><SelectValue placeholder="Période" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Toutes les périodes</SelectItem>
+                <SelectItem value="today">Aujourd'hui</SelectItem>
+                <SelectItem value="yesterday">Hier</SelectItem>
+                <SelectItem value="week">7 derniers jours</SelectItem>
+                <SelectItem value="month">30 derniers jours</SelectItem>
+              </SelectContent>
+            </Select>
+            <Select value={filterCashier} onValueChange={(v) => { setFilterCashier(v); setCurrentPage(1); }}>
+              <SelectTrigger className="w-40"><SelectValue placeholder="Caissier" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Tous les caissiers</SelectItem>
+                {uniqueCashiers.map(c => <SelectItem key={c} value={c}>{c}</SelectItem>)}
+              </SelectContent>
+            </Select>
+            <Select value={filterPayment} onValueChange={(v) => { setFilterPayment(v); setCurrentPage(1); }}>
+              <SelectTrigger className="w-36"><SelectValue placeholder="Paiement" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Tous les moyens</SelectItem>
+                {uniquePayments.map(p => <SelectItem key={p} value={p}>{p}</SelectItem>)}
+              </SelectContent>
+            </Select>
+            <Select value={filterOrderType} onValueChange={(v) => { setFilterOrderType(v); setCurrentPage(1); }}>
+              <SelectTrigger className="w-36"><SelectValue placeholder="Type" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Tous les types</SelectItem>
+                {uniqueOrderTypes.map(o => <SelectItem key={o} value={o}>{o}</SelectItem>)}
+              </SelectContent>
+            </Select>
+            <Select value={filterStatus} onValueChange={(v) => { setFilterStatus(v); setCurrentPage(1); }}>
+              <SelectTrigger className="w-36"><SelectValue placeholder="Statut" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Tous les statuts</SelectItem>
+                {uniqueStatuses.map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}
+              </SelectContent>
+            </Select>
+          </div>
+
+          {/* Table */}
+          <div className="rounded-md border">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead className="cursor-pointer select-none" onClick={() => handleSort('receiptNumber')}>
+                    <div className="flex items-center gap-1">Reçu {sortField === 'receiptNumber' && <ArrowUpDown className="h-3 w-3" />}</div>
+                  </TableHead>
+                  <TableHead className="cursor-pointer select-none" onClick={() => handleSort('date')}>
+                    <div className="flex items-center gap-1">Date {sortField === 'date' && <ArrowUpDown className="h-3 w-3" />}</div>
+                  </TableHead>
+                  <TableHead className="cursor-pointer select-none" onClick={() => handleSort('cashier')}>
+                    <div className="flex items-center gap-1">Caissier {sortField === 'cashier' && <ArrowUpDown className="h-3 w-3" />}</div>
+                  </TableHead>
+                  <TableHead className="cursor-pointer select-none" onClick={() => handleSort('customer')}>
+                    <div className="flex items-center gap-1">Client {sortField === 'customer' && <ArrowUpDown className="h-3 w-3" />}</div>
+                  </TableHead>
+                  <TableHead className="cursor-pointer select-none" onClick={() => handleSort('table')}>
+                    <div className="flex items-center gap-1">Table {sortField === 'table' && <ArrowUpDown className="h-3 w-3" />}</div>
+                  </TableHead>
+                  <TableHead className="cursor-pointer select-none" onClick={() => handleSort('orderType')}>
+                    <div className="flex items-center gap-1">Type {sortField === 'orderType' && <ArrowUpDown className="h-3 w-3" />}</div>
+                  </TableHead>
+                  <TableHead className="cursor-pointer select-none" onClick={() => handleSort('paymentMethod')}>
+                    <div className="flex items-center gap-1">Paiement {sortField === 'paymentMethod' && <ArrowUpDown className="h-3 w-3" />}</div>
+                  </TableHead>
+                  <TableHead className="cursor-pointer select-none text-right" onClick={() => handleSort('items')}>
+                    <div className="flex items-center justify-end gap-1">Qté {sortField === 'items' && <ArrowUpDown className="h-3 w-3" />}</div>
+                  </TableHead>
+                  <TableHead className="cursor-pointer select-none text-right" onClick={() => handleSort('total')}>
+                    <div className="flex items-center justify-end gap-1">Total {sortField === 'total' && <ArrowUpDown className="h-3 w-3" />}</div>
+                  </TableHead>
+                  <TableHead className="cursor-pointer select-none" onClick={() => handleSort('status')}>
+                    <div className="flex items-center gap-1">Statut {sortField === 'status' && <ArrowUpDown className="h-3 w-3" />}</div>
+                  </TableHead>
+                  <TableHead className="text-right">Actions</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {paginatedTransactions.length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={11} className="h-32 text-center text-muted-foreground">
+                      Aucune transaction trouvée
+                    </TableCell>
+                  </TableRow>
+                ) : (
+                  paginatedTransactions.map((tx) => (
+                    <TableRow key={tx.id}>
+                      <TableCell className="font-medium">{tx.receiptNumber}</TableCell>
+                      <TableCell>{tx.date} <span className="text-muted-foreground">{tx.time}</span></TableCell>
+                      <TableCell>{tx.cashier}</TableCell>
+                      <TableCell className="max-w-[140px] truncate">{tx.customer}</TableCell>
+                      <TableCell>{tx.table ? `Table ${tx.table}` : '-'}</TableCell>
+                      <TableCell>{tx.orderType}</TableCell>
+                      <TableCell>{tx.paymentMethod}</TableCell>
+                      <TableCell className="text-right">{tx.items}</TableCell>
+                      <TableCell className="text-right font-medium">{formatPrice(tx.total)}</TableCell>
+                      <TableCell>
+                        <Badge variant={getStatusBadgeVariant(tx.status)}>{tx.status}</Badge>
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <Button variant="ghost" size="icon" onClick={() => openTransactionDetail(tx)}>
+                          <Eye className="h-4 w-4" />
+                        </Button>
+                      </TableCell>
+                    </TableRow>
+                  ))
+                )}
+              </TableBody>
+            </Table>
+          </div>
+
+          {/* Pagination */}
+          {totalPages > 1 && (
+            <div className="flex items-center justify-between">
+              <span className="text-sm text-muted-foreground">
+                Page {currentPage} sur {totalPages}
+              </span>
+              <div className="flex gap-1">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={currentPage <= 1}
+                  onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                >
+                  <ChevronLeft className="h-4 w-4" />
+                </Button>
+                {[...Array(totalPages)].map((_, i) => (
+                  <Button
+                    key={i}
+                    variant={currentPage === i + 1 ? 'default' : 'outline'}
+                    size="sm"
+                    className="w-9"
+                    onClick={() => setCurrentPage(i + 1)}
+                  >
+                    {i + 1}
+                  </Button>
+                ))}
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={currentPage >= totalPages}
+                  onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                >
+                  <ChevronRight className="h-4 w-4" />
+                </Button>
+              </div>
+            </div>
+          )}
+        </CardContent>
+      </Card>
     </div>
+
+      {/* Transaction Detail Modal */}
+      {showDetailModal && selectedTransaction && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white w-full max-w-2xl max-h-[90vh] overflow-y-auto rounded-2xl shadow-2xl animate-in zoom-in-95 duration-200">
+            {/* Modal Header */}
+            <div className="sticky top-0 bg-white z-10 px-6 py-5 border-b flex items-center justify-between rounded-t-2xl">
+              <div>
+                <h2 className="text-xl font-bold flex items-center gap-2">
+                  <Receipt className="h-5 w-5 text-blue-500" />
+                  {selectedTransaction.receiptNumber}
+                </h2>
+                <p className="text-sm text-muted-foreground mt-0.5">
+                  {selectedTransaction.date} à {selectedTransaction.time}
+                </p>
+              </div>
+              <button
+                onClick={() => setShowDetailModal(false)}
+                className="p-2 rounded-xl hover:bg-gray-100 transition-colors"
+              >
+                <X className="h-5 w-5 text-gray-400" />
+              </button>
+            </div>
+
+            <div className="p-6 space-y-6">
+              {/* General Information */}
+              <div>
+                <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-3">Informations générales</h3>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <span className="text-xs text-muted-foreground">Reçu</span>
+                    <p className="font-medium">{selectedTransaction.receiptNumber}</p>
+                  </div>
+                  <div>
+                    <span className="text-xs text-muted-foreground">Date</span>
+                    <p className="font-medium">{selectedTransaction.date}</p>
+                  </div>
+                  <div>
+                    <span className="text-xs text-muted-foreground">Heure</span>
+                    <p className="font-medium">{selectedTransaction.time}</p>
+                  </div>
+                  <div>
+                    <span className="text-xs text-muted-foreground">Caissier</span>
+                    <p className="font-medium">{selectedTransaction.cashier}</p>
+                  </div>
+                  <div>
+                    <span className="text-xs text-muted-foreground">Client</span>
+                    <p className="font-medium">{selectedTransaction.customer}</p>
+                  </div>
+                  <div>
+                    <span className="text-xs text-muted-foreground">Table</span>
+                    <p className="font-medium">{selectedTransaction.table ? `Table ${selectedTransaction.table}` : 'N/A'}</p>
+                  </div>
+                  <div>
+                    <span className="text-xs text-muted-foreground">Type de commande</span>
+                    <p className="font-medium">{selectedTransaction.orderType}</p>
+                  </div>
+                  <div>
+                    <span className="text-xs text-muted-foreground">Statut</span>
+                    <p className="font-medium">
+                      <Badge variant={getStatusBadgeVariant(selectedTransaction.status)}>{selectedTransaction.status}</Badge>
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Ordered Products */}
+              <div>
+                <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-3">Produits commandés</h3>
+                <div className="rounded-lg border overflow-hidden">
+                  <table className="w-full text-sm">
+                    <thead className="bg-muted/50">
+                      <tr>
+                        <th className="text-left p-3 font-medium">Produit</th>
+                        <th className="text-center p-3 font-medium">Qté</th>
+                        <th className="text-right p-3 font-medium">Prix unitaire</th>
+                        <th className="text-right p-3 font-medium">Total</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {[...Array(selectedTransaction.items)].map((_, i) => (
+                        <tr key={i} className="border-t">
+                          <td className="p-3">Produit #{i + 1}</td>
+                          <td className="text-center p-3">1</td>
+                          <td className="text-right p-3">{formatPrice(selectedTransaction.total / selectedTransaction.items)}</td>
+                          <td className="text-right p-3 font-medium">{formatPrice(selectedTransaction.total / selectedTransaction.items)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              {/* Payment Breakdown */}
+              <div>
+                <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-3">Récapitulatif</h3>
+                <div className="bg-blue-50 rounded-xl p-4 space-y-2">
+                  <div className="flex justify-between text-sm">
+                    <span className="text-gray-600">Sous-total</span>
+                    <span className="font-medium">{formatPrice(selectedTransaction.total - selectedTransaction.tax + selectedTransaction.discount)}</span>
+                  </div>
+                  {selectedTransaction.discount > 0 && (
+                    <div className="flex justify-between text-sm text-amber-600">
+                      <span>Réduction</span>
+                      <span className="font-medium">-{formatPrice(selectedTransaction.discount)}</span>
+                    </div>
+                  )}
+                  <div className="flex justify-between text-sm">
+                    <span className="text-gray-600">TVA</span>
+                    <span className="font-medium text-emerald-600">{formatPrice(selectedTransaction.tax)}</span>
+                  </div>
+                  <div className="flex justify-between border-t-2 border-blue-200 pt-2">
+                    <span className="font-bold">Total TTC</span>
+                    <span className="font-bold text-lg text-blue-600">{formatPrice(selectedTransaction.total)}</span>
+                  </div>
+                  <div className="flex justify-between text-sm pt-1">
+                    <span className="text-gray-600">Paiement</span>
+                    <span className="font-medium">{selectedTransaction.paymentMethod}</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="px-6 py-4 border-t flex justify-end">
+              <Button variant="outline" onClick={() => setShowDetailModal(false)}>
+                Fermer
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
   );
 }
 

@@ -42,6 +42,7 @@ const Prescription = lazy(() => import('./pages/Prescription'));
 const Production = lazy(() => import('./pages/Production'));
 const HardwareSettings = lazy(() => import('./pages/HardwareSettings'));
 const ReceiptDesigner = lazy(() => import('./pages/ReceiptDesigner'));
+const CashRegister = lazy(() => import('./pages/CashRegister'));
 
 // Hooks
 import { useAppConfig } from './hooks/useAppConfig';
@@ -147,20 +148,29 @@ function AppContent() {
       console.log('🔍 [APP DEBUG] Checking first-time setup...');
       if (window.electronAPI) {
         console.log('🔍 Checking if first-time setup is needed...');
+        console.log('[DIAG] CALL TRACE: checkFirstTimeSetup invoked');
+        console.trace('[DIAG] Stack trace at checkFirstTimeSetup');
         const needsSetup = await window.electronAPI.needsFirstTimeSetup();
         console.log('🔍 First-time setup needed:', needsSetup);
+        console.log('[DIAG] needsFirstTimeSetup IPC result =', needsSetup, '(type:', typeof needsSetup, ')');
 
         // Additionally detect if existing admin still uses default demo password
   const needsReset = await window.electronAPI.needsAdminPasswordReset();
   console.log('🔐 Admin default password detected (requires reset):', needsReset);
+  console.log('[DIAG] needsAdminPasswordReset IPC result =', needsReset, '(type:', typeof needsReset, ')');
 
         // Show setup wizard either if no admin exists OR default password detected
+        console.log('[DIAG] setIsFirstTime being called with:', needsSetup || needsReset, '(needsSetup=', needsSetup, 'needsReset=', needsReset, ')');
         setIsFirstTime(needsSetup || needsReset);
+      } else {
+        console.log('[DIAG] window.electronAPI NOT available, skipping setup check');
       }
     } catch (error) {
       console.error('❌ Failed to check setup status:', error);
+      console.log('[DIAG] checkFirstTimeSetup CAUGHT error, setting isFirstTime=false');
       setIsFirstTime(false);
     } finally {
+      console.log('[DIAG] checkFirstTimeSetup finally: setting checkingSetup=false');
       setCheckingSetup(false);
     }
   };
@@ -168,14 +178,20 @@ function AppContent() {
   // Auto-login handler after first-time setup
   const handleSetupComplete = async (adminUser) => {
     console.log('✅ Setup completed, auto-logging in admin user...', adminUser);
+    console.log('[DIAG] handleSetupComplete CALLED with adminUser:', adminUser?.username, 'id:', adminUser?.id);
     
     // Auto-login: Set user in AuthContext directly (already saved to localStorage in SetupWizard)
     if (adminUser && setUserDirectly) {
+      console.log('[DIAG] handleSetupComplete: calling setUserDirectly');
       setUserDirectly(adminUser); // This will trigger AuthContext to update
+    } else {
+      console.log('[DIAG] handleSetupComplete: SKIPPING setUserDirectly (adminUser=', !!adminUser, 'setUserDirectly=', !!setUserDirectly, ')');
     }
     
     // Close first-time setup
+    console.log('[DIAG] handleSetupComplete: setting setIsFirstTime(false)');
     setIsFirstTime(false);
+    console.log('[DIAG] handleSetupComplete: DONE');
   };
 
   // Phase 4: Global CSS Variables - Apply POSConfiguration theme globally
@@ -221,19 +237,29 @@ function AppContent() {
   }, [config]);
 
   useEffect(() => {
+    console.log('[DIAG] Initialization useEffect: configLoading=', configLoading, 'licenseLoading=', licenseLoading, 'authLoading=', authLoading, 'checkingSetup=', checkingSetup, 'isInitialized=', isInitialized);
     if (!configLoading && !licenseLoading && !authLoading && !checkingSetup) {
+      console.log('[DIAG] Setting isInitialized = true');
       setIsInitialized(true);
     }
   }, [configLoading, licenseLoading, authLoading, checkingSetup]);
 
   // Show first-time setup wizard (production mode only)
+  console.log('[DIAG] RENDER CHECK: isPreviewMode=', !isPreviewMode(), 'isFirstTime=', isFirstTime, 'checkingSetup=', checkingSetup, 'user=', user?.username, 'isInitialized=', isInitialized);
   if (!isPreviewMode() && isFirstTime && !checkingSetup) {
+    console.log('[DIAG] 🟢 RENDER DECISION: Showing SetupWizard (isFirstTime=', isFirstTime, 'checkingSetup=', checkingSetup, ')');
     console.log('🆕 Showing first-time setup wizard');
     return (
       <SetupWizard 
         onComplete={handleSetupComplete}
       />
     );
+  } else {
+    console.log('[DIAG] 🔴 RENDER DECISION: NOT showing SetupWizard (reason:', 
+      isPreviewMode() ? 'preview mode' : '', 
+      !isFirstTime ? 'isFirstTime=false' : '', 
+      checkingSetup ? 'still checking' : '', 
+      ')');
   }
 
   if (!isInitialized) {
@@ -313,6 +339,7 @@ function AppContent() {
                 <Route path="/settings" element={<ProtectedRoute><Settings /></ProtectedRoute>} />
                 <Route path="/hardware-settings" element={<ProtectedRoute><HardwareSettings /></ProtectedRoute>} />
                 <Route path="/receipt-designer" element={<ProtectedRoute><ReceiptDesigner /></ProtectedRoute>} />
+                <Route path="/caisse" element={<ProtectedRoute><CashRegister /></ProtectedRoute>} />
                 {/* Admin Only Routes */}
                 <Route path="/user-admin" element={<AdminOnlyRoute><UserAdmin /></AdminOnlyRoute>} />
                 <Route path="/user-management" element={<AdminOnlyRoute><UserAdmin /></AdminOnlyRoute>} />

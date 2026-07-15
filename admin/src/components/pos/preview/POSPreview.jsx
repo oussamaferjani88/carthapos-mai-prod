@@ -33,6 +33,7 @@ const POSPreview = ({
   const animationClasses = POSConfiguration.getAnimationClasses(config);
   const animationTypeClass = POSConfiguration.getAnimationTypeClass(config);
   const animationSpeedClass = POSConfiguration.getAnimationSpeedClass(config);
+  const layoutClasses = POSConfiguration.getLayoutClasses(config);
 
   // Check if component is visible
   const isVisible = (componentId) => {
@@ -43,16 +44,17 @@ const POSPreview = ({
   // Filter modules based on user role
   const getFilteredModules = () => {
     if (currentUserRole === 'admin') {
-      // Admin voit tous les modules + user-management
       return [...modules, 'user-management'];
     } else {
-      // Caissier voit seulement dashboard, sales et les modules affectés
       const baseModules = ['dashboard', 'sales'];
       return [...new Set([...baseModules, ...cashierModules])];
     }
   };
   
   const filteredModules = getFilteredModules();
+
+  // Resolve navbar width from config
+  const navbarWidth = config.navbarWidth || '64px';
 
   return (
     <div 
@@ -94,9 +96,9 @@ const POSPreview = ({
         style={{ 
           position: 'relative', 
           maxHeight: '100%', 
-          maxWidth: '100%', 
+          maxWidth: config.maxWidth !== '100%' ? config.maxWidth : '100%',
           height: '100%',
-          margin: 0,
+          margin: '0 auto',
           padding: 0,
           boxSizing: 'border-box',
           transition: styles.animation

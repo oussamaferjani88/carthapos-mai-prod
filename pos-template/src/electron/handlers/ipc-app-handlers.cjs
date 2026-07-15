@@ -107,20 +107,54 @@ function registerAppHandlers(loadAppConfig, databaseManager) {
     return null;
   });
 
-  // Settings (placeholder)
-  ipcMain.handle('settings:get', async () => {
-    console.log('⚠️ Settings storage not yet implemented');
-    return null;
+  // Settings
+  ipcMain.handle('settings:get', async (_event, key) => {
+    try {
+      if (!databaseManager || typeof databaseManager.getRow !== 'function') {
+        console.warn('⚠️ Database not available for settings:get');
+        return null;
+      }
+      const row = await databaseManager.getRow('SELECT value FROM settings WHERE key = ?', [key]);
+      return row ? row.value : null;
+    } catch (error) {
+      console.error('❌ Error getting setting:', error);
+      return null;
+    }
   });
 
-  ipcMain.handle('settings:set', async () => {
-    console.log('⚠️ Settings storage not yet implemented');
-    return { success: false };
+  ipcMain.handle('settings:set', async (_event, key, value) => {
+    try {
+      if (!databaseManager || typeof databaseManager.runQuery !== 'function') {
+        console.warn('⚠️ Database not available for settings:set');
+        return { success: false, error: 'Database not available' };
+      }
+      await databaseManager.runQuery(
+        'INSERT INTO settings (key, value, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP) ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = CURRENT_TIMESTAMP',
+        [key, String(value)]
+      );
+      return { success: true };
+    } catch (error) {
+      console.error('❌ Error setting setting:', error);
+      return { success: false, error: error.message };
+    }
   });
 
   ipcMain.handle('settings:getAll', async () => {
-    console.log('⚠️ Settings storage not yet implemented');
-    return {};
+    try {
+      if (!databaseManager || typeof databaseManager.getData !== 'function') {
+        console.warn('⚠️ Database not available for settings:getAll');
+        return {};
+      }
+      const rows = await databaseManager.getData('SELECT key, value FROM settings');
+      const settings = {};
+      for (const row of rows) {
+        settings[row.key] = row.value;
+      }
+      return settings;
+    } catch (error) {
+      console.error('❌ Error getting all settings:', error);
+      return {};
+    }
   });
 
   // Notifications (placeholder)

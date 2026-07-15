@@ -17,7 +17,7 @@ function logToFile(message) {
     // Determine log directory based on app context
     let logDir;
     if (app.isPackaged) {
-      // In production: logs in installation directory
+      // In production: logs next to the DB in the installation data folder
       const exePath = app.getPath('exe');
       const installDir = path.dirname(exePath);
       logDir = path.join(installDir, 'data', 'logs');
@@ -470,64 +470,24 @@ class ElectronDatabaseManager {
   }
 
   /**
-   * Attempt to fix permissions on a folder using icacls (Windows only)
-   * Tries direct call first, then elevated via PowerShell UAC prompt.
-   * @param {string} folderPath - The folder to fix permissions on
-   * @returns {boolean} True if permissions were fixed successfully
+   * On Windows, permission fixing is handled by the NSIS installer at install time
+   * (see nsis-installer.nsh), which creates the data folder with BUILTIN\Users full
+   * control. No runtime UAC prompts are needed.
+   *
+   * This method simply checks if the folder is usable, and if not, returns false
+   * so the caller falls back gracefully.
    */
   attemptPermissionFix(folderPath) {
     if (process.platform !== 'win32') return false;
 
-    const childProcess = require('child_process');
-    const groups = ['Everyone', 'Users', 'BUILTIN\\Users'];
-    const elevatedCommands = [
-      `icacls.exe "${folderPath}" /grant:r "Users:(OI)(CI)F" /T`,
-      `icacls.exe "${folderPath}" /grant:r "Everyone:(OI)(CI)F" /T`,
-      `icacls.exe "${folderPath}" /grant:r "CREATOR OWNER:(OI)(CI)F" /T`
-    ];
-
-    // Try 1: Direct icacls without elevation (works if user has admin rights)
-    for (const group of groups) {
-      try {
-        console.log(`🔧 [direct] Granting "${group}" full access to: ${folderPath}`);
-        childProcess.execSync(
-          `icacls.exe "${folderPath}" /grant:r "${group}:(OI)(CI)F" /T /Q`,
-          { timeout: 10000, windowsHide: true, stdio: 'pipe' }
-        );
-        console.log('  ✅ Direct icacls succeeded');
-        return true;
-      } catch (err) {
-        console.log(`  ⚠️ Direct icacls failed for "${group}": ${err.message.slice(0, 60)}`);
-      }
+    // The NSIS installer already created the folder with proper permissions.
+    // If it doesn't exist or isn't writable, we just return false — no UAC.
+    if (!fs.existsSync(folderPath)) {
+      console.log('  ⚠️ data folder does not exist (installer may not have created it)');
+      return false;
     }
 
-    // Try 2: Elevated via PowerShell Start-Process -Verb RunAs (shows UAC prompt)
-    // This writes a temp .bat file and asks PowerShell to run it elevated.
-    console.log('🔧 [elevated] Showing UAC prompt to fix data folder permissions...');
-    for (const cmd of elevatedCommands) {
-      try {
-        const fs = require('fs');
-        const path = require('path');
-        const os = require('os');
-        const batPath = path.join(os.tmpdir(), `carthapos-fix-perms-${Date.now()}-${Math.random().toString(36).slice(2, 6)}.bat`);
-        fs.writeFileSync(batPath, `@echo off\n${cmd}\nexit /b %errorlevel%\n`, 'utf8');
-
-        try {
-          childProcess.execSync(
-            `powershell -NoProfile -Command "Start-Process -WindowStyle Hidden -FilePath '${batPath}' -Verb RunAs -Wait"`,
-            { timeout: 120000, windowsHide: true, stdio: 'pipe' }
-          );
-          console.log('  ✅ Elevated icacls succeeded');
-          return true;
-        } finally {
-          try { fs.unlinkSync(batPath); } catch {}
-        }
-      } catch (err) {
-        console.log(`  ⚠️ Elevated icacls failed: ${err.message.slice(0, 80)}`);
-      }
-    }
-
-    return false;
+    return this.testFolderWritable(folderPath);
   }
 
   /**
@@ -547,80 +507,60 @@ class ElectronDatabaseManager {
   }
 
   /**
-   * Get data folder path (where database, backups, and logs go)
-   * With fallback to AppData if Program Files isn't writable
+   * Get data folder path (where database, backups, and logs go).
+   * The NSIS installer (nsis-installer.nsh) creates `{installDir}\data\` with
+   * proper permissions at install time. The app just checks for it and uses it.
+   * No runtime UAC prompts or PowerShell scripts are needed.
    * @returns {string} Data folder path
    */
   getDataFolderPath() {
     const { app } = require('electron');
     
     console.log('\n🔍 === DATABASE LOCATION DETECTION ===');
-    console.log('📦 OPERATING IN SINGLE FOLDER MODE (All data with exe)');
     
-    // In production (packaged app)
     if (app.isPackaged) {
       const installRoot = this.getAppInstallationRoot();
       const dataFolder = path.join(installRoot, 'data');
       
       console.log(`📍 Installation Root: ${installRoot}`);
-      console.log(`📍 Data Folder: ${dataFolder}`);
+      console.log(`📍 Target Data Folder: ${dataFolder}`);
       
-      // Create data folder if it doesn't exist
       try {
-        if (!fs.existsSync(dataFolder)) {
-          fs.mkdirSync(dataFolder, { recursive: true });
-          console.log('✅ Created data folder at installation location');
-        }
-        
-        // Test if it's writable
-        if (this.testFolderWritable(dataFolder)) {
-          console.log('✅ Data folder is WRITABLE');
-          console.log('🎯 SELECTED: Single Folder Mode (Installation Directory)');
-          console.log(`   Installation Root: ${installRoot}`);
-          console.log(`   Data Location: ${dataFolder}`);
-          console.log(`   All files in one place: YES ✅`);
-          console.log('═══════════════════════════════════\n');
-          return dataFolder;
-        }
-        
-        console.error('❌ Cannot write to installation directory');
-        console.log('🔧 Attempting to fix data folder permissions...');
-        
-        if (this.attemptPermissionFix(dataFolder) && this.testFolderWritable(dataFolder)) {
-          console.log('✅ Data folder permissions FIXED and now WRITABLE');
-          console.log('🎯 SELECTED: Single Folder Mode (Installation Directory)');
-          console.log(`   Installation Root: ${installRoot}`);
-          console.log(`   Data Location: ${dataFolder}`);
-          console.log('═══════════════════════════════════\n');
-          return dataFolder;
-        }
-        
-        console.log('⚠️  Installation folder not writable - falling back to AppData');
-        
-        // Fallback to AppData if Program Files isn't writable
-        const userData = app.getPath('userData');
-        const appDataFolder = path.join(userData, 'data');
-        
-        try {
-          if (!fs.existsSync(appDataFolder)) {
-            fs.mkdirSync(appDataFolder, { recursive: true });
+        // The NSIS installer already created this folder with proper permissions
+        if (fs.existsSync(dataFolder)) {
+          if (this.testFolderWritable(dataFolder)) {
+            console.log('✅ Data folder is WRITABLE');
+            console.log('🎯 SELECTED: Installation Directory');
+            console.log(`   Data Location: ${dataFolder}\n`);
+            return dataFolder;
           }
-          
-          // Test if AppData is writable
-          if (!this.testFolderWritable(appDataFolder)) {
-            throw new Error('AppData folder not writable');
+          // Folder exists but not writable (unlikely — installer set permissions)
+          console.warn('⚠️ Data folder exists but is NOT writable');
+        } else {
+          // Folder doesn't exist (portable mode or direct exe launch)
+          console.log('📁 Data folder not found, attempting to create it...');
+          try {
+            fs.mkdirSync(dataFolder, { recursive: true });
+            console.log('✅ Data folder created');
+            if (this.testFolderWritable(dataFolder)) {
+              console.log('🎯 SELECTED: Installation Directory');
+              console.log(`   Data Location: ${dataFolder}\n`);
+              return dataFolder;
+            }
+          } catch (mkdirErr) {
+            console.log(`  ⚠️ Cannot create folder: ${mkdirErr.message}`);
           }
-          
-          console.log('✅ AppData folder is WRITABLE');
-          console.log('🎯 FALLBACK: AppData Mode');
-          console.log(`   User Data Path: ${userData}`);
-          console.log(`   Data Location: ${appDataFolder}`);
-          console.log('═══════════════════════════════════\n');
-          return appDataFolder;
-        } catch (appDataError) {
-          console.error('❌ Cannot write to AppData either:', appDataError.message);
-          throw new Error('No writable location found for database');
         }
+        
+        // Fallback to AppData (guaranteed writable)
+        console.warn('📁 Falling back to AppData...');
+        const fallbackData = path.join(app.getPath('userData'), 'data');
+        if (!fs.existsSync(fallbackData)) {
+          fs.mkdirSync(fallbackData, { recursive: true });
+        }
+        console.log('🎯 SELECTED: AppData Fallback');
+        console.log(`   Data Location: ${fallbackData}\n`);
+        return fallbackData;
       } catch (error) {
         console.error('❌ Critical error determining data folder:', error.message);
         throw error;
@@ -629,15 +569,10 @@ class ElectronDatabaseManager {
       // Development: use a local data folder
       console.log('🛠️  DEVELOPMENT MODE');
       const devDataFolder = path.join(__dirname, '../../..', 'dev-data');
-      
-      // Create dev-data folder
       if (!fs.existsSync(devDataFolder)) {
         fs.mkdirSync(devDataFolder, { recursive: true });
       }
-      
-      console.log(`📍 Dev Data Path: ${devDataFolder}`);
-      console.log('🎯 SELECTED: Development Data Folder');
-      console.log('═══════════════════════════════════\n');
+      console.log(`📍 Dev Data Path: ${devDataFolder}\n`);
       return devDataFolder;
     }
   }
@@ -770,13 +705,16 @@ class ElectronDatabaseManager {
           id INTEGER PRIMARY KEY AUTOINCREMENT,
           name TEXT NOT NULL,
           price DECIMAL(10,2) NOT NULL,
+          cost_price DECIMAL(10,2) DEFAULT 0,
           category TEXT,
           family TEXT,
           description TEXT,
           barcode TEXT UNIQUE,
           image TEXT,
+          unit TEXT DEFAULT 'unit',
           stock INTEGER DEFAULT 0,
           min_stock INTEGER DEFAULT 0,
+          supplier TEXT DEFAULT '',
           created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
           updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
         )`
@@ -921,6 +859,123 @@ class ElectronDatabaseManager {
           session_duration INTEGER,
           FOREIGN KEY (user_id) REFERENCES users(id)
         )`
+      },
+      {
+        name: 'stock_movements',
+        sql: `CREATE TABLE IF NOT EXISTS stock_movements (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          product_id INTEGER NOT NULL,
+          product_name TEXT,
+          movement_type TEXT NOT NULL CHECK(movement_type IN ('in','out','adjustment','initial','correction','purchase','waste','return','sale')),
+          quantity INTEGER NOT NULL,
+          stock_before INTEGER DEFAULT 0,
+          stock_after INTEGER DEFAULT 0,
+          reason TEXT,
+          reference TEXT,
+          user_name TEXT,
+          created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+          FOREIGN KEY (product_id) REFERENCES products(id)
+        )`
+      },
+      {
+        name: 'shifts',
+        sql: `CREATE TABLE IF NOT EXISTS shifts (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          user_id INTEGER NOT NULL,
+          user_name TEXT,
+          opening_float DECIMAL(10,2) DEFAULT 0,
+          closed_at DATETIME,
+          opened_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+          status TEXT DEFAULT 'open' CHECK(status IN ('open','closed')),
+          closing_expected DECIMAL(10,2) DEFAULT 0,
+          closing_actual DECIMAL(10,2) DEFAULT 0,
+          difference DECIMAL(10,2) DEFAULT 0,
+          cash_sales DECIMAL(10,2) DEFAULT 0,
+          card_sales DECIMAL(10,2) DEFAULT 0,
+          other_sales DECIMAL(10,2) DEFAULT 0,
+          note TEXT,
+          denomination_breakdown TEXT,
+          FOREIGN KEY (user_id) REFERENCES users(id)
+        )`
+      },
+      {
+        name: 'settings',
+        sql: `CREATE TABLE IF NOT EXISTS settings (
+          key TEXT PRIMARY KEY,
+          value TEXT NOT NULL,
+          updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        )`
+      },
+      {
+        name: 'kitchen_orders',
+        sql: `CREATE TABLE IF NOT EXISTS kitchen_orders (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          table_number TEXT NOT NULL,
+          items TEXT,
+          notes TEXT DEFAULT '',
+          priority TEXT NOT NULL DEFAULT 'normal' CHECK(priority IN ('low','normal','high','urgent')),
+          status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','preparing','ready','served','completed','cancelled')),
+          created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+          updated_at DATETIME
+        )`
+      },
+      {
+        name: 'services',
+        sql: `CREATE TABLE IF NOT EXISTS services (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          name TEXT NOT NULL UNIQUE,
+          description TEXT,
+          price DECIMAL(10,2) NOT NULL DEFAULT 0,
+          duration INTEGER DEFAULT 30,
+          created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        )`
+      },
+      {
+        name: 'appointments',
+        sql: `CREATE TABLE IF NOT EXISTS appointments (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          customer_name TEXT NOT NULL,
+          customer_phone TEXT,
+          service_id INTEGER,
+          appointment_date DATETIME NOT NULL,
+          notes TEXT,
+          status TEXT NOT NULL DEFAULT 'scheduled' CHECK(status IN ('scheduled','confirmed','in_progress','completed','cancelled','no_show')),
+          created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+          FOREIGN KEY (service_id) REFERENCES services(id)
+        )`
+      },
+      {
+        name: 'suppliers',
+        sql: `CREATE TABLE IF NOT EXISTS suppliers (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          name TEXT NOT NULL,
+          contact TEXT,
+          phone TEXT,
+          email TEXT,
+          address TEXT,
+          notes TEXT DEFAULT '',
+          is_active BOOLEAN DEFAULT 1,
+          created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        )`
+      },
+      {
+        name: 'held_orders',
+        sql: `CREATE TABLE IF NOT EXISTS held_orders (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          items TEXT NOT NULL,
+          table_id INTEGER,
+          table_number TEXT,
+          total DECIMAL(10,2) NOT NULL DEFAULT 0,
+          subtotal DECIMAL(10,2) NOT NULL DEFAULT 0,
+          tax DECIMAL(10,2) NOT NULL DEFAULT 0,
+          discount DECIMAL(10,2) NOT NULL DEFAULT 0,
+          discount_percentage DECIMAL(5,2) NOT NULL DEFAULT 0,
+          customer_id INTEGER,
+          customer_name TEXT,
+          notes TEXT DEFAULT '',
+          created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+          updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        )`
       }
     ];
 
@@ -949,7 +1004,16 @@ class ElectronDatabaseManager {
       'CREATE INDEX IF NOT EXISTS idx_cash_drawer_timestamp ON cash_drawer_events(timestamp)',
       'CREATE INDEX IF NOT EXISTS idx_cash_drawer_user ON cash_drawer_events(user_id)',
       'CREATE INDEX IF NOT EXISTS idx_user_sessions_user ON user_sessions(user_id)',
-      'CREATE INDEX IF NOT EXISTS idx_user_modules_user ON user_modules(user_id)'
+      'CREATE INDEX IF NOT EXISTS idx_user_modules_user ON user_modules(user_id)',
+      'CREATE INDEX IF NOT EXISTS idx_kitchen_status ON kitchen_orders(status)',
+      'CREATE INDEX IF NOT EXISTS idx_kitchen_created ON kitchen_orders(created_at)',
+      'CREATE INDEX IF NOT EXISTS idx_kitchen_priority ON kitchen_orders(priority)',
+      'CREATE INDEX IF NOT EXISTS idx_appointments_date ON appointments(appointment_date)',
+      'CREATE INDEX IF NOT EXISTS idx_appointments_status ON appointments(status)',
+      'CREATE INDEX IF NOT EXISTS idx_appointments_service ON appointments(service_id)',
+      'CREATE INDEX IF NOT EXISTS idx_suppliers_name ON suppliers(name)',
+      'CREATE INDEX IF NOT EXISTS idx_services_name ON services(name)',
+      'CREATE INDEX IF NOT EXISTS idx_held_orders_created ON held_orders(created_at)'
     ];
 
     for (const indexSql of indexes) {
@@ -989,6 +1053,254 @@ class ElectronDatabaseManager {
     } catch (migrateError) {
       if (!migrateError.message.includes('duplicate column')) {
         console.warn(`⚠️ Migration note: ${migrateError.message}`);
+      }
+    }
+
+    // Migration: Add subtotal column to sales if not exists
+    try {
+      await this.runQuery("ALTER TABLE sales ADD COLUMN subtotal DECIMAL(10,2) DEFAULT 0");
+      console.log('✅ Migration: Added subtotal column to sales');
+    } catch (migrateError) {
+      if (!migrateError.message.includes('duplicate column')) {
+        console.warn(`⚠️ Migration note: ${migrateError.message}`);
+      }
+    }
+
+    // Migration: Add notes column to sales if not exists
+    try {
+      await this.runQuery("ALTER TABLE sales ADD COLUMN notes TEXT DEFAULT ''");
+      console.log('✅ Migration: Added notes column to sales');
+    } catch (migrateError) {
+      if (!migrateError.message.includes('duplicate column')) {
+        console.warn(`⚠️ Migration note: ${migrateError.message}`);
+      }
+    }
+
+    // Migration: Add visit_count to customers if not exists
+    try {
+      await this.runQuery("ALTER TABLE customers ADD COLUMN visit_count INTEGER DEFAULT 0");
+      console.log('✅ Migration: Added visit_count to customers');
+    } catch (migrateError) {
+      if (!migrateError.message.includes('duplicate column')) {
+        console.warn(`⚠️ Migration note: ${migrateError.message}`);
+      }
+    }
+
+    // Migration: Add total_spent to customers if not exists
+    try {
+      await this.runQuery("ALTER TABLE customers ADD COLUMN total_spent DECIMAL(10,2) DEFAULT 0");
+      console.log('✅ Migration: Added total_spent to customers');
+    } catch (migrateError) {
+      if (!migrateError.message.includes('duplicate column')) {
+        console.warn(`⚠️ Migration note: ${migrateError.message}`);
+      }
+    }
+
+    // Migration: Add last_visit_date to customers if not exists
+    try {
+      await this.runQuery("ALTER TABLE customers ADD COLUMN last_visit_date DATETIME DEFAULT NULL");
+      console.log('✅ Migration: Added last_visit_date to customers');
+    } catch (migrateError) {
+      if (!migrateError.message.includes('duplicate column')) {
+        console.warn(`⚠️ Migration note: ${migrateError.message}`);
+      }
+    }
+
+    // Migration: Add sale_id to kitchen_orders if not exists
+    try {
+      await this.runQuery("ALTER TABLE kitchen_orders ADD COLUMN sale_id INTEGER DEFAULT NULL");
+      console.log('✅ Migration: Added sale_id to kitchen_orders');
+    } catch (migrateError) {
+      if (!migrateError.message.includes('duplicate column')) {
+        console.warn(`⚠️ Migration note: ${migrateError.message}`);
+      }
+    }
+
+    // Migration: Add total to kitchen_orders if not exists
+    try {
+      await this.runQuery("ALTER TABLE kitchen_orders ADD COLUMN total DECIMAL(10,2) DEFAULT 0");
+      console.log('✅ Migration: Added total to kitchen_orders');
+    } catch (migrateError) {
+      if (!migrateError.message.includes('duplicate column')) {
+        console.warn(`⚠️ Migration note: ${migrateError.message}`);
+      }
+    }
+
+    // Migration: Add started_at to kitchen_orders if not exists
+    try {
+      await this.runQuery("ALTER TABLE kitchen_orders ADD COLUMN started_at DATETIME DEFAULT NULL");
+      console.log('✅ Migration: Added started_at to kitchen_orders');
+    } catch (migrateError) {
+      if (!migrateError.message.includes('duplicate column')) {
+        console.warn(`⚠️ Migration note: ${migrateError.message}`);
+      }
+    }
+
+    // Migration: Add completed_at to kitchen_orders if not exists
+    try {
+      await this.runQuery("ALTER TABLE kitchen_orders ADD COLUMN completed_at DATETIME DEFAULT NULL");
+      console.log('✅ Migration: Added completed_at to kitchen_orders');
+    } catch (migrateError) {
+      if (!migrateError.message.includes('duplicate column')) {
+        console.warn(`⚠️ Migration note: ${migrateError.message}`);
+      }
+    }
+
+    // Migration: Add x,y to restaurant_tables if not exists
+    try {
+      await this.runQuery("ALTER TABLE restaurant_tables ADD COLUMN x INTEGER DEFAULT 50");
+      console.log('✅ Migration: Added x to restaurant_tables');
+    } catch (migrateError) {
+      if (!migrateError.message.includes('duplicate column')) {
+        console.warn(`⚠️ Migration note: ${migrateError.message}`);
+      }
+    }
+
+    try {
+      await this.runQuery("ALTER TABLE restaurant_tables ADD COLUMN y INTEGER DEFAULT 50");
+      console.log('✅ Migration: Added y to restaurant_tables');
+    } catch (migrateError) {
+      if (!migrateError.message.includes('duplicate column')) {
+        console.warn(`⚠️ Migration note: ${migrateError.message}`);
+      }
+    }
+
+    // Migration: Add waiter to restaurant_tables if not exists
+    try {
+      await this.runQuery("ALTER TABLE restaurant_tables ADD COLUMN waiter TEXT DEFAULT ''");
+      console.log('✅ Migration: Added waiter to restaurant_tables');
+    } catch (migrateError) {
+      if (!migrateError.message.includes('duplicate column')) {
+        console.warn(`⚠️ Migration note: ${migrateError.message}`);
+      }
+    }
+
+    // Migration: Add notes to restaurant_tables if not exists
+    try {
+      await this.runQuery("ALTER TABLE restaurant_tables ADD COLUMN notes TEXT DEFAULT ''");
+      console.log('✅ Migration: Added notes to restaurant_tables');
+    } catch (migrateError) {
+      if (!migrateError.message.includes('duplicate column')) {
+        console.warn(`⚠️ Migration note: ${migrateError.message}`);
+      }
+    }
+
+    // Migration: Add merged_tables to restaurant_tables if not exists
+    try {
+      await this.runQuery("ALTER TABLE restaurant_tables ADD COLUMN merged_tables TEXT DEFAULT NULL");
+      console.log('✅ Migration: Added merged_tables to restaurant_tables');
+    } catch (migrateError) {
+      if (!migrateError.message.includes('duplicate column')) {
+        console.warn(`⚠️ Migration note: ${migrateError.message}`);
+      }
+    }
+
+    // Migration: Add merged_into to restaurant_tables if not exists
+    try {
+      await this.runQuery("ALTER TABLE restaurant_tables ADD COLUMN merged_into INTEGER DEFAULT NULL");
+      console.log('✅ Migration: Added merged_into to restaurant_tables');
+    } catch (migrateError) {
+      if (!migrateError.message.includes('duplicate column')) {
+        console.warn(`⚠️ Migration note: ${migrateError.message}`);
+      }
+    }
+
+    // Migration: Add zone to restaurant_tables if not exists
+    try {
+      await this.runQuery("ALTER TABLE restaurant_tables ADD COLUMN zone TEXT DEFAULT ''");
+      console.log('✅ Migration: Added zone to restaurant_tables');
+    } catch (migrateError) {
+      if (!migrateError.message.includes('duplicate column')) {
+        console.warn(`⚠️ Migration note: ${migrateError.message}`);
+      }
+    }
+
+    // Migration: Add area_name to restaurant_tables if not exists
+    try {
+      await this.runQuery("ALTER TABLE restaurant_tables ADD COLUMN area_name TEXT DEFAULT ''");
+      console.log('✅ Migration: Added area_name to restaurant_tables');
+    } catch (migrateError) {
+      if (!migrateError.message.includes('duplicate column')) {
+        console.warn(`⚠️ Migration note: ${migrateError.message}`);
+      }
+    }
+
+    // Migration: Add shift_id to sales if not exists
+    try {
+      await this.runQuery("ALTER TABLE sales ADD COLUMN shift_id INTEGER DEFAULT NULL REFERENCES shifts(id)");
+      console.log('✅ Migration: Added shift_id to sales');
+    } catch (migrateError) {
+      if (!migrateError.message.includes('duplicate column')) {
+        console.warn(`⚠️ Migration note: ${migrateError.message}`);
+      }
+    }
+
+    // Migration: Add cost_price to products if not exists
+    try {
+      await this.runQuery("ALTER TABLE products ADD COLUMN cost_price DECIMAL(10,2) DEFAULT 0");
+      console.log('✅ Migration: Added cost_price to products');
+    } catch (migrateError) {
+      if (!migrateError.message.includes('duplicate column')) {
+        console.warn(`⚠️ Migration note: ${migrateError.message}`);
+      }
+    }
+
+    // Migration: Add unit to products if not exists
+    try {
+      await this.runQuery("ALTER TABLE products ADD COLUMN unit TEXT DEFAULT 'unit'");
+      console.log('✅ Migration: Added unit to products');
+    } catch (migrateError) {
+      if (!migrateError.message.includes('duplicate column')) {
+        console.warn(`⚠️ Migration note: ${migrateError.message}`);
+      }
+    }
+
+    // Migration: Add supplier to products if not exists
+    try {
+      await this.runQuery("ALTER TABLE products ADD COLUMN supplier TEXT DEFAULT ''");
+      console.log('✅ Migration: Added supplier to products');
+    } catch (migrateError) {
+      if (!migrateError.message.includes('duplicate column')) {
+        console.warn(`⚠️ Migration note: ${migrateError.message}`);
+      }
+    }
+
+    // Migration: Add notes to suppliers if not exists
+    try {
+      await this.runQuery("ALTER TABLE suppliers ADD COLUMN notes TEXT DEFAULT ''");
+      console.log('✅ Migration: Added notes to suppliers');
+    } catch (migrateError) {
+      if (!migrateError.message.includes('duplicate column')) {
+        console.warn(`⚠️ Migration note: ${migrateError.message}`);
+      }
+    }
+
+    // Migration: Expand stock_movements CHECK constraint to include new types
+    try {
+      // SQLite cannot ALTER CHECK constraints; recreate the table
+      await this.runQuery("ALTER TABLE stock_movements RENAME TO stock_movements_old");
+      await this.runQuery(`CREATE TABLE IF NOT EXISTS stock_movements (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        product_id INTEGER NOT NULL,
+        product_name TEXT,
+        movement_type TEXT NOT NULL CHECK(movement_type IN ('in','out','adjustment','initial','correction','purchase','waste','return','sale')),
+        quantity INTEGER NOT NULL,
+        stock_before INTEGER DEFAULT 0,
+        stock_after INTEGER DEFAULT 0,
+        reason TEXT,
+        reference TEXT,
+        user_name TEXT,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (product_id) REFERENCES products(id)
+      )`);
+      await this.runQuery("INSERT INTO stock_movements SELECT * FROM stock_movements_old");
+      await this.runQuery("DROP TABLE stock_movements_old");
+      console.log('✅ Migration: Expanded stock_movements movement types');
+    } catch (migrateError) {
+      if (migrateError.message.includes('no such table')) {
+        console.log('ℹ️ Migration skip: stock_movements_old does not exist (first run?)');
+      } else {
+        console.warn(`⚠️ Migration note (stock_movements types): ${migrateError.message}`);
       }
     }
 
@@ -1033,6 +1345,90 @@ class ElectronDatabaseManager {
           reject(err);
         } else {
           resolve({ lastID: this.lastID, changes: this.changes });
+        }
+      });
+    });
+  }
+
+  /**
+   * Run multiple queries inside an atomic SQL transaction (BEGIN / COMMIT / ROLLBACK).
+   * Guarantees that all queries succeed together or the DB is left unchanged.
+   *
+   * @param {function} callback - A function that receives a `query` helper.
+   *   The `query(sql, params)` helper returns a Promise<{lastID, changes}>.
+   *   If the callback throws or returns a rejected promise, ROLLBACK is issued.
+   * @returns {Promise<any>} Resolves with the value returned by the callback.
+   */
+  async runTransaction(callback) {
+    if (!this.db) {
+      throw new Error('Database not initialized');
+    }
+
+    return new Promise((resolve, reject) => {
+      this.db.run('BEGIN', (beginErr) => {
+        if (beginErr) {
+          console.error('❌ Transaction BEGIN failed:', beginErr.message);
+          return reject(beginErr);
+        }
+
+        const run = (sql, params = []) => {
+          return new Promise((res, rej) => {
+            this.db.run(sql, params, function(err) {
+              if (err) rej(err);
+              else res({ lastID: this.lastID, changes: this.changes });
+            });
+          });
+        };
+
+        const get = (sql, params = []) => {
+          return new Promise((res, rej) => {
+            this.db.get(sql, params, (err, row) => {
+              if (err) rej(err);
+              else res(row);
+            });
+          });
+        };
+
+        const all = (sql, params = []) => {
+          return new Promise((res, rej) => {
+            this.db.all(sql, params, (err, rows) => {
+              if (err) rej(err);
+              else res(rows);
+            });
+          });
+        };
+
+        const doRollback = (err) => {
+          this.db.run('ROLLBACK', () => reject(err));
+        };
+
+        let result;
+        try {
+          result = callback({ run, get, all });
+        } catch (syncErr) {
+          return doRollback(syncErr);
+        }
+
+        if (result && typeof result.then === 'function') {
+          result.then((val) => {
+            this.db.run('COMMIT', (commitErr) => {
+              if (commitErr) {
+                console.error('❌ Transaction COMMIT failed:', commitErr.message);
+                this.db.run('ROLLBACK', () => reject(commitErr));
+              } else {
+                resolve(val);
+              }
+            });
+          }).catch(doRollback);
+        } else {
+          this.db.run('COMMIT', (commitErr) => {
+            if (commitErr) {
+              console.error('❌ Transaction COMMIT failed:', commitErr.message);
+              this.db.run('ROLLBACK', () => reject(commitErr));
+            } else {
+              resolve(result);
+            }
+          });
         }
       });
     });
@@ -1092,15 +1488,26 @@ class ElectronDatabaseManager {
       const stats = {};
       
       const tables = [
-        'products', 
-        'categories', 
-        'sales', 
-        'customers', 
-        'users', 
-        'user_modules', 
-        'audit_logs', 
-        'cash_drawer_events', 
-        'user_sessions'
+        'products',
+        'categories',
+        'product_families',
+        'sales',
+        'sale_items',
+        'customers',
+        'users',
+        'user_modules',
+        'audit_logs',
+        'cash_drawer_events',
+        'restaurant_tables',
+        'user_sessions',
+        'stock_movements',
+        'shifts',
+        'settings',
+        'kitchen_orders',
+        'services',
+        'appointments',
+        'suppliers',
+        'held_orders'
       ];
       
       for (const table of tables) {

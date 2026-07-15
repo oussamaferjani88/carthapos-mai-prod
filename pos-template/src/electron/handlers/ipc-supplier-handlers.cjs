@@ -5,10 +5,13 @@
 
 const { ipcMain } = require('electron');
 
-function registerSupplierHandlers(db) {
+function registerSupplierHandlers(ipcMainInstance, databaseManager) {
   console.log('🚚 Registering supplier IPC handlers...');
 
-  ipcMain.handle('get-suppliers', () => {
+  const db = databaseManager.getDatabase();
+  if (!db) { console.warn('⚠️ Database not available for supplier handlers'); return; }
+
+  ipcMainInstance.handle('get-suppliers', () => {
     return new Promise((resolve, reject) => {
       db.all(
         'SELECT * FROM suppliers ORDER BY name',
@@ -25,14 +28,14 @@ function registerSupplierHandlers(db) {
     });
   });
 
-  ipcMain.handle('add-supplier', (event, supplier) => {
+  ipcMainInstance.handle('add-supplier', (event, supplier) => {
     return new Promise((resolve, reject) => {
-      const { name, contact, phone, email, address } = supplier;
+      const { name, contact_person, contact, phone, email, address, notes } = supplier;
       
       db.run(
-        `INSERT INTO suppliers (name, contact, phone, email, address)
-         VALUES (?, ?, ?, ?, ?)`,
-        [name, contact || '', phone || '', email || '', address || ''],
+        `INSERT INTO suppliers (name, contact, phone, email, address, notes)
+         VALUES (?, ?, ?, ?, ?, ?)`,
+        [name, contact_person || contact || '', phone || '', email || '', address || '', notes || ''],
         function(err) {
           if (err) {
             console.error('Error adding supplier:', err);
@@ -46,15 +49,15 @@ function registerSupplierHandlers(db) {
     });
   });
 
-  ipcMain.handle('update-supplier', (event, id, supplier) => {
+  ipcMainInstance.handle('update-supplier', (event, id, supplier) => {
     return new Promise((resolve, reject) => {
-      const { name, contact, phone, email, address } = supplier;
+      const { name, contact_person, contact, phone, email, address, notes } = supplier;
       
       db.run(
         `UPDATE suppliers 
-         SET name = ?, contact = ?, phone = ?, email = ?, address = ?
+         SET name = ?, contact = ?, phone = ?, email = ?, address = ?, notes = ?
          WHERE id = ?`,
-        [name, contact || '', phone || '', email || '', address || '', id],
+        [name, contact_person || contact || '', phone || '', email || '', address || '', notes || '', id],
         function(err) {
           if (err) {
             console.error('Error updating supplier:', err);
@@ -68,7 +71,7 @@ function registerSupplierHandlers(db) {
     });
   });
 
-  ipcMain.handle('delete-supplier', (event, id) => {
+  ipcMainInstance.handle('delete-supplier', (event, id) => {
     return new Promise((resolve, reject) => {
       db.run(
         'DELETE FROM suppliers WHERE id = ?',
@@ -79,6 +82,24 @@ function registerSupplierHandlers(db) {
             reject(err);
           } else {
             console.log('✅ Supplier deleted successfully');
+            resolve({ success: true });
+          }
+        }
+      );
+    });
+  });
+
+  ipcMainInstance.handle('update-supplier-status', (event, id, isActive) => {
+    return new Promise((resolve, reject) => {
+      db.run(
+        'UPDATE suppliers SET is_active = ? WHERE id = ?',
+        [isActive ? 1 : 0, id],
+        function(err) {
+          if (err) {
+            console.error('Error updating supplier status:', err);
+            reject(err);
+          } else {
+            console.log('✅ Supplier status updated');
             resolve({ success: true });
           }
         }

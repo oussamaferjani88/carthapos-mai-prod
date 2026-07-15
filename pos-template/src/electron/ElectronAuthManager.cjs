@@ -27,8 +27,17 @@ class ElectronAuthManager {
         ['admin']
       );
 
+      console.log('[DIAG] needsFirstTimeSetup: SQL returned rows =', admins ? admins.length : 0);
+      if (admins && admins.length > 0) {
+        admins.forEach(a => {
+          const h = a.password_hash;
+          console.log('[DIAG] needsFirstTimeSetup: admin row id=', a.id, 'username=', a.username, 'hash_exists=', !!h, 'hash_length=', h ? h.length : 0, 'hash_prefix=', h ? h.substring(0, 12) : 'NULL');
+        });
+      }
+
       // Case 1: absolutely no admin → first-time setup
       if (!admins || admins.length === 0) {
+        console.log('[DIAG] needsFirstTimeSetup: NO admins found, returning TRUE');
         return true;
       }
 
@@ -40,10 +49,13 @@ class ElectronAuthManager {
         return typeof hash === 'string' && hash.trim().length > 0;
       });
 
+      console.log('[DIAG] needsFirstTimeSetup: hasAdminWithPassword =', hasAdminWithPassword, 'returning', !hasAdminWithPassword);
+
       // If no admin has a non-empty password_hash, treat as first-time setup
       return !hasAdminWithPassword;
     } catch (error) {
       console.error('❌ Error checking first-time setup:', error);
+      console.log('[DIAG] needsFirstTimeSetup: CAUGHT error, rethrowing');
       throw error;
     }
   }
@@ -59,23 +71,35 @@ class ElectronAuthManager {
         'SELECT id, username, password_hash FROM users WHERE username = ? AND is_active = 1',
         ['admin']
       );
-      if (!user) return false;
+      if (!user) {
+        console.log('[DIAG] needsAdminPasswordReset: no admin user found, returning FALSE');
+        return false;
+      }
+
+      const h = user.password_hash;
+      console.log('[DIAG] needsAdminPasswordReset: user found id=', user.id, 'username=', user.username, 'hash_exists=', !!h, 'hash_length=', h ? h.length : 0, 'hash_prefix=', h ? h.substring(0, 15) : 'NULL');
 
       // Empty or missing hash should force setup/reset flow.
       if (!user.password_hash || String(user.password_hash).trim() === '') {
+        console.log('[DIAG] needsAdminPasswordReset: hash is EMPTY, returning TRUE');
         return true;
       }
 
       // Some legacy/demo builds may have stored plain text by mistake.
       if (String(user.password_hash) === 'admin123') {
+        console.log('[DIAG] needsAdminPasswordReset: hash is PLAIN TEXT admin123, returning TRUE');
         return true;
       }
 
       // Compare against known demo password. If it matches, force password reset flow.
+      console.log('[DIAG] needsAdminPasswordReset: calling bcrypt.compare("admin123", hash)');
       const isDefault = await bcrypt.compare('admin123', user.password_hash);
+      console.log('[DIAG] needsAdminPasswordReset: bcrypt.compare result =', !!isDefault, 'returning', !!isDefault);
+      console.log('[DIAG] needsAdminPasswordReset: bcrypt AWAITED - no Promise used directly as boolean');
       return !!isDefault;
     } catch (error) {
       console.error('❌ Error checking admin default password:', error);
+      console.log('[DIAG] needsAdminPasswordReset: CAUGHT error, returning FALSE');
       return false;
     }
   }
@@ -86,24 +110,30 @@ class ElectronAuthManager {
    */
   async updateAdminPassword(newPassword) {
     try {
+      console.log('[DIAG] updateAdminPassword: called with new password length=', newPassword ? newPassword.length : 0);
       const user = await this.db.getRow(
         'SELECT id FROM users WHERE username = ? AND is_active = 1',
         ['admin']
       );
       if (!user) {
+        console.log('[DIAG] updateAdminPassword: admin user NOT FOUND, throwing');
         throw new Error('Admin user does not exist');
       }
+      console.log('[DIAG] updateAdminPassword: found admin user id=', user.id);
 
       const passwordHash = await bcrypt.hash(newPassword, SALT_ROUNDS);
+      console.log('[DIAG] updateAdminPassword: new hash created, length=', passwordHash.length, 'prefix=', passwordHash.substring(0, 15));
       await this.db.runQuery(
         'UPDATE users SET password_hash = ?, updated_at = ? WHERE id = ?',
         [passwordHash, new Date().toISOString(), user.id]
       );
 
       console.log('✅ Admin password updated successfully');
+      console.log('[DIAG] updateAdminPassword: UPDATE query completed successfully');
       return true;
     } catch (error) {
       console.error('❌ Error updating admin password:', error);
+      console.log('[DIAG] updateAdminPassword: CAUGHT error, rethrowing');
       throw error;
     }
   }
@@ -118,8 +148,11 @@ class ElectronAuthManager {
       console.log('🔐 Creating admin user:', userData.username);
 
       // Check if admin already exists
+      console.log('[DIAG] createAdminUser: about to call this.needsFirstTimeSetup() internally');
       const needsSetup = await this.needsFirstTimeSetup();
+      console.log('[DIAG] createAdminUser: internal needsFirstTimeSetup() returned', needsSetup);
       if (!needsSetup) {
+        console.log('[DIAG] createAdminUser: needsSetup=false, throwing "Admin user already exists"');
         throw new Error('Admin user already exists');
       }
 

@@ -180,7 +180,9 @@ export class FlexiblePOSConfiguration {
         logo: config.logo,
         address: config.businessAddress,
         phone: config.businessPhone,
-        email: config.businessEmail
+        email: config.businessEmail,
+        website: config.businessWebsite,
+        taxId: config.businessTaxId
       },
       
       // Thème
@@ -207,7 +209,14 @@ export class FlexiblePOSConfiguration {
       layout: {
         navbarPosition: config.navbarPosition,
         navbarStyle: config.navbarStyle,
-        sidebarCollapsible: config.sidebarCollapsible
+        sidebarCollapsible: config.sidebarCollapsible,
+        navbarWidth: config.navbarWidth,
+        navbarHeight: config.navbarHeight,
+        compactMode: config.compactMode,
+        spacingScale: config.spacingScale,
+        maxWidth: config.maxWidth,
+        navbarCollapsible: config.navbarCollapsible,
+        showBreadcrumbs: config.showBreadcrumbs
       }
     };
   }

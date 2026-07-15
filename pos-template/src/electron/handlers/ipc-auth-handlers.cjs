@@ -161,17 +161,15 @@ class IPCAuthHandlers {
 }
 
 // Functional export expected by public/electron-modular.cjs
-// This registers IPC handlers using a locally-initialized set of managers.
-// It avoids tight coupling to main's module-scoped instances and works in packaged builds.
-function registerAuthHandlers(/* initializeManagers (optional) */) {
-  // Lazy-create our own logger and managers
+// Uses managers from electron-modular.cjs when provided, otherwise creates its own.
+function registerAuthHandlers(ipcMainInstance, externalAuthManager, externalDatabaseManager) {
   const { LoggerService } = require('../services/LoggerService.cjs');
   const ElectronDatabaseManager = require('../ElectronDatabaseManager.cjs');
   const ElectronAuthManager = require('../ElectronAuthManager.cjs');
 
   const logger = new LoggerService();
-  let dbManager = null;
-  let authManager = null;
+  let dbManager = externalDatabaseManager || null;
+  let authManager = externalAuthManager || null;
 
   async function ensureManagers() {
     if (!dbManager) {
@@ -348,6 +346,30 @@ function registerAuthHandlers(/* initializeManagers (optional) */) {
     } catch (error) {
       logger.error('❌ IPC delete-user error:', error);
       throw error;
+    }
+  });
+
+  // Cash drawer: log event
+  ipcMain.handle('log-cash-drawer-event', async (event, drawerEvent) => {
+    try {
+      await ensureManagers();
+      logger.info('💰 IPC log-cash-drawer-event:', drawerEvent?.action);
+      await authManager.logCashDrawerEvent(drawerEvent);
+      return { success: true };
+    } catch (error) {
+      logger.error('❌ IPC log-cash-drawer-event error:', error);
+      return { success: false, error: error.message };
+    }
+  });
+
+  // Cash drawer: get history
+  ipcMain.handle('get-cash-drawer-history', async (event, filters) => {
+    try {
+      await ensureManagers();
+      return await authManager.getCashDrawerHistory(filters || {});
+    } catch (error) {
+      logger.error('❌ IPC get-cash-drawer-history error:', error);
+      return [];
     }
   });
 

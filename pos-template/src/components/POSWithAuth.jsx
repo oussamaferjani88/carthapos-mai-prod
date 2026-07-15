@@ -4,7 +4,7 @@ import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Label } from './ui/label';
 import { Badge } from './ui/badge';
-import { Shield, Lock, User, UserCheck, Settings } from 'lucide-react';
+import { Shield, Lock, User, UserCheck, Settings, Store } from 'lucide-react';
 import { Eye, EyeOff } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { isPreviewMode, isProductionMode } from '../utils/environment';
@@ -154,23 +154,39 @@ const POSWithAuth = ({ config, children }) => {
             : 'linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%)'
         }}
       >
-        <Card className="w-full max-w-md shadow-2xl border-0">
+        <div className="w-full max-w-md space-y-4">
+        <Card className="w-full shadow-2xl border-0">
           <CardHeader className="space-y-1 text-center pb-2">
-            <div 
-              className="mx-auto w-16 h-16 rounded-2xl flex items-center justify-center mb-4 shadow-lg"
+            <div className="mx-auto w-16 h-16 rounded-2xl flex items-center justify-center mb-4 shadow-lg overflow-hidden"
               style={{ 
                 backgroundColor: config?.theme?.primaryColor || '#3b82f6',
                 background: `linear-gradient(135deg, ${config?.theme?.primaryColor || '#3b82f6'} 0%, ${config?.theme?.accentColor || '#6366f1'} 100%)`
               }}
             >
-              <Shield className="w-8 h-8 text-white" />
+              {config?.theme?.logo || config?.businessInfo?.logo ? (
+                <img 
+                  src={config?.theme?.logo || config?.businessInfo?.logo} 
+                  alt={config?.theme?.businessName || 'Logo'}
+                  className="w-full h-full object-cover"
+                  onError={(e) => {
+                    e.target.style.display = 'none';
+                    e.target.nextSibling.style.display = 'flex';
+                  }}
+                />
+              ) : null}
+              <div className={`w-full h-full flex items-center justify-center ${config?.theme?.logo || config?.businessInfo?.logo ? 'hidden' : ''}`}>
+                <Store className="w-8 h-8 text-white" />
+              </div>
             </div>
             <CardTitle 
               className="text-3xl font-bold mb-2"
               style={{ color: config?.theme?.textColor || '#1f2937' }}
             >
-              {config?.theme?.businessName || 'POS System'}
+              {config?.theme?.businessName || config?.businessInfo?.name || 'POS System'}
             </CardTitle>
+            <p className="text-sm mb-1" style={{ color: config?.theme?.textMutedColor || '#6b7280' }}>
+              {config?.theme?.welcomeText || `Bienvenue chez ${config?.theme?.businessName || 'POS System'}`}
+            </p>
             <CardDescription className="text-base">
               {previewMode && loginStep === 1 ? 'Sélectionnez votre rôle' : 'Connexion sécurisée'}
             </CardDescription>
@@ -377,6 +393,23 @@ const POSWithAuth = ({ config, children }) => {
             )}
           </CardContent>
         </Card>
+
+        {/* Business Info Footer */}
+        {(config?.businessInfo?.address || config?.businessInfo?.phone || config?.businessInfo?.email) && (
+          <div 
+            className="text-center p-3 rounded-lg backdrop-blur-sm"
+            style={{ 
+              backgroundColor: config?.theme?.textColor ? `${config.theme.textColor}08` : '#00000008',
+              color: config?.theme?.textMutedColor || '#6b7280'
+            }}
+          >
+            <div className="text-xs space-y-1">
+              {config.businessInfo.address && <p>{config.businessInfo.address}</p>}
+              {config.businessInfo.phone && <p>{config.businessInfo.phone}</p>}
+              {config.businessInfo.email && <p>{config.businessInfo.email}</p>}
+            </div>
+          </div>
+        )}
       </div>
     );
   }

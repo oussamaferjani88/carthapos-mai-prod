@@ -21,6 +21,7 @@ import {
 } from 'lucide-react';
 import { POSConfiguration } from '../lib/POSConfiguration';
 import { useAppConfig } from '../hooks/useAppConfig';
+import { useAuth } from '../contexts/AuthContext';
 import { getIconComponent } from '../components/CategoryIconPicker';
 
 const FamilyIcon = ({ iconName, className = 'w-5 h-5' }) => {
@@ -53,6 +54,7 @@ const Sales = () => {
   const [showHeldOrders, setShowHeldOrders] = useState(false);
 
   const { config: electronConfig, loading: configLoading } = useAppConfig();
+  const { user } = useAuth();
 
   const getConfig = () => {
     if (electronConfig && electronConfig.theme) {
@@ -128,6 +130,7 @@ const Sales = () => {
     loadProductsFromDB();
     loadTablesFromDB();
     loadFamiliesFromDB();
+    loadHeldOrdersFromDB();
   }, []);
 
   const loadProductsFromDB = async () => {
@@ -166,6 +169,17 @@ const Sales = () => {
       }
     } catch (error) {
       console.error('Failed to load families:', error);
+    }
+  };
+
+  const loadHeldOrdersFromDB = async () => {
+    try {
+      if (window.electronAPI && window.electronAPI.getHeldOrders) {
+        const orders = await window.electronAPI.getHeldOrders();
+        setHeldOrders(orders || []);
+      }
+    } catch (error) {
+      console.error('Failed to load held orders:', error);
     }
   };
 
@@ -252,6 +266,89 @@ const Sales = () => {
     return `${price.toFixed(2)} ${config.currency}`;
   };
 
+  const printReceipt = async (saleId, method) => {
+    try {
+      let configStr = null;
+      if (window.electronAPI?.getReceiptConfig) {
+        configStr = await window.electronAPI.getReceiptConfig();
+      }
+      if (!configStr) {
+        configStr = localStorage.getItem('receiptConfig');
+      }
+      const receiptConfig = JSON.parse(configStr || '{}');
+      const cfg = receiptConfig.header || {};
+      const contentCfg = receiptConfig.content || {};
+
+      const lines = [];
+      const p = (text, align = 'center') => lines.push({ text, align });
+      const sep = () => p('─'.repeat(32));
+      const priceCol = (label, val) => {
+        const v = typeof val === 'number' ? formatPrice(val) : val;
+        const pad = Math.max(1, 32 - label.length - v.length);
+        p(label + ' '.repeat(pad) + v, 'right');
+      };
+
+      if (cfg.showBusinessName && cfg.businessName) p(cfg.businessName.toUpperCase());
+      if (cfg.showAddress && cfg.address) p(cfg.address);
+      if (cfg.showPhone && cfg.phone) p(`Tél: ${cfg.phone}`);
+      if (cfg.showTaxId && cfg.taxId) p(`N°: ${cfg.taxId}`);
+      sep();
+
+      if (contentCfg.showDate !== false) {
+        p(new Date().toLocaleString('fr-FR'));
+      }
+      if (contentCfg.showReceiptNumber !== false) p(`Reçu #${saleId}`);
+      if (contentCfg.showCashier !== false && user) p(`Caissier: ${user.fullName || user.username}`);
+      if (contentCfg.showTable !== false && selectedTableForOrder) {
+        p(`Table: ${selectedTableForOrder.table_number}`);
+      }
+      sep();
+
+      p('Qté  Article', 'left');
+      p('', 'left');
+      cart.forEach(item => {
+        p(`${item.quantity}x  ${item.name}`, 'left');
+        priceCol('', item.price * item.quantity);
+      });
+      sep();
+
+      const footerCfg = receiptConfig.footer || {};
+      if (footerCfg.showSubtotal !== false) priceCol('Sous-total', subtotal);
+      if (calculatedDiscount > 0 && footerCfg.showDiscount !== false) priceCol('Réduction', -calculatedDiscount);
+      if (footerCfg.showTax !== false) priceCol(`TVA (${(config.taxRate * 100).toFixed(0)}%)`, tax);
+      sep();
+      if (footerCfg.showTotal !== false) {
+        p('TOTAL', 'left');
+        p(formatPrice(finalTotal), 'right');
+        p('');
+      }
+      if (footerCfg.showPaymentMethod !== false) p(`Paiement: ${method}`);
+
+      (receiptConfig.footer?.customMessages || []).filter(m => m.enabled).forEach(m => {
+        if (m.text) p(m.text, m.align || 'center');
+      });
+
+      const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><style>
+        @page { margin: 0; width: ${receiptConfig.paperWidth || 80}mm; }
+        body { font-family: 'Courier New', monospace; font-size: 12px; width: ${receiptConfig.paperWidth || 80}mm; margin: 0 auto; padding: 10px; }
+        .l { text-align: left; } .c { text-align: center; } .r { text-align: right; }
+        .line { white-space: pre-wrap; margin: 2px 0; }
+      </style></head><body>
+        ${lines.map(l => `<div class="line ${l.align === 'left' ? 'l' : l.align === 'right' ? 'r' : 'c'}">${l.text}</div>`).join('')}
+      </body></html>`;
+
+      const printWin = window.open('', '_blank', 'width=400,height=600');
+      if (printWin) {
+        printWin.document.write(html);
+        printWin.document.close();
+        printWin.focus();
+        setTimeout(() => { try { printWin.print(); } catch (e) { console.warn('Print error:', e); } }, 300);
+      }
+    } catch (e) {
+      console.error('Receipt print error:', e);
+    }
+  };
+
   const handlePayment = () => {
     if (cart.length === 0) return;
     setShowPaymentMethods(true);
@@ -263,16 +360,21 @@ const Sales = () => {
         const saleData = {
           items: cart,
           subtotal: subtotal,
-          discount: calculatedDiscount,
-          tax: tax,
           total: finalTotal,
+          tax: tax,
+          discount: calculatedDiscount,
+          discount_percentage: discountPercentage,
           payment_method: method,
           customer_id: selectedCustomer?.id || null,
+          user_id: user?.id || null,
           table_id: selectedTableForOrder?.id || null,
           notes: ''
         };
         try {
-          await window.electronAPI.addSale(saleData);
+          const result = await window.electronAPI.addSale(saleData);
+          if (result && result.id) {
+            await printReceipt(result.id, method);
+          }
         } catch (saleError) {
           setLocalNotification(`Erreur paiement: ${saleError.message}`);
           setTimeout(() => setLocalNotification(null), 3000);
@@ -280,11 +382,17 @@ const Sales = () => {
         }
       }
       window.dispatchEvent(new CustomEvent('sale-completed'));
+      if (selectedTableForOrder) {
+        window.dispatchEvent(new CustomEvent('kitchen-order-created'));
+      }
       setLocalNotification(`Paiement ${method}: ${formatPrice(finalTotal)}`);
       setCart([]);
       setSelectedTableForOrder(null);
       setShowPaymentMethods(false);
+      setDiscountAmount(0);
+      setDiscountPercentage(0);
       setTimeout(() => setLocalNotification(null), 3000);
+      loadHeldOrdersFromDB();
     } catch (error) {
       console.error('Payment error:', error);
       setLocalNotification('Erreur lors du paiement');
@@ -322,42 +430,71 @@ const Sales = () => {
     setTimeout(() => setLocalNotification(null), 2000);
   };
 
-  const holdOrder = () => {
+  const holdOrder = async () => {
     if (cart.length === 0) return;
-    const heldOrder = {
-      id: Date.now(),
-      items: [...cart],
-      table: selectedTableForOrder,
-      total: finalTotal,
-      subtotal: subtotal,
-      tax: tax,
-      discount: calculatedDiscount,
-      timestamp: new Date().toLocaleString('fr-FR'),
-      customer: selectedCustomer,
-      itemCount: getTotalItems()
-    };
-    setHeldOrders(prev => [...prev, heldOrder]);
-    setCart([]);
-    setSelectedTableForOrder(null);
-    setDiscountAmount(0);
-    setDiscountPercentage(0);
-    setLocalNotification('Commande mise en attente');
-    setTimeout(() => setLocalNotification(null), 2000);
+    try {
+      if (window.electronAPI && window.electronAPI.holdOrder) {
+        await window.electronAPI.holdOrder({
+          items: [...cart],
+          table_id: selectedTableForOrder?.id || null,
+          table_number: selectedTableForOrder?.table_number || null,
+          total: finalTotal,
+          subtotal: subtotal,
+          tax: tax,
+          discount: calculatedDiscount,
+          discount_percentage: discountPercentage,
+          customer_id: selectedCustomer?.id || null,
+          notes: ''
+        });
+      }
+      setCart([]);
+      setSelectedTableForOrder(null);
+      setDiscountAmount(0);
+      setDiscountPercentage(0);
+      setLocalNotification('Commande mise en attente');
+      setTimeout(() => setLocalNotification(null), 2000);
+      loadHeldOrdersFromDB();
+    } catch (error) {
+      console.error('Error holding order:', error);
+      setLocalNotification('Erreur lors de la mise en attente');
+      setTimeout(() => setLocalNotification(null), 3000);
+    }
   };
 
-  const restoreOrder = (order) => {
-    setCart(order.items);
-    setSelectedTableForOrder(order.table);
-    setDiscountAmount(order.discount > 0 && order.discountPercentage === undefined ? order.discount : 0);
-    setDiscountPercentage(order.discountPercentage || 0);
-    setHeldOrders(prev => prev.filter(o => o.id !== order.id));
-    setShowHeldOrders(false);
-    setLocalNotification('Commande restaurée');
-    setTimeout(() => setLocalNotification(null), 2000);
+  const restoreOrder = async (order) => {
+    try {
+      if (window.electronAPI && window.electronAPI.restoreHeldOrder) {
+        const full = await window.electronAPI.restoreHeldOrder(order.id);
+        if (!full) return;
+        setCart(full.items || []);
+        setSelectedTableForOrder(full.table_id ? { id: full.table_id, table_number: full.table_number || '' } : null);
+        const discPct = full.discount_percentage || 0;
+        setDiscountPercentage(discPct);
+        setDiscountAmount(discPct > 0 ? 0 : (full.discount || 0));
+      }
+      if (window.electronAPI && window.electronAPI.deleteHeldOrder) {
+        await window.electronAPI.deleteHeldOrder(order.id);
+      }
+      setShowHeldOrders(false);
+      setLocalNotification('Commande restaurée');
+      setTimeout(() => setLocalNotification(null), 2000);
+      loadHeldOrdersFromDB();
+    } catch (error) {
+      console.error('Error restoring order:', error);
+      setLocalNotification('Erreur lors de la restauration');
+      setTimeout(() => setLocalNotification(null), 3000);
+    }
   };
 
-  const removeHeldOrder = (orderId) => {
-    setHeldOrders(prev => prev.filter(o => o.id !== orderId));
+  const removeHeldOrder = async (orderId) => {
+    try {
+      if (window.electronAPI && window.electronAPI.deleteHeldOrder) {
+        await window.electronAPI.deleteHeldOrder(orderId);
+      }
+      loadHeldOrdersFromDB();
+    } catch (error) {
+      console.error('Error removing held order:', error);
+    }
   };
 
   const getTableStatusColor = (status) => {
@@ -721,10 +858,7 @@ const Sales = () => {
                   </button>
                 )}
                 <button
-                  onClick={() => {
-                    setLocalNotification("Gestion client");
-                    setTimeout(() => setLocalNotification(null), 2000);
-                  }}
+                  onClick={() => window.location.hash = '#/customers'}
                   className="bg-purple-50 hover:bg-purple-100 text-purple-700 rounded-xl font-medium text-[10px] h-10 flex flex-col items-center justify-center gap-0.5 transition-all"
                   title="Client"
                 >
@@ -732,10 +866,7 @@ const Sales = () => {
                   <span>Client</span>
                 </button>
                 <button
-                  onClick={() => {
-                    setLocalNotification("Rapports");
-                    setTimeout(() => setLocalNotification(null), 2000);
-                  }}
+                  onClick={() => window.location.hash = '#/reports'}
                   className="bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded-xl font-medium text-[10px] h-10 flex flex-col items-center justify-center gap-0.5 transition-all"
                   title="Rapports"
                 >
@@ -883,7 +1014,7 @@ const Sales = () => {
                           <span className="font-bold text-sm text-blue-600">
                             {formatPrice(product.price)}
                           </span>
-                          {product.stock !== undefined && product.stock <= 5 && product.stock > 0 && (
+                          {product.stock !== undefined && product.stock > 0 && (product.min_stock > 0 ? product.stock <= product.min_stock : product.stock <= 5) && (
                             <span className="text-[9px] text-amber-600 bg-amber-50 px-1.5 py-0.5 rounded-lg font-medium">
                               +{product.stock}
                             </span>
@@ -935,20 +1066,20 @@ const Sales = () => {
                 <div className="space-y-3">
                   {heldOrders.map((order) => (
                     <div key={order.id} className="border rounded-xl p-4 hover:border-gray-300 transition-colors">
-                      <div className="flex items-start justify-between mb-3">
-                        <div>
-                          <div className="flex items-center gap-2">
-                            <h3 className="font-semibold text-gray-900">
-                              Commande #{order.id.toString().slice(-6)}
-                            </h3>
-                            {order.table && (
-                              <span className="text-xs font-medium bg-blue-50 text-blue-600 px-2 py-0.5 rounded-lg">
-                                Table {order.table.table_number}
-                              </span>
-                            )}
+                        <div className="flex items-start justify-between mb-3">
+                          <div>
+                            <div className="flex items-center gap-2">
+                              <h3 className="font-semibold text-gray-900">
+                                Commande #{order.id.toString().slice(-6)}
+                              </h3>
+                              {order.table_number && (
+                                <span className="text-xs font-medium bg-blue-50 text-blue-600 px-2 py-0.5 rounded-lg">
+                                  Table {order.table_number}
+                                </span>
+                              )}
+                            </div>
+                            <p className="text-xs text-gray-400 mt-0.5">{new Date(order.created_at).toLocaleString('fr-FR')}</p>
                           </div>
-                          <p className="text-xs text-gray-400 mt-0.5">{order.timestamp}</p>
-                        </div>
                         <span className="text-lg font-bold text-blue-600">
                           {formatPrice(order.total)}
                         </span>

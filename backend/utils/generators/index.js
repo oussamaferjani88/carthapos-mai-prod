@@ -46,6 +46,11 @@ async function generatePOSApplication(license, outputPath = null, options = {}) 
     const projectName = projectInfo.projectName;
     logger.info(`Project initialized at: ${projectPath}`);
 
+    // Extract business name early for branding
+    const businessName = validatedLicense.configuration?.businessName ||
+                        validatedLicense.client?.name ||
+                        'CarthaPos';
+
     // 3. Copy template and manage assets
     const assetManager = new AssetManager(projectPath);
     await perfLogger.measure(
@@ -63,6 +68,14 @@ async function generatePOSApplication(license, outputPath = null, options = {}) 
     await perfLogger.measure(
       'Create Config File',
       () => assetManager.createConfigFile(validatedLicense)
+    );
+    await perfLogger.measure(
+      'Update Asset References',
+      () => assetManager.updateAssetReferences(
+        businessName,
+        validatedLicense.configuration?.primaryColor || '#3B82F6',
+        validatedLicense.configuration?.businessLogo || null
+      )
     );
 
     // 4. Filter modules
@@ -147,9 +160,6 @@ async function generatePOSApplication(license, outputPath = null, options = {}) 
 
     // 7. File patches
     const filePatcher = new FilePatcher(projectPath);
-    const businessName = validatedLicense.configuration?.businessName ||
-                        validatedLicense.client?.name ||
-                        'CarthaPos';
 
     await perfLogger.measure(
       'File Patcher - Remove Unnecessary',

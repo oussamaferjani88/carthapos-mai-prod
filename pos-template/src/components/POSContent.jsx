@@ -18,6 +18,8 @@ export const POSContent = ({
   const fontFamily = theme.fontFamily || 'Inter';
   const fontSize = theme.fontSize || '14px';
   const fontWeight = theme.fontWeight || '400';
+  const contentMaxWidth = theme.maxWidth || config?.maxWidth || '1200px';
+  const compactMode = theme.compactMode || config?.compactMode || false;
 
   // Reset scroll position when route changes
   useEffect(() => {
@@ -102,11 +104,14 @@ export const POSContent = ({
         className={
           isOverflowHidden 
             ? 'flex-1 overflow-hidden' 
-            : 'flex-1 overflow-auto pb-20'
+            : 'flex-1 overflow-auto'
         }
         style={{ 
           backgroundColor: backgroundColor,
           minHeight: '100%',
+          maxWidth: contentMaxWidth !== '100%' ? contentMaxWidth : '100%',
+          margin: '0 auto',
+          width: '100%',
           fontFamily: fontFamily + ', system-ui, sans-serif',
           fontSize: fontSize,
           fontWeight: fontWeight

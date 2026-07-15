@@ -11,18 +11,19 @@ import {
   Settings as SettingsIcon, 
   Shield, 
   Palette, 
-  Database, 
+  Database,
   Printer,
-  Usb,
   Info
 } from 'lucide-react';
 import { useAppConfig } from '../hooks/useAppConfig';
 import { useLicense } from '../hooks/useLicense';
+import { useSettings } from '../hooks/useSettings';
 import { POSConfiguration } from '../lib/POSConfiguration';
 
 export default function Settings() {
   const { config } = useAppConfig();
   const { license } = useLicense();
+  const { setMultipleSettings } = useSettings();
   const [dbPath, setDbPath] = useState('');
 
   // Integration: POSConfiguration styling
@@ -41,17 +42,35 @@ export default function Settings() {
   const cardClasses = POSConfiguration.getCardClasses(themeConfig);
   const buttonClasses = POSConfiguration.getButtonClasses(themeConfig);
 
-  const [settings, setSettings] = useState({
+  const defaultSettings = {
     businessName: '',
+    businessLogo: '',
+    businessAddress: '',
+    businessPhone: '',
+    businessEmail: '',
+    businessWebsite: '',
+    businessTaxId: '',
     currency: 'TND',
+    taxEnabled: true,
     taxRate: 19,
+    numberFormat: 'fr-FR',
     language: 'fr',
     timezone: 'Africa/Tunis',
     autoBackup: true,
+    backupFolder: '',
+    backupFrequency: 'daily',
     printReceipts: true,
-    soundEnabled: true
-  });
+    printKitchen: true,
+    receiptPrinter: '',
+    kitchenPrinter: '',
+    paperWidth: '80',
+    soundEnabled: true,
+    theme: 'default'
+  };
+
+  const [settings, setSettings] = useState(defaultSettings);
   const [loading, setLoading] = useState(false);
+  const [loadedFromDb, setLoadedFromDb] = useState(false);
 
   useEffect(() => {
     if (window.electronAPI?.getDatabasePath) {
@@ -60,30 +79,72 @@ export default function Settings() {
   }, []);
 
   useEffect(() => {
-    if (config) {
+    const loadFromDb = async () => {
+      if (window.electronAPI?.getAllSettings) {
+        try {
+          const dbSettings = await window.electronAPI.getAllSettings();
+          if (dbSettings && Object.keys(dbSettings).length > 0) {
+            setSettings(prev => ({
+              ...prev,
+              businessName: dbSettings.businessName || prev.businessName,
+              businessLogo: dbSettings.businessLogo || prev.businessLogo,
+              businessAddress: dbSettings.businessAddress || prev.businessAddress,
+              businessPhone: dbSettings.businessPhone || prev.businessPhone,
+              businessEmail: dbSettings.businessEmail || prev.businessEmail,
+              businessWebsite: dbSettings.businessWebsite || prev.businessWebsite,
+              businessTaxId: dbSettings.businessTaxId || prev.businessTaxId,
+              currency: dbSettings.currency || prev.currency,
+              taxEnabled: dbSettings.taxEnabled === 'true' || dbSettings.taxEnabled === true,
+              taxRate: dbSettings.taxRate ? parseFloat(dbSettings.taxRate) : prev.taxRate,
+              numberFormat: dbSettings.numberFormat || prev.numberFormat,
+              language: dbSettings.language || prev.language,
+              timezone: dbSettings.timezone || prev.timezone,
+              autoBackup: dbSettings.autoBackup === 'true',
+              backupFolder: dbSettings.backupFolder || prev.backupFolder,
+              backupFrequency: dbSettings.backupFrequency || prev.backupFrequency,
+              printReceipts: dbSettings.printReceipts === 'true',
+              printKitchen: dbSettings.printKitchen === 'true',
+              receiptPrinter: dbSettings.receiptPrinter || prev.receiptPrinter,
+              kitchenPrinter: dbSettings.kitchenPrinter || prev.kitchenPrinter,
+              paperWidth: dbSettings.paperWidth || prev.paperWidth,
+              soundEnabled: dbSettings.soundEnabled === 'true',
+              theme: dbSettings.theme || prev.theme
+            }));
+            setLoadedFromDb(true);
+          }
+        } catch (err) {
+          console.warn('Could not load settings from DB, using defaults:', err);
+        }
+      }
+    };
+    loadFromDb();
+  }, []);
+
+  useEffect(() => {
+    if (config && !loadedFromDb) {
       setSettings({
+        ...defaultSettings,
         businessName: config.theme?.businessName || '',
         currency: config.theme?.currency || 'TND',
         taxRate: config.theme?.taxRate || 19,
         language: config.theme?.language || 'fr',
         timezone: config.theme?.timezone || 'Africa/Tunis',
-        autoBackup: true,
-        printReceipts: true,
-        soundEnabled: true
       });
     }
-  }, [config]);
+  }, [config, loadedFromDb]);
 
   const handleSave = async () => {
     try {
       setLoading(true);
       
-      // Simuler la sauvegarde des paramètres
-      // En production, cela sauvegarderait dans la base de données SQLite
-      console.log('Saving settings:', settings);
-      
-      // Simuler un délai
-      await new Promise(resolve => setTimeout(resolve, 1000));
+      if (window.electronAPI?.setSetting) {
+        const result = await setMultipleSettings(settings);
+        if (!result.success) {
+          throw new Error(result.error || 'Save failed');
+        }
+      } else {
+        await new Promise(resolve => setTimeout(resolve, 500));
+      }
       
       alert('Paramètres sauvegardés avec succès');
     } catch (error) {
@@ -96,16 +157,7 @@ export default function Settings() {
 
   const handleReset = () => {
     if (confirm('Êtes-vous sûr de vouloir réinitialiser tous les paramètres ?')) {
-      setSettings({
-        businessName: config.theme?.businessName || '',
-        currency: 'TND',
-        taxRate: 19,
-        language: 'fr',
-        timezone: 'Africa/Tunis',
-        autoBackup: true,
-        printReceipts: true,
-        soundEnabled: true
-      });
+      setSettings({ ...defaultSettings, businessName: config.theme?.businessName || '' });
     }
   };
 
@@ -166,6 +218,71 @@ export default function Settings() {
                 />
               </div>
 
+              <div className="grid gap-2">
+                <Label htmlFor="businessLogo">Logo (URL)</Label>
+                <Input
+                  id="businessLogo"
+                  value={settings.businessLogo}
+                  onChange={(e) => setSettings({ ...settings, businessLogo: e.target.value })}
+                  placeholder="URL du logo ou chemin local"
+                />
+              </div>
+
+              <div className="grid gap-2">
+                <Label htmlFor="businessAddress">Adresse</Label>
+                <Input
+                  id="businessAddress"
+                  value={settings.businessAddress}
+                  onChange={(e) => setSettings({ ...settings, businessAddress: e.target.value })}
+                  placeholder="Adresse complète"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div className="grid gap-2">
+                  <Label htmlFor="businessPhone">Téléphone</Label>
+                  <Input
+                    id="businessPhone"
+                    value={settings.businessPhone}
+                    onChange={(e) => setSettings({ ...settings, businessPhone: e.target.value })}
+                    placeholder="01 23 45 67 89"
+                  />
+                </div>
+                <div className="grid gap-2">
+                  <Label htmlFor="businessEmail">Email</Label>
+                  <Input
+                    id="businessEmail"
+                    type="email"
+                    value={settings.businessEmail}
+                    onChange={(e) => setSettings({ ...settings, businessEmail: e.target.value })}
+                    placeholder="contact@example.com"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div className="grid gap-2">
+                  <Label htmlFor="businessWebsite">Site web</Label>
+                  <Input
+                    id="businessWebsite"
+                    value={settings.businessWebsite}
+                    onChange={(e) => setSettings({ ...settings, businessWebsite: e.target.value })}
+                    placeholder="https://example.com"
+                  />
+                </div>
+                <div className="grid gap-2">
+                  <Label htmlFor="businessTaxId">N° fiscal / SIRET</Label>
+                  <Input
+                    id="businessTaxId"
+                    value={settings.businessTaxId}
+                    onChange={(e) => setSettings({ ...settings, businessTaxId: e.target.value })}
+                    placeholder="12345678900000"
+                  />
+                </div>
+              </div>
+
+              <Separator />
+
               <div className="grid grid-cols-2 gap-4">
                 <div className="grid gap-2">
                   <Label htmlFor="currency">Devise</Label>
@@ -187,19 +304,6 @@ export default function Settings() {
                 </div>
 
                 <div className="grid gap-2">
-                  <Label htmlFor="taxRate">Taux de TVA (%)</Label>
-                  <Input
-                    id="taxRate"
-                    type="number"
-                    step="0.1"
-                    value={settings.taxRate}
-                    onChange={(e) => setSettings({ ...settings, taxRate: parseFloat(e.target.value) })}
-                  />
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-4">
-                <div className="grid gap-2">
                   <Label htmlFor="language">Langue</Label>
                   <Select 
                     value={settings.language} 
@@ -217,7 +321,9 @@ export default function Settings() {
                     </SelectContent>
                   </Select>
                 </div>
+              </div>
 
+              <div className="grid grid-cols-2 gap-4">
                 <div className="grid gap-2">
                   <Label htmlFor="timezone">Fuseau horaire</Label>
                   <Select 
@@ -236,43 +342,115 @@ export default function Settings() {
                     </SelectContent>
                   </Select>
                 </div>
+
+                <div className="grid gap-2">
+                  <Label htmlFor="numberFormat">Format des nombres</Label>
+                  <Select 
+                    value={settings.numberFormat} 
+                    onValueChange={(value) => setSettings({ ...settings, numberFormat: value })}
+                  >
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="fr-FR">1 234,56 (FR)</SelectItem>
+                      <SelectItem value="en-US">1,234.56 (US)</SelectItem>
+                      <SelectItem value="de-DE">1.234,56 (DE)</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
               </div>
             </CardContent>
           </Card>
 
-          {/* Préférences système */}
+          {/* Paramètres financiers */}
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center">
-                <Database className="mr-2 h-5 w-5" />
-                Préférences système
+                <SettingsIcon className="mr-2 h-5 w-5" />
+                Paramètres financiers
               </CardTitle>
-              <CardDescription>
-                Options de fonctionnement du système
-              </CardDescription>
+              <CardDescription>Taux de TVA et formatage monétaire</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="flex items-center justify-between">
                 <div className="space-y-0.5">
-                  <Label>Sauvegarde automatique</Label>
-                  <p className="text-sm text-muted-foreground">
-                    Sauvegarder automatiquement les données
-                  </p>
+                  <Label>TVA activée</Label>
+                  <p className="text-sm text-muted-foreground">Appliquer la TVA sur les ventes</p>
                 </div>
                 <Switch
-                  checked={settings.autoBackup}
-                  onCheckedChange={(checked) => setSettings({ ...settings, autoBackup: checked })}
+                  checked={settings.taxEnabled}
+                  onCheckedChange={(checked) => setSettings({ ...settings, taxEnabled: checked })}
                 />
+              </div>
+              {settings.taxEnabled && (
+                <div className="grid gap-2">
+                  <Label htmlFor="taxRate">Taux de TVA (%)</Label>
+                  <Input
+                    id="taxRate"
+                    type="number"
+                    step="0.1"
+                    value={settings.taxRate}
+                    onChange={(e) => setSettings({ ...settings, taxRate: parseFloat(e.target.value) })}
+                  />
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Paramètres d'impression */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center">
+                <Printer className="mr-2 h-5 w-5" />
+                Paramètres d'impression
+              </CardTitle>
+              <CardDescription>Configuration des imprimantes et tickets</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="grid grid-cols-2 gap-4">
+                <div className="grid gap-2">
+                  <Label htmlFor="receiptPrinter">Imprimante tickets</Label>
+                  <Input
+                    id="receiptPrinter"
+                    value={settings.receiptPrinter}
+                    onChange={(e) => setSettings({ ...settings, receiptPrinter: e.target.value })}
+                    placeholder="USB001 ou IP:192.168.1.100"
+                  />
+                </div>
+                <div className="grid gap-2">
+                  <Label htmlFor="kitchenPrinter">Imprimante cuisine</Label>
+                  <Input
+                    id="kitchenPrinter"
+                    value={settings.kitchenPrinter}
+                    onChange={(e) => setSettings({ ...settings, kitchenPrinter: e.target.value })}
+                    placeholder="USB002 ou IP:192.168.1.101"
+                  />
+                </div>
+              </div>
+
+              <div className="grid gap-2">
+                <Label htmlFor="paperWidth">Largeur papier (mm)</Label>
+                <Select 
+                  value={settings.paperWidth} 
+                  onValueChange={(value) => setSettings({ ...settings, paperWidth: value })}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="58">58 mm</SelectItem>
+                    <SelectItem value="80">80 mm</SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
 
               <Separator />
 
               <div className="flex items-center justify-between">
                 <div className="space-y-0.5">
-                  <Label>Impression automatique</Label>
-                  <p className="text-sm text-muted-foreground">
-                    Imprimer automatiquement les tickets
-                  </p>
+                  <Label>Auto-impression ticket</Label>
+                  <p className="text-sm text-muted-foreground">Imprimer automatiquement après chaque vente</p>
                 </div>
                 <Switch
                   checked={settings.printReceipts}
@@ -284,10 +462,107 @@ export default function Settings() {
 
               <div className="flex items-center justify-between">
                 <div className="space-y-0.5">
+                  <Label>Auto-impression cuisine</Label>
+                  <p className="text-sm text-muted-foreground">Imprimer automatiquement les commandes en cuisine</p>
+                </div>
+                <Switch
+                  checked={settings.printKitchen}
+                  onCheckedChange={(checked) => setSettings({ ...settings, printKitchen: checked })}
+                />
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Sauvegarde */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center">
+                <Database className="mr-2 h-5 w-5" />
+                Sauvegarde
+              </CardTitle>
+              <CardDescription>Configuration des sauvegardes automatiques</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="flex items-center justify-between">
+                <div className="space-y-0.5">
+                  <Label>Sauvegarde automatique</Label>
+                  <p className="text-sm text-muted-foreground">Sauvegarder automatiquement les données</p>
+                </div>
+                <Switch
+                  checked={settings.autoBackup}
+                  onCheckedChange={(checked) => setSettings({ ...settings, autoBackup: checked })}
+                />
+              </div>
+
+              {settings.autoBackup && (
+                <>
+                  <Separator />
+                  <div className="grid gap-2">
+                    <Label htmlFor="backupFolder">Dossier de sauvegarde</Label>
+                    <Input
+                      id="backupFolder"
+                      value={settings.backupFolder}
+                      onChange={(e) => setSettings({ ...settings, backupFolder: e.target.value })}
+                      placeholder="C:\backups\ ou ./backups/"
+                    />
+                  </div>
+                  <div className="grid gap-2">
+                    <Label htmlFor="backupFrequency">Fréquence</Label>
+                    <Select 
+                      value={settings.backupFrequency} 
+                      onValueChange={(value) => setSettings({ ...settings, backupFrequency: value })}
+                    >
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="hourly">Toutes les heures</SelectItem>
+                        <SelectItem value="daily">Quotidienne</SelectItem>
+                        <SelectItem value="weekly">Hebdomadaire</SelectItem>
+                        <SelectItem value="monthly">Mensuelle</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Apparence */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center">
+                <Palette className="mr-2 h-5 w-5" />
+                Apparence
+              </CardTitle>
+              <CardDescription>Personnalisation de l'interface</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="grid gap-2">
+                <Label htmlFor="theme">Thème</Label>
+                <Select 
+                  value={settings.theme} 
+                  onValueChange={(value) => setSettings({ ...settings, theme: value })}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="default">Défaut</SelectItem>
+                    <SelectItem value="dark">Sombre</SelectItem>
+                    <SelectItem value="light">Clair</SelectItem>
+                    <SelectItem value="blue">Bleu</SelectItem>
+                    <SelectItem value="green">Vert</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <Separator />
+
+              <div className="flex items-center justify-between">
+                <div className="space-y-0.5">
                   <Label>Sons système</Label>
-                  <p className="text-sm text-muted-foreground">
-                    Activer les notifications sonores
-                  </p>
+                  <p className="text-sm text-muted-foreground">Activer les notifications sonores</p>
                 </div>
                 <Switch
                   checked={settings.soundEnabled}

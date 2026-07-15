@@ -265,7 +265,7 @@ export default function QuickService() {
                         <div className="flex items-center justify-between">
                           <span className="text-lg font-bold">{formatPrice(product.price)}</span>
                           <Badge 
-                            variant={product.stock > 10 ? "default" : product.stock > 0 ? "outline" : "destructive"}
+                            variant={product.stock > (product.min_stock || 10) ? "default" : product.stock > 0 ? "outline" : "destructive"}
                             className="text-xs"
                           >
                             {product.stock}

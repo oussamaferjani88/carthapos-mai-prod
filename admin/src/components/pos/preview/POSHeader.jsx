@@ -19,6 +19,9 @@ export const POSHeader = ({
     return null;
   }
 
+  // Use config-driven height
+  const navbarHeight = config.navbarHeight || '48px';
+
   return (
     <header 
       className={cn(
@@ -36,13 +39,14 @@ export const POSHeader = ({
         fontWeight: config.fontWeight || '400',
         boxShadow: styles.card.boxShadow,
         transition: styles.animation,
+        height: navbarHeight,
         ...(config.gradientBackgrounds ? {
           background: POSConfiguration.getContainerGradient(config)
         } : {}),
         ...(config.glassEffect ? glassEffect : {})
       }}
     >
-      <div className="flex items-center justify-between px-6 py-3">
+      <div className="flex items-center justify-between px-6 py-1 h-full">
         {/* Left side - POS Name and Logo */}
         <div className="flex items-center space-x-3">
           {/* Mobile menu button */}

@@ -150,10 +150,16 @@ const ReceiptDesigner = () => {
     try {
       setLoading(true);
       
-      // Load from localStorage or database
-      const saved = localStorage.getItem('receiptConfig');
-      if (saved) {
-        setReceiptConfig(JSON.parse(saved));
+      // Load from database first, fall back to localStorage
+      let configStr = null;
+      if (window.electronAPI?.getReceiptConfig) {
+        configStr = await window.electronAPI.getReceiptConfig();
+      }
+      if (!configStr) {
+        configStr = localStorage.getItem('receiptConfig');
+      }
+      if (configStr) {
+        setReceiptConfig(JSON.parse(configStr));
       }
 
       // Load business info from app config
@@ -177,8 +183,11 @@ const ReceiptDesigner = () => {
     }
   };
 
-  const saveConfiguration = () => {
+  const saveConfiguration = async () => {
     try {
+      if (window.electronAPI?.saveReceiptConfig) {
+        await window.electronAPI.saveReceiptConfig(receiptConfig);
+      }
       localStorage.setItem('receiptConfig', JSON.stringify(receiptConfig));
       
       toast({
@@ -239,12 +248,32 @@ const ReceiptDesigner = () => {
     }));
   };
 
-  const testPrint = () => {
-    toast({
-      title: "🖨️ Test d'impression",
-      description: "Envoi d'un ticket de test à l'imprimante...",
-    });
-    // TODO: Implement actual printing via electron IPC
+  const testPrint = async () => {
+    try {
+      toast({
+        title: "🖨️ Test d'impression",
+        description: "Envoi d'un ticket de test à l'imprimante...",
+      });
+      if (window.thermalPrinter) {
+        await window.thermalPrinter.initialize({});
+        const result = await window.thermalPrinter.testPrint();
+        toast({
+          title: result.success ? "✅ Impression réussie" : "❌ Échec",
+          description: result.message || "",
+        });
+      } else {
+        toast({
+          title: "ℹ️ Mode simulation",
+          description: "Imprimante non disponible — impression simulée.",
+        });
+      }
+    } catch (error) {
+      toast({
+        title: "❌ Erreur d'impression",
+        description: error.message,
+        variant: "destructive"
+      });
+    }
   };
 
   const uploadLogo = async (e) => {
@@ -1061,9 +1090,32 @@ const ReceiptPreview = ({ config, data }) => {
       {config.footer.showBarcode && (
         <div className="text-center my-2">
           {config.footer.barcodeType === 'qr' ? (
-            <div className="inline-block w-16 h-16 bg-black"></div>
+            <svg width="64" height="64" viewBox="0 0 21 21" className="inline-block">
+              <rect width="21" height="21" fill="white"/>
+              <rect x="1" y="1" width="7" height="7" fill="black"/>
+              <rect x="10" y="1" width="3" height="7" fill="black"/>
+              <rect x="15" y="1" width="5" height="3" fill="black"/>
+              <rect x="15" y="6" width="5" height="2" fill="black"/>
+              <rect x="1" y="10" width="3" height="3" fill="black"/>
+              <rect x="6" y="10" width="4" height="2" fill="black"/>
+              <rect x="12" y="10" width="3" height="4" fill="black"/>
+              <rect x="17" y="10" width="3" height="2" fill="black"/>
+              <rect x="1" y="15" width="5" height="5" fill="black"/>
+              <rect x="8" y="14" width="2" height="2" fill="black"/>
+              <rect x="12" y="16" width="3" height="2" fill="black"/>
+              <rect x="17" y="14" width="3" height="5" fill="black"/>
+              <rect x="8" y="18" width="2" height="2" fill="black"/>
+              <rect x="3" y="3" width="3" height="3" fill="white"/>
+              <rect x="16" y="2" width="3" height="2" fill="white"/>
+              <rect x="2" y="16" width="2" height="3" fill="white"/>
+              <rect x="18" y="15" width="1" height="3" fill="white"/>
+            </svg>
           ) : (
-            <div className="inline-block w-32 h-8 bg-black"></div>
+            <div className="inline-block w-32 h-8 relative bg-white border">
+              <div className="absolute inset-0" style={{
+                background: 'repeating-linear-gradient(90deg, #000 0px, #000 2px, transparent 2px, transparent 6px)'
+              }}></div>
+            </div>
           )}
           <div className="text-xs mt-1">{data.receiptNumber}</div>
         </div>

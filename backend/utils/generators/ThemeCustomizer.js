@@ -351,18 +351,29 @@ class ThemeCustomizer {
       modules: normalizedModules,
       theme: {
         businessName: businessName,
+        appTitle: config.appTitle || businessName,
+        footerText: config.footerText || `Powered by ${businessName}`,
+        welcomeText: config.welcomeText || `Bienvenue chez ${businessName}`,
+        logo: config.businessLogo || config.logo || null,
+        favicon: config.favicon || null,
         colors: {
           primary: config.primaryColor || '#3B82F6',
-          accent: config.secondaryColor || '#10B981',
+          secondary: config.secondaryColor || '#f8fafc',
+          accent: config.accentColor || '#1e40af',
           background: config.backgroundColor || '#FFFFFF',
-          text: config.textColor || '#1F2937'
+          text: config.textColor || '#1F2937',
+          textMuted: config.textMutedColor || '#6b7280',
+          border: config.cardBorderColor || '#e5e7eb',
+          cardBackground: config.cardBackgroundColor || '#FFFFFF'
         },
-        logo: config.businessLogo || config.logo || null,  // Support both businessLogo and logo
         currency: config.currency || 'EUR',
+        currencyPosition: config.currencyPosition || 'after',
         taxRate: config.taxRate || 20,
         language: config.language || 'fr',
         timezone: config.timezone || 'Europe/Paris',
-        // Add all POSConfiguration-compatible properties
+        dateFormat: config.dateFormat || 'DD/MM/YYYY',
+        timeFormat: config.timeFormat || '24h',
+        // All POSConfiguration-compatible properties
         primaryColor: config.primaryColor || '#3B82F6',
         secondaryColor: config.secondaryColor || '#f8fafc',
         accentColor: config.accentColor || '#1e40af',
@@ -370,12 +381,94 @@ class ThemeCustomizer {
         textColor: config.textColor || '#1F2937',
         textMutedColor: config.textMutedColor || '#6b7280',
         cardBorderColor: config.cardBorderColor || '#e5e7eb',
+        cardBackgroundColor: config.cardBackgroundColor || '#FFFFFF',
         fontFamily: config.customFont || 'Inter',
         fontSize: config.fontSize || '14px',
         fontWeight: config.fontWeight || '400',
         animations: config.animations !== false,
+        animationType: config.animationType || 'slide',
+        animationSpeed: config.animationSpeed || 'normal',
         shadows: config.shadows !== false,
-        borderRadius: config.borderRadius || 'medium'
+        shadowIntensity: config.shadowIntensity || 'medium',
+        borderRadius: config.borderRadius || 'medium',
+        gradientBackgrounds: config.gradientBackgrounds || false,
+        glassEffect: config.glassEffect || false,
+        highContrastMode: config.highContrastMode || false,
+        largeTextMode: config.largeTextMode || false,
+        compactMode: config.compactMode || false,
+        sidebarCollapsible: config.sidebarCollapsible !== false,
+        showBreadcrumbs: config.showBreadcrumbs !== false,
+        navbarPosition: config.navbarPosition || 'left',
+        navbarWidth: config.navbarWidth || '64px',
+        navbarHeight: config.navbarHeight || '48px',
+        navbarStyle: config.navbarStyle || 'modern',
+        dashboardLayout: config.dashboardLayout || 'grid',
+        showQuickStats: config.showQuickStats !== false,
+        showRecentOrders: config.showRecentOrders !== false,
+        showTopProducts: config.showTopProducts !== false,
+        enableTableManagement: config.enableTableManagement !== false,
+        enableCustomerDisplay: config.enableCustomerDisplay !== false,
+        autoRefreshInterval: config.autoRefreshInterval || 30,
+        showProductImages: config.showProductImages !== false,
+        enableBarcode: config.enableBarcode !== false,
+        enableInventoryTracking: config.enableInventoryTracking !== false,
+        enableCash: config.enableCash !== false,
+        enableCard: config.enableCard !== false,
+        enableMobile: config.enableMobile !== false,
+        enableGiftCards: config.enableGiftCards || false,
+        enableMultiLocation: config.enableMultiLocation || false,
+        enableUserRoles: config.enableUserRoles || false,
+        enableAuditLog: config.enableAuditLog || false,
+        enableNotifications: config.enableNotifications !== false,
+        enableCaching: config.enableCaching !== false,
+        lazyLoading: config.lazyLoading !== false,
+        keyboardNavigation: config.keyboardNavigation !== false,
+        reducedMotion: config.reducedMotion || false,
+        spacingScale: config.spacingScale || 1,
+        maxWidth: config.maxWidth || '1200px',
+        navbarCollapsible: config.navbarCollapsible || false,
+        components: {
+          cards: {
+            borderRadius: config.components?.cards?.borderRadius || 'medium',
+            padding: config.components?.cards?.padding || 1,
+            shadowStyle: config.components?.cards?.shadowStyle || 'default'
+          },
+          buttons: {
+            style: config.components?.buttons?.style || 'default',
+            size: config.components?.buttons?.size || 'medium',
+            hoverEffects: config.components?.buttons?.hoverEffects !== false
+          },
+          grid: {
+            columns: config.components?.grid?.columns || 3,
+            gap: config.components?.grid?.gap || 4
+          },
+          forms: {
+            inputStyle: config.components?.forms?.inputStyle || 'default',
+            inputSize: config.components?.forms?.inputSize || 'medium',
+            focusRing: config.components?.forms?.focusRing !== false
+          }
+        }
+      },
+      businessInfo: {
+        name: businessName,
+        address: config.businessAddress || '',
+        phone: config.businessPhone || '',
+        email: config.businessEmail || '',
+        website: config.businessWebsite || '',
+        taxId: config.businessTaxId || '',
+        logo: config.businessLogo || config.logo || null
+      },
+      receipt: {
+        enabled: true,
+        header: config.receiptHeader || businessName,
+        footer: config.receiptFooter || 'Merci de votre visite!',
+        autoPrint: config.printReceiptAuto || false,
+        paperWidth: config.receiptPaperWidth || 80,
+        showLogo: config.receiptShowLogo !== false,
+        showBusinessInfo: config.receiptShowBusinessInfo !== false,
+        showQR: config.receiptShowQR || false,
+        qrContent: config.receiptQRContent || 'website',
+        copies: config.receiptCopies || 1
       },
       database: {
         type: 'sqlite',
@@ -387,8 +480,8 @@ class ThemeCustomizer {
       },
       printer: {
         enabled: true,
-        autoprint: false,
-        paperWidth: 80
+        autoprint: config.printReceiptAuto || false,
+        paperWidth: config.receiptPaperWidth || 80
       },
       features: config.features || {
         barcode: true,

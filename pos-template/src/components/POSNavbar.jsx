@@ -78,7 +78,10 @@ export const POSNavbar = ({
   const accentColor = theme.accentColor || theme.colors?.accent || '#e5e7eb';
   const textMutedColor = theme.textMutedColor || '#6b7280';
   const businessName = theme.businessName || 'POS System';
-  const navbarPosition = config?.layout?.navbarPosition || 'left';
+  const navbarPosition = config?.layout?.navbarPosition || theme.navbarPosition || 'left';
+  const navbarWidth = theme.navbarWidth || '64px';
+  const navbarHeight = theme.navbarHeight || '48px';
+  const navCollapsible = theme.navbarCollapsible === true;
 
   // Get animation classes from configuration
   const animationTypeClass = POSConfiguration.getAnimationTypeClass(theme);
@@ -151,8 +154,12 @@ export const POSNavbar = ({
     <>
       {/* Collapsed Icon Bar - Always visible */}
       <div 
-        className={`h-full w-16 flex flex-col shadow-lg transition-all duration-300 relative z-30 ${className}`}
-        style={{ backgroundColor: primaryColor }}
+        className={`h-full flex flex-col shadow-lg transition-all duration-300 relative z-30 ${className}`}
+        style={{ 
+          backgroundColor: primaryColor,
+          width: navbarWidth,
+          minWidth: navbarWidth
+        }}
       >
         {/* Header Icon - Click to Toggle */}
         <button 
@@ -289,10 +296,11 @@ export const POSNavbar = ({
   // Top navbar mode
   const renderTopNavbar = () => (
     <div 
-      className={`flex flex-row h-16 items-center border-b shadow-sm w-full ${className}`}
+      className={`flex flex-row items-center border-b shadow-sm w-full ${className}`}
       style={{ 
         backgroundColor: backgroundColor,
-        borderColor: accentColor + '20'
+        borderColor: accentColor + '20',
+        height: navbarHeight
       }}
     >
       {/* Header avec titre */}

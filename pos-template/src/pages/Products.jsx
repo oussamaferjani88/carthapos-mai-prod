@@ -526,10 +526,10 @@ const generateLocalBarcode = () => {
     }
   };
 
-  const getStockBadge = (stock) => {
+  const getStockBadge = (stock, minStock = 10) => {
     if (stock === 0) {
       return <Badge variant="destructive">Rupture</Badge>;
-    } else if (stock <= 10) {
+    } else if (minStock > 0 && stock <= minStock) {
       return <Badge variant="outline" className="text-orange-600 border-orange-600">Stock faible</Badge>;
     } else {
       return <Badge variant="default">En stock</Badge>;
@@ -695,7 +695,7 @@ const generateLocalBarcode = () => {
                 <div className="space-y-3">
                   <div className="flex justify-between items-center">
                     <span className="text-2xl font-bold">{formatPrice(product.price)}</span>
-                    {getStockBadge(product.stock)}
+                    {getStockBadge(product.stock, product.min_stock)}
                   </div>
                   
                   <div className="text-sm text-muted-foreground">

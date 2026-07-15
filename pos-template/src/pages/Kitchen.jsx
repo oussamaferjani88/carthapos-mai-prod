@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { 
   ChefHat, 
   Clock, 
@@ -7,12 +7,14 @@ import {
   AlertTriangle,
   Printer,
   Eye,
-  Filter
+  Filter,
+  Bell,
+  X,
+  SkipBack
 } from 'lucide-react';
 import { POSConfiguration } from '../lib/POSConfiguration';
 import { useAppConfig } from '../hooks/useAppConfig';
 
-// Components
 import { Button } from '../components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
 import { Badge } from '../components/ui/badge';
@@ -25,14 +27,31 @@ import {
   SelectValue,
 } from '../components/ui/select';
 
+const PRIORITY_MAP = {
+  low:     { value: 1, label: 'Faible',     color: 'text-gray-600' },
+  normal:  { value: 2, label: 'Normale',    color: 'text-orange-600' },
+  high:    { value: 3, label: 'Haute',      color: 'text-red-600 font-bold' },
+  urgent:  { value: 4, label: 'Urgente',    color: 'text-red-700 font-bold animate-pulse' },
+};
+
+const STATUS_CONFIG = {
+  pending:    { label: 'En attente',  color: 'bg-red-500 text-white',    next: 'preparing', nextLabel: 'Commencer',    nextIcon: Play },
+  preparing:  { label: 'En cours',    color: 'bg-yellow-500 text-white',  next: 'ready',     nextLabel: 'Prêt',         nextIcon: Check },
+  ready:      { label: 'Prêt',        color: 'bg-blue-500 text-white',    next: 'served',    nextLabel: 'Servi',        nextIcon: Check },
+  served:     { label: 'Servi',       color: 'bg-green-500 text-white',   next: null,        nextLabel: null,           nextIcon: null },
+  completed:  { label: 'Terminé',     color: 'bg-gray-400 text-white',    next: null,        nextLabel: null,           nextIcon: null },
+  cancelled:  { label: 'Annulé',      color: 'bg-gray-600 text-white',    next: null,        nextLabel: null,           nextIcon: null },
+};
+
 export default function Kitchen() {
   const [orders, setOrders] = useState([]);
   const [loading, setLoading] = useState(true);
   const [selectedOrder, setSelectedOrder] = useState(null);
   const [dialogOpen, setDialogOpen] = useState(false);
-  const [statusFilter, setStatusFilter] = useState('all');
+  const [statusFilter, setStatusFilter] = useState('active');
+  const prevOrderCount = useRef(0);
+  const audioCtx = useRef(null);
 
-  // POSConfiguration integration
   const { config: electronConfig } = useAppConfig();
   const getConfig = () => {
     if (electronConfig?.theme) {
@@ -46,75 +65,67 @@ export default function Kitchen() {
   };
   const config = getConfig();
 
-  useEffect(() => {
-    loadKitchenOrders();
-    
-    // Actualiser toutes les 30 secondes
-    const interval = setInterval(loadKitchenOrders, 30000);
-    return () => clearInterval(interval);
+  const playNewOrderSound = useCallback(() => {
+    try {
+      if (!audioCtx.current) {
+        audioCtx.current = new (window.AudioContext || window.webkitAudioContext)();
+      }
+      const ctx = audioCtx.current;
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.frequency.value = 880;
+      osc.type = 'sine';
+      gain.gain.setValueAtTime(0.3, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.3);
+      osc.start(ctx.currentTime);
+      osc.stop(ctx.currentTime + 0.3);
+    } catch (e) {
+      /* audio not available */
+    }
   }, []);
 
-  const loadKitchenOrders = async () => {
+  const loadKitchenOrders = useCallback(async () => {
     try {
       setLoading(true);
-      
       if (window.electronAPI) {
-        const orders = await window.electronAPI.getKitchenOrders();
-        setOrders(orders);
+        const useActive = statusFilter === 'active' || statusFilter === 'all';
+        const data = useActive
+          ? await window.electronAPI.getActiveKitchenOrders()
+          : await window.electronAPI.getKitchenOrders();
+
+        if (statusFilter !== 'all' && statusFilter !== 'active') {
+          setOrders((data || []).filter(o => o.status === statusFilter));
+        } else {
+          setOrders(data || []);
+        }
+
+        // Play sound if new orders arrived
+        if (prevOrderCount.current > 0 && data && data.length > prevOrderCount.current) {
+          playNewOrderSound();
+        }
+        prevOrderCount.current = data ? data.length : 0;
       } else {
-        // Fallback pour le développement web
-        setOrders([
-          {
-            id: 1,
-            sale_id: 123,
-            table_number: 'T1',
-            status: 'pending',
-            priority: 2,
-            notes: 'Sans oignons',
-            sent_to_kitchen_at: new Date().toISOString(),
-            sale_total: 45.50,
-            items: [
-              { id: 1, product_name: 'Burger Classic', quantity: 2, special_instructions: 'Bien cuit' },
-              { id: 2, product_name: 'Frites', quantity: 2, special_instructions: '' }
-            ]
-          },
-          {
-            id: 2,
-            sale_id: 124,
-            table_number: 'T3',
-            status: 'in_progress',
-            priority: 3,
-            notes: '',
-            sent_to_kitchen_at: new Date(Date.now() - 10 * 60000).toISOString(),
-            started_at: new Date(Date.now() - 5 * 60000).toISOString(),
-            sale_total: 32.80,
-            items: [
-              { id: 3, product_name: 'Salade César', quantity: 1, special_instructions: 'Sauce à part' },
-              { id: 4, product_name: 'Soupe du jour', quantity: 1, special_instructions: '' }
-            ]
-          },
-          {
-            id: 3,
-            sale_id: 125,
-            table_number: 'T5',
-            status: 'pending',
-            priority: 1,
-            notes: 'Urgente - client pressé',
-            sent_to_kitchen_at: new Date(Date.now() - 2 * 60000).toISOString(),
-            sale_total: 78.90,
-            items: [
-              { id: 5, product_name: 'Steak Frites', quantity: 2, special_instructions: 'Saignant' },
-              { id: 6, product_name: 'Vin rouge', quantity: 1, special_instructions: '' }
-            ]
-          }
-        ]);
+        setOrders([]);
       }
     } catch (error) {
       console.error('Error loading kitchen orders:', error);
     } finally {
       setLoading(false);
     }
-  };
+  }, [statusFilter, playNewOrderSound]);
+
+  useEffect(() => {
+    loadKitchenOrders();
+    const interval = setInterval(loadKitchenOrders, 15000);
+    const onKitchenEvent = () => { loadKitchenOrders(); playNewOrderSound(); };
+    window.addEventListener('kitchen-order-created', onKitchenEvent);
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener('kitchen-order-created', onKitchenEvent);
+    };
+  }, [loadKitchenOrders, playNewOrderSound]);
 
   const updateOrderStatus = async (orderId, newStatus) => {
     try {
@@ -124,7 +135,48 @@ export default function Kitchen() {
       loadKitchenOrders();
     } catch (error) {
       console.error('Error updating order status:', error);
-      alert('Erreur lors de la mise à jour');
+    }
+  };
+
+  const printKitchenOrder = (order) => {
+    try {
+      const items = order.items || [];
+      const lines = [];
+      const p = (text, align = 'center') => lines.push({ text, align });
+      const sep = () => p('─'.repeat(32));
+
+      p('COMMANDE CUISINE'.toUpperCase());
+      sep();
+      p(`Table: ${order.table_number || '—'}`);
+      p(`#${order.sale_id || order.id}`);
+      p(new Date(order.created_at).toLocaleString('fr-FR'));
+      sep();
+      items.forEach(item => {
+        p(`${item.quantity}x  ${item.name || item.product_name}`, 'left');
+      });
+      if (order.notes) {
+        sep();
+        p(`Note: ${order.notes}`, 'left');
+      }
+
+      const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><style>
+        @page { margin: 0; width: 80mm; }
+        body { font-family: 'Courier New', monospace; font-size: 12px; width: 80mm; margin: 0 auto; padding: 10px; }
+        .c { text-align: center; } .l { text-align: left; } .r { text-align: right; }
+        .line { white-space: pre-wrap; margin: 2px 0; }
+      </style></head><body>
+        ${lines.map(l => `<div class="line ${l.align === 'l' ? 'l' : l.align || 'c'}">${l.text}</div>`).join('')}
+      </body></html>`;
+
+      const printWin = window.open('', '_blank', 'width=400,height=600');
+      if (printWin) {
+        printWin.document.write(html);
+        printWin.document.close();
+        printWin.focus();
+        setTimeout(() => { try { printWin.print(); } catch (e) {} }, 300);
+      }
+    } catch (e) {
+      console.error('Print error:', e);
     }
   };
 
@@ -133,90 +185,49 @@ export default function Kitchen() {
     setDialogOpen(true);
   };
 
-  const getStatusColor = (status) => {
-    switch (status) {
-      case 'pending':
-        return 'bg-red-500 text-white';
-      case 'in_progress':
-        return 'bg-yellow-500 text-white';
-      case 'completed':
-        return 'bg-green-500 text-white';
-      default:
-        return 'bg-gray-500 text-white';
-    }
-  };
-
-  const getStatusLabel = (status) => {
-    switch (status) {
-      case 'pending':
-        return 'En attente';
-      case 'in_progress':
-        return 'En cours';
-      case 'completed':
-        return 'Terminé';
-      default:
-        return 'Inconnu';
-    }
-  };
-
-  const getPriorityColor = (priority) => {
-    switch (priority) {
-      case 3:
-        return 'text-red-600 font-bold';
-      case 2:
-        return 'text-orange-600 font-medium';
-      case 1:
-        return 'text-gray-600';
-      default:
-        return 'text-gray-600';
-    }
-  };
-
-  const getPriorityLabel = (priority) => {
-    switch (priority) {
-      case 3:
-        return 'Urgent';
-      case 2:
-        return 'Normal';
-      case 1:
-        return 'Faible';
-      default:
-        return 'Normal';
-    }
-  };
-
-  const getElapsedTime = (sentTime, startTime = null) => {
+  const getElapsedTime = (fromDate, startDate = null) => {
+    if (!fromDate) return '—';
     const now = new Date();
-    const sent = new Date(sentTime);
-    const start = startTime ? new Date(startTime) : null;
-    
-    const referenceTime = start || sent;
-    const elapsed = Math.floor((now - referenceTime) / 1000 / 60); // en minutes
-    
-    if (elapsed < 60) {
-      return `${elapsed}min`;
-    } else {
-      const hours = Math.floor(elapsed / 60);
-      const minutes = elapsed % 60;
-      return `${hours}h${minutes.toString().padStart(2, '0')}`;
-    }
+    const from = new Date(fromDate);
+    const ref = startDate ? new Date(startDate) : from;
+    const elapsed = Math.floor((now - ref) / 1000 / 60);
+    if (elapsed < 60) return `${elapsed}min`;
+    const h = Math.floor(elapsed / 60);
+    const m = elapsed % 60;
+    return `${h}h${m.toString().padStart(2, '0')}`;
   };
 
-  const filteredOrders = orders.filter(order => {
-    if (statusFilter === 'all') return true;
-    return order.status === statusFilter;
-  });
+  const getFilteredOrders = () => {
+    let filtered = [...orders];
+    if (statusFilter === 'active') {
+      filtered = filtered.filter(o => !['completed', 'cancelled', 'served'].includes(o.status));
+    } else if (statusFilter !== 'all') {
+      filtered = filtered.filter(o => o.status === statusFilter);
+    }
+    return filtered.sort((a, b) => {
+      const pa = PRIORITY_MAP[a.priority]?.value || 2;
+      const pb = PRIORITY_MAP[b.priority]?.value || 2;
+      if (pa !== pb) return pb - pa;
+      return new Date(a.created_at || 0) - new Date(b.created_at || 0);
+    });
+  };
 
   const statusStats = {
-    pending: orders.filter(o => o.status === 'pending').length,
-    in_progress: orders.filter(o => o.status === 'in_progress').length,
-    completed: orders.filter(o => o.status === 'completed').length
+    pending:    orders.filter(o => o.status === 'pending').length,
+    preparing:  orders.filter(o => o.status === 'preparing' || o.status === 'in_progress').length,
+    ready:      orders.filter(o => o.status === 'ready').length,
+    served:     orders.filter(o => o.status === 'served').length,
+    completed:  orders.filter(o => o.status === 'completed').length,
+    cancelled:  orders.filter(o => o.status === 'cancelled').length,
+    total:      orders.length,
   };
 
-  if (loading) {
+  const filteredOrders = getFilteredOrders();
+
+  if (loading && orders.length === 0) {
     return (
       <div className="flex items-center justify-center h-96">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary" />
       </div>
     );
   }
@@ -226,152 +237,123 @@ export default function Kitchen() {
       {/* Header */}
       <div className="flex justify-between items-center">
         <div>
-          <h1 className="text-3xl font-bold flex items-center">
-            <ChefHat className="mr-3 h-8 w-8" />
+          <h1 className="text-3xl font-bold flex items-center gap-3">
+            <ChefHat className="h-8 w-8" />
             Cuisine
+            {statusStats.pending > 0 && (
+              <Badge className="bg-red-500 text-white text-sm animate-pulse">
+                {statusStats.pending} en attente
+              </Badge>
+            )}
           </h1>
           <p className="text-muted-foreground">
             Gestion des commandes de cuisine en temps réel
           </p>
         </div>
-        <div className="flex space-x-2">
+        <div className="flex items-center gap-2">
           <Select value={statusFilter} onValueChange={setStatusFilter}>
-            <SelectTrigger className="w-40">
-              <SelectValue placeholder="Filtrer par statut" />
+            <SelectTrigger className="w-44">
+              <SelectValue placeholder="Filtrer" />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="all">Tous les statuts</SelectItem>
+              <SelectItem value="active">Actives</SelectItem>
               <SelectItem value="pending">En attente</SelectItem>
-              <SelectItem value="in_progress">En cours</SelectItem>
-              <SelectItem value="completed">Terminé</SelectItem>
+              <SelectItem value="preparing">En cours</SelectItem>
+              <SelectItem value="ready">Prêtes</SelectItem>
+              <SelectItem value="served">Servies</SelectItem>
+              <SelectItem value="completed">Terminées</SelectItem>
+              <SelectItem value="all">Toutes</SelectItem>
             </SelectContent>
           </Select>
-          <Button onClick={loadKitchenOrders}>
+          <Button onClick={loadKitchenOrders} variant="outline">
             Actualiser
           </Button>
         </div>
       </div>
 
       {/* Stats Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        <Card>
-          <CardContent className="p-6">
-            <div className="flex items-center">
-              <AlertTriangle className="h-4 w-4 text-red-500" />
-              <div className="ml-2">
-                <p className="text-sm font-medium text-muted-foreground">En attente</p>
-                <p className="text-2xl font-bold">{statusStats.pending}</p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="p-6">
-            <div className="flex items-center">
-              <Play className="h-4 w-4 text-yellow-500" />
-              <div className="ml-2">
-                <p className="text-sm font-medium text-muted-foreground">En cours</p>
-                <p className="text-2xl font-bold">{statusStats.in_progress}</p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="p-6">
-            <div className="flex items-center">
-              <Check className="h-4 w-4 text-green-500" />
-              <div className="ml-2">
-                <p className="text-sm font-medium text-muted-foreground">Terminé</p>
-                <p className="text-2xl font-bold">{statusStats.completed}</p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="p-6">
-            <div className="flex items-center">
-              <Clock className="h-4 w-4 text-muted-foreground" />
-              <div className="ml-2">
-                <p className="text-sm font-medium text-muted-foreground">Total commandes</p>
-                <p className="text-2xl font-bold">{orders.length}</p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
+      <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-3">
+        <StatCard icon={AlertTriangle} label="En attente" value={statusStats.pending} color="text-red-500" />
+        <StatCard icon={Play} label="En cours" value={statusStats.preparing} color="text-yellow-500" />
+        <StatCard icon={Check} label="Prêtes" value={statusStats.ready} color="text-blue-500" />
+        <StatCard icon={Check} label="Servies" value={statusStats.served} color="text-green-500" />
+        <StatCard icon={Clock} label="Terminées" value={statusStats.completed} color="text-gray-400" />
+        <StatCard icon={X} label="Annulées" value={statusStats.cancelled} color="text-gray-500" />
+        <StatCard icon={ChefHat} label="Total" value={statusStats.total} color="text-primary" />
       </div>
 
-      {/* Kitchen Orders */}
+      {/* Kitchen Orders Grid */}
       <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-4">
-        {filteredOrders
-          .sort((a, b) => {
-            // Trier par priorité puis par temps d'attente
-            if (a.priority !== b.priority) {
-              return b.priority - a.priority;
-            }
-            return new Date(a.sent_to_kitchen_at) - new Date(b.sent_to_kitchen_at);
-          })
-          .map((order) => (
+        {filteredOrders.map((order) => {
+          const priority = PRIORITY_MAP[order.priority] || PRIORITY_MAP.normal;
+          const statusCfg = STATUS_CONFIG[order.status] || STATUS_CONFIG.pending;
+          const NextIcon = statusCfg.nextIcon;
+
+          return (
             <Card key={order.id} className={`border-l-4 ${
-              order.priority === 3 ? 'border-l-red-500' : 
-              order.priority === 2 ? 'border-l-orange-500' : 
+              order.priority === 'urgent' ? 'border-l-red-600' :
+              order.priority === 'high' ? 'border-l-red-400' :
+              order.priority === 'normal' ? 'border-l-orange-400' :
               'border-l-gray-300'
             }`}>
               <CardHeader className="pb-3">
                 <div className="flex justify-between items-start">
                   <div>
-                    <CardTitle className="text-lg">
-                      Commande #{order.sale_id}
+                    <CardTitle className="text-lg flex items-center gap-2">
+                      Commande
+                      {order.sale_id ? `#${order.sale_id}` : `#${order.id}`}
+                      {order.priority === 'urgent' && (
+                        <AlertTriangle className="h-4 w-4 text-red-600 animate-pulse" />
+                      )}
                     </CardTitle>
                     <CardDescription>
                       {order.table_number && `Table ${order.table_number} • `}
-                      {order.sale_total?.toFixed(2)}€
+                      {order.total ? `${Number(order.total).toFixed(2)} €` : ''}
                     </CardDescription>
                   </div>
-                  <div className="flex flex-col items-end space-y-1">
-                    <Badge className={getStatusColor(order.status)}>
-                      {getStatusLabel(order.status)}
+                  <div className="flex flex-col items-end gap-1">
+                    <Badge className={statusCfg.color}>
+                      {statusCfg.label}
                     </Badge>
-                    <span className={`text-xs ${getPriorityColor(order.priority)}`}>
-                      {getPriorityLabel(order.priority)}
+                    <span className={`text-xs ${priority.color}`}>
+                      {priority.label}
                     </span>
                   </div>
                 </div>
               </CardHeader>
-              
-              <CardContent className="space-y-4">
-                {/* Temps écoulé */}
+
+              <CardContent className="space-y-3">
+                {/* Timer */}
                 <div className="flex items-center justify-between text-sm">
                   <span className="text-muted-foreground">
-                    {order.status === 'pending' ? 'En attente depuis:' : 
-                     order.status === 'in_progress' ? 'En cours depuis:' : 
-                     'Terminé'}
+                    {order.status === 'pending' ? 'Attente:' :
+                     order.status === 'preparing' || order.status === 'in_progress' ? 'En cours:' :
+                     order.status === 'ready' ? 'Prêt depuis:' :
+                     order.status === 'served' ? 'Servi depuis:' : ''}
                   </span>
                   <span className={`font-medium ${
-                    getElapsedTime(order.sent_to_kitchen_at, order.started_at).includes('h') || 
-                    parseInt(getElapsedTime(order.sent_to_kitchen_at, order.started_at)) > 15 
+                    order.status === 'pending' && parseInt(getElapsedTime(order.created_at)) > 15
                       ? 'text-red-600' : 'text-gray-900'
                   }`}>
-                    {getElapsedTime(order.sent_to_kitchen_at, order.started_at)}
+                    {getElapsedTime(order.created_at, order.started_at)}
                   </span>
                 </div>
 
-                {/* Articles */}
-                <div className="space-y-2">
-                  {order.items?.slice(0, 3).map((item, index) => (
-                    <div key={index} className="flex justify-between items-start text-sm">
+                {/* Items */}
+                <div className="space-y-1.5">
+                  {(order.items || []).slice(0, 4).map((item, idx) => (
+                    <div key={idx} className="flex justify-between items-start text-sm">
                       <div className="flex-1">
-                        <span className="font-medium">{item.quantity}x {item.product_name}</span>
+                        <span className="font-medium">{item.quantity}x {item.name || item.product_name}</span>
                         {item.special_instructions && (
-                          <div className="text-xs text-orange-600 italic">
-                            {item.special_instructions}
-                          </div>
+                          <div className="text-xs text-orange-600 italic">{item.special_instructions}</div>
                         )}
                       </div>
                     </div>
                   ))}
-                  {order.items?.length > 3 && (
+                  {order.items && order.items.length > 4 && (
                     <div className="text-xs text-muted-foreground">
-                      ... et {order.items.length - 3} autre(s) article(s)
+                      ... et {order.items.length - 4} autre(s)
                     </div>
                   )}
                 </div>
@@ -384,29 +366,29 @@ export default function Kitchen() {
                 )}
 
                 {/* Actions */}
-                <div className="flex space-x-2">
+                <div className="flex gap-2">
+                  {statusCfg.next && (
+                    <Button
+                      size="sm"
+                      onClick={() => updateOrderStatus(order.id, statusCfg.next)}
+                      className={statusCfg.next === 'ready' ? 'flex-1 bg-blue-600 hover:bg-blue-700' :
+                                statusCfg.next === 'served' ? 'flex-1 bg-green-600 hover:bg-green-700' :
+                                'flex-1'}
+                    >
+                      {NextIcon && <NextIcon className="h-4 w-4 mr-1" />}
+                      {statusCfg.nextLabel}
+                    </Button>
+                  )}
                   {order.status === 'pending' && (
                     <Button
                       size="sm"
-                      onClick={() => updateOrderStatus(order.id, 'in_progress')}
-                      className="flex-1"
+                      variant="outline"
+                      onClick={() => updateOrderStatus(order.id, 'cancelled')}
+                      className="text-red-600"
                     >
-                      <Play className="h-4 w-4 mr-1" />
-                      Commencer
+                      <X className="h-4 w-4" />
                     </Button>
                   )}
-                  
-                  {order.status === 'in_progress' && (
-                    <Button
-                      size="sm"
-                      onClick={() => updateOrderStatus(order.id, 'completed')}
-                      className="flex-1 bg-green-600 hover:bg-green-700"
-                    >
-                      <Check className="h-4 w-4 mr-1" />
-                      Terminer
-                    </Button>
-                  )}
-                  
                   <Button
                     variant="outline"
                     size="sm"
@@ -414,21 +396,18 @@ export default function Kitchen() {
                   >
                     <Eye className="h-4 w-4" />
                   </Button>
-                  
                   <Button
                     variant="outline"
                     size="sm"
-                    onClick={() => {
-                      // Logique d'impression
-                      console.log('Print order:', order.id);
-                    }}
+                    onClick={() => printKitchenOrder(order)}
                   >
                     <Printer className="h-4 w-4" />
                   </Button>
                 </div>
               </CardContent>
             </Card>
-          ))}
+          );
+        })}
       </div>
 
       {filteredOrders.length === 0 && (
@@ -437,10 +416,9 @@ export default function Kitchen() {
             <ChefHat className="mx-auto h-12 w-12 text-muted-foreground mb-4" />
             <h3 className="text-lg font-medium mb-2">Aucune commande</h3>
             <p className="text-muted-foreground">
-              {statusFilter === 'all' 
-                ? 'Aucune commande en cuisine actuellement'
-                : `Aucune commande avec le statut "${getStatusLabel(statusFilter)}"`
-              }
+              {statusFilter === 'active'
+                ? 'Aucune commande active en cuisine'
+                : 'Aucune commande avec ce filtre'}
             </p>
           </CardContent>
         </Card>
@@ -451,43 +429,39 @@ export default function Kitchen() {
         <DialogContent className="max-w-2xl">
           <DialogHeader>
             <DialogTitle>
-              Détails de la commande #{selectedOrder?.sale_id}
+              Détails de la commande {selectedOrder?.sale_id ? `#${selectedOrder.sale_id}` : ''}
             </DialogTitle>
           </DialogHeader>
-          
+
           {selectedOrder && (
             <div className="space-y-4">
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <h4 className="font-medium">Informations générales</h4>
+                  <h4 className="font-medium">Informations</h4>
                   <div className="text-sm space-y-1 mt-2">
-                    <div>Table: {selectedOrder.table_number || 'Inconnue'}</div>
-                    <div>Total: {selectedOrder.sale_total?.toFixed(2)}€</div>
-                    <div>Priorité: {getPriorityLabel(selectedOrder.priority)}</div>
-                    <div>Statut: {getStatusLabel(selectedOrder.status)}</div>
+                    <div>Table: {selectedOrder.table_number || '—'}</div>
+                    <div>Total: {selectedOrder.total ? `${Number(selectedOrder.total).toFixed(2)} €` : '—'}</div>
+                    <div>Priorité: {PRIORITY_MAP[selectedOrder.priority]?.label || 'Normale'}</div>
+                    <div>Statut: {STATUS_CONFIG[selectedOrder.status]?.label || selectedOrder.status}</div>
                   </div>
                 </div>
                 <div>
                   <h4 className="font-medium">Timing</h4>
                   <div className="text-sm space-y-1 mt-2">
-                    <div>Envoyé: {new Date(selectedOrder.sent_to_kitchen_at).toLocaleTimeString()}</div>
-                    {selectedOrder.started_at && (
-                      <div>Commencé: {new Date(selectedOrder.started_at).toLocaleTimeString()}</div>
-                    )}
-                    {selectedOrder.completed_at && (
-                      <div>Terminé: {new Date(selectedOrder.completed_at).toLocaleTimeString()}</div>
-                    )}
+                    <div>Reçu: {selectedOrder.created_at ? new Date(selectedOrder.created_at).toLocaleString('fr-FR') : '—'}</div>
+                    {selectedOrder.started_at && <div>Début: {new Date(selectedOrder.started_at).toLocaleString('fr-FR')}</div>}
+                    {selectedOrder.completed_at && <div>Fin: {new Date(selectedOrder.completed_at).toLocaleString('fr-FR')}</div>}
                   </div>
                 </div>
               </div>
 
               <div>
-                <h4 className="font-medium mb-2">Articles de la commande</h4>
+                <h4 className="font-medium mb-2">Articles</h4>
                 <div className="space-y-2">
-                  {selectedOrder.items?.map((item, index) => (
-                    <div key={index} className="flex justify-between items-start p-2 border rounded">
+                  {(selectedOrder.items || []).map((item, idx) => (
+                    <div key={idx} className="flex justify-between items-start p-2 border rounded">
                       <div>
-                        <div className="font-medium">{item.quantity}x {item.product_name}</div>
+                        <span className="font-medium">{item.quantity}x {item.name || item.product_name}</span>
                         {item.special_instructions && (
                           <div className="text-sm text-orange-600 italic">
                             Instructions: {item.special_instructions}
@@ -507,10 +481,47 @@ export default function Kitchen() {
                   </div>
                 </div>
               )}
+
+              <div className="flex gap-2 pt-2">
+                {selectedOrder.status === 'pending' && (
+                  <Button onClick={() => { updateOrderStatus(selectedOrder.id, 'preparing'); setDialogOpen(false); }}>
+                    <Play className="h-4 w-4 mr-1" /> Commencer
+                  </Button>
+                )}
+                {selectedOrder.status === 'preparing' && (
+                  <Button onClick={() => { updateOrderStatus(selectedOrder.id, 'ready'); setDialogOpen(false); }} className="bg-blue-600">
+                    <Check className="h-4 w-4 mr-1" /> Prêt
+                  </Button>
+                )}
+                {selectedOrder.status === 'ready' && (
+                  <Button onClick={() => { updateOrderStatus(selectedOrder.id, 'served'); setDialogOpen(false); }} className="bg-green-600">
+                    <Check className="h-4 w-4 mr-1" /> Servi
+                  </Button>
+                )}
+                <Button variant="outline" onClick={() => printKitchenOrder(selectedOrder)}>
+                  <Printer className="h-4 w-4 mr-1" /> Imprimer
+                </Button>
+              </div>
             </div>
           )}
         </DialogContent>
       </Dialog>
     </div>
+  );
+}
+
+function StatCard({ icon: Icon, label, value, color }) {
+  return (
+    <Card>
+      <CardContent className="p-4">
+        <div className="flex items-center gap-2">
+          <Icon className={`h-4 w-4 ${color}`} />
+          <div>
+            <p className="text-xs text-muted-foreground">{label}</p>
+            <p className="text-xl font-bold">{value}</p>
+          </div>
+        </div>
+      </CardContent>
+    </Card>
   );
 }

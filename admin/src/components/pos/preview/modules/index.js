@@ -25,3 +25,4 @@ export { POSVariants } from './POSVariants';
 export { POSMenuManagement } from './POSMenuManagement';
 export { POSMultiStore } from './POSMultiStore';
 export { POSOfflineMode } from './POSOfflineMode';
+export { POSCaisse } from './POSCaisse';

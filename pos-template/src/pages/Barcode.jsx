@@ -323,7 +323,7 @@ export default function Barcode() {
                   <TableCell>{product.category}</TableCell>
                   <TableCell>{product.price}€</TableCell>
                   <TableCell>
-                    <Badge variant={product.stock > 10 ? "default" : product.stock > 0 ? "outline" : "destructive"}>
+                    <Badge variant={product.stock > (product.min_stock || 10) ? "default" : product.stock > 0 ? "outline" : "destructive"}>
                       {product.stock}
                     </Badge>
                   </TableCell>

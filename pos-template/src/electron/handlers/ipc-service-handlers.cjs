@@ -5,11 +5,14 @@
 
 const { ipcMain } = require('electron');
 
-function registerServiceHandlers(db) {
+function registerServiceHandlers(ipcMainInstance, databaseManager) {
   console.log('📅 Registering service & appointment IPC handlers...');
 
+  const db = databaseManager.getDatabase();
+  if (!db) { console.warn('⚠️ Database not available for service handlers'); return; }
+
   // Appointments
-  ipcMain.handle('get-appointments', (event, date = null) => {
+  ipcMainInstance.handle('get-appointments', (event, date = null) => {
     return new Promise((resolve, reject) => {
       let query = 'SELECT * FROM appointments';
       let params = [];
@@ -32,7 +35,7 @@ function registerServiceHandlers(db) {
     });
   });
 
-  ipcMain.handle('add-appointment', (event, appointment) => {
+  ipcMainInstance.handle('add-appointment', (event, appointment) => {
     return new Promise((resolve, reject) => {
       const { customerName, customerPhone, serviceId, appointmentDate, notes, status } = appointment;
       
@@ -53,7 +56,7 @@ function registerServiceHandlers(db) {
     });
   });
 
-  ipcMain.handle('update-appointment-status', (event, id, status) => {
+  ipcMainInstance.handle('update-appointment-status', (event, id, status) => {
     return new Promise((resolve, reject) => {
       db.run(
         'UPDATE appointments SET status = ? WHERE id = ?',
@@ -72,7 +75,7 @@ function registerServiceHandlers(db) {
   });
 
   // Services
-  ipcMain.handle('get-services', () => {
+  ipcMainInstance.handle('get-services', () => {
     return new Promise((resolve, reject) => {
       db.all(
         'SELECT * FROM services ORDER BY name',
@@ -89,7 +92,7 @@ function registerServiceHandlers(db) {
     });
   });
 
-  ipcMain.handle('add-service', (event, service) => {
+  ipcMainInstance.handle('add-service', (event, service) => {
     return new Promise((resolve, reject) => {
       const { name, description, price, duration } = service;
       
@@ -104,6 +107,24 @@ function registerServiceHandlers(db) {
           } else {
             console.log('✅ Service added successfully with ID:', this.lastID);
             resolve({ id: this.lastID });
+          }
+        }
+      );
+    });
+  });
+
+  ipcMainInstance.handle('delete-service', (event, id) => {
+    return new Promise((resolve, reject) => {
+      db.run(
+        'DELETE FROM services WHERE id = ?',
+        [id],
+        function(err) {
+          if (err) {
+            console.error('Error deleting service:', err);
+            reject(err);
+          } else {
+            console.log('✅ Service deleted successfully');
+            resolve({ success: true });
           }
         }
       );

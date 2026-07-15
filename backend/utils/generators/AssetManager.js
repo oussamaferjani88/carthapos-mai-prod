@@ -462,30 +462,82 @@ window.addEventListener('DOMContentLoaded', () => {
   }
 
   /**
-   * Update asset references in HTML and JS files
+   * Update asset references in HTML and JS files with branded content
+   * @param {string} businessName - Business name for window title
+   * @param {string} primaryColor - Primary color for generated favicon
+   * @param {string|null} logoPath - Path to business logo file (optional)
    */
-  async updateAssetReferences() {
-    logger.debug('Updating asset references');
+  async updateAssetReferences(businessName, primaryColor = '#3B82F6', logoPath = null) {
+    logger.debug('Updating asset references with business name:', businessName);
 
     const htmlPath = path.join(this.projectPath, 'index.html');
-    if (fs.existsSync(htmlPath)) {
-      let htmlContent = fs.readFileSync(htmlPath, 'utf8');
-      
-      // Update title and meta tags
-      htmlContent = htmlContent.replace(
-        /<title>.*<\/title>/,
-        '<title>POS System</title>'
-      );
-      
-      // Update favicon reference
-      htmlContent = htmlContent.replace(
-        /href="\/favicon\.ico"/,
-        'href="./public/favicon.ico"'
-      );
-      
-      fs.writeFileSync(htmlPath, htmlContent);
-      logger.debug('HTML references updated');
+    if (!fs.existsSync(htmlPath)) {
+      logger.warn('index.html not found, skipping asset reference update');
+      return;
     }
+
+    let htmlContent = fs.readFileSync(htmlPath, 'utf8');
+    
+    // Update title with business name
+    htmlContent = htmlContent.replace(
+      /<title>.*<\/title>/,
+      `<title>${businessName}</title>`
+    );
+    logger.info(`✅ Updated window title to: ${businessName}`);
+
+    // Generate branded favicon SVG and write to public/
+    const publicDir = path.join(this.projectPath, 'public');
+    if (!fs.existsSync(publicDir)) {
+      fs.mkdirSync(publicDir, { recursive: true });
+    }
+    this.generateBrandedFavicon(primaryColor, businessName, publicDir);
+
+    // Update favicon reference to use the generated SVG
+    htmlContent = htmlContent.replace(
+      /<link[^>]*rel="icon"[^>]*>/,
+      `<link rel="icon" type="image/svg+xml" href="./favicon.svg" />
+    <link rel="alternate icon" href="./favicon.ico" />`
+    );
+    
+    fs.writeFileSync(htmlPath, htmlContent);
+    logger.debug('HTML references updated with branding');
+  }
+
+  /**
+   * Generate a branded favicon SVG based on primary color
+   */
+  generateBrandedFavicon(color, name, outputDir) {
+    const initials = (name || 'PS').substring(0, 2).toUpperCase();
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
+  <rect width="32" height="32" rx="6" fill="${color}"/>
+  <text x="16" y="22" text-anchor="middle" font-family="Arial,sans-serif" font-size="14" font-weight="bold" fill="white">${initials}</text>
+</svg>`;
+    fs.writeFileSync(path.join(outputDir, 'favicon.svg'), svg);
+    // Also write a 1x1 PNG placeholder as favicon.ico for legacy browsers
+    // The actual .ico will be handled by the generator; this prevents 404s
+    const minimalIco = Buffer.from([0, 0, 1, 0, 1, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
+    fs.writeFileSync(path.join(outputDir, 'favicon.ico'), minimalIco);
+    logger.info(`✅ Generated favicon with initials "${initials}" (color: ${color})`);
+  }
+
+  /**
+   * Copy business logo to public/ directory if provided
+   */
+  async copyBusinessLogo(logoPath) {
+    if (!logoPath || !fs.existsSync(logoPath)) {
+      logger.debug('No business logo to copy');
+      return null;
+    }
+    const publicDir = path.join(this.projectPath, 'public');
+    if (!fs.existsSync(publicDir)) {
+      fs.mkdirSync(publicDir, { recursive: true });
+    }
+    const ext = path.extname(logoPath) || '.png';
+    const destName = `business-logo${ext}`;
+    const destPath = path.join(publicDir, destName);
+    fs.copyFileSync(logoPath, destPath);
+    logger.info(`✅ Business logo copied to: ${destPath}`);
+    return destName;
   }
 
   /**

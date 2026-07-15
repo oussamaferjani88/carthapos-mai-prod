@@ -13,7 +13,13 @@ contextBridge.exposeInMainWorld('electronAPI', {
   
   // Base de données
   getDatabaseStats: () => ipcRenderer.invoke('get-database-stats'),
+  getDatabasePath: () => ipcRenderer.invoke('get-db-path'),
   query: (sql, params) => ipcRenderer.invoke('database:query', sql, params),
+  
+  // Settings
+  getSetting: (key) => ipcRenderer.invoke('settings:get', key),
+  setSetting: (key, value) => ipcRenderer.invoke('settings:set', key, value),
+  getAllSettings: () => ipcRenderer.invoke('settings:getAll'),
   
   // Produits
   getProducts: () => ipcRenderer.invoke('get-products'),
@@ -83,13 +89,23 @@ contextBridge.exposeInMainWorld('electronAPI', {
   
   // Fournisseurs
   getSuppliers: () => ipcRenderer.invoke('get-suppliers'),
+  addSupplier: (supplier) => ipcRenderer.invoke('add-supplier', supplier),
+  updateSupplier: (id, supplier) => ipcRenderer.invoke('update-supplier', id, supplier),
+  deleteSupplier: (id) => ipcRenderer.invoke('delete-supplier', id),
+  updateSupplierStatus: (id, isActive) => ipcRenderer.invoke('update-supplier-status', id, isActive),
   
   // Services & Rendez-vous
   getServices: () => ipcRenderer.invoke('get-services'),
+  addService: (service) => ipcRenderer.invoke('add-service', service),
+  deleteService: (id) => ipcRenderer.invoke('delete-service', id),
   getAppointments: (date) => ipcRenderer.invoke('get-appointments', date),
+  addAppointment: (appointment) => ipcRenderer.invoke('add-appointment', appointment),
+  updateAppointmentStatus: (id, status) => ipcRenderer.invoke('update-appointment-status', id, status),
   
   // Cuisine
   getKitchenOrders: () => ipcRenderer.invoke('get-kitchen-orders'),
+  addKitchenOrder: (order) => ipcRenderer.invoke('add-kitchen-order', order),
+  updateKitchenOrderStatus: (id, status) => ipcRenderer.invoke('update-kitchen-order-status', id, status),
   
   // Événements
   onLicenseStatusChanged: (callback) => {

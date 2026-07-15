@@ -21,7 +21,8 @@ export const POSHeader = ({
   const businessName = theme.businessName || 'POS System';
   const businessLogo = theme.logo || null;
   const fontFamily = theme.fontFamily || 'Inter';
-  const navbarPosition = config?.layout?.navbarPosition || 'left';
+  const navbarPosition = config?.layout?.navbarPosition || theme.navbarPosition || 'left';
+  const navbarHeight = theme.navbarHeight || '48px';
 
   // Si config est en cours de chargement, ne rien afficher
   if (loading || !config) {
@@ -49,10 +50,11 @@ export const POSHeader = ({
       style={{ 
         backgroundColor: cardBackgroundColor,
         borderColor: cardBorderColor,
-        fontFamily: fontFamily + ', system-ui, sans-serif'
+        fontFamily: fontFamily + ', system-ui, sans-serif',
+        height: navbarHeight
       }}
     >
-      <div className="flex items-center justify-between px-6 py-3">
+      <div className="flex items-center justify-between px-6 py-1 h-full">
         {/* Left side - Logo et nom business */}
         <div className="flex items-center space-x-3">
           {/* Mobile menu button */}

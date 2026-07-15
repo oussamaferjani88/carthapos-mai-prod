@@ -1,59 +1,43 @@
 import React, { useState } from 'react';
 import { cn } from '../lib/utils';
 import { useThemeApplier } from '../hooks/useThemeApplier';
-// import { useAuth } from '../contexts/AuthContext'; // unused for now
-import { AppConfig } from '../config/AppConfig';
 import { POSHeader } from './POSHeader';
 import { POSNavbar } from './POSNavbar';
 import { POSContent } from './POSContent';
 import { Shield } from 'lucide-react';
 
-/**
- * Layout principal du POS - Version refactorisée
- * Utilise 3 composants modulaires pour correspondre au POS Preview
- */
-export default function Layout({ children, config = {} /*, license (unused for now) */ }) {
+export default function Layout({ children, config = {} }) {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
-  // const { user } = useAuth(); // unused for now, keeping for future use
 
-  // Get theme configuration (backward compatibility)
-  const getThemeConfig = () => {
-    if (typeof window !== 'undefined' && window.themeConfig) {
-      return window.themeConfig;
-    }
-    return {};
+  // Extract theme from config (passed from App.jsx via useAppConfig)
+  const theme = config?.theme || {};
+
+  // Build merged config: passed config takes priority, fallback to window.themeConfig
+  const mergedConfig = {
+    businessName: theme.businessName || 'POS System',
+    businessLogo: theme.logo || null,
+    primaryColor: theme.primaryColor || theme.colors?.primary || '#3b82f6',
+    accentColor: theme.accentColor || theme.colors?.accent || '#6366f1',
+    secondaryColor: theme.secondaryColor || theme.colors?.secondary || '#f3f4f6',
+    backgroundColor: theme.backgroundColor || theme.colors?.background || '#ffffff',
+    textColor: theme.textColor || theme.colors?.text || '#1f2937',
+    cardBackgroundColor: theme.cardBackgroundColor || theme.colors?.cardBackground || '#ffffff',
+    cardBorderColor: theme.cardBorderColor || theme.colors?.border || '#e5e7eb',
+    textMutedColor: theme.textMutedColor || theme.colors?.textMuted || '#6b7280',
+    fontFamily: theme.fontFamily || 'Inter',
+    fontSize: theme.fontSize || '14px',
+    navbarPosition: theme.navbarPosition || 'left',
+    enabledModules: (config?.modules || []).filter(m => m.isEnabled !== false).map(m => m.name),
+    footerText: theme.footerText || `Powered by ${theme.businessName || 'POS System'}`,
+    language: theme.language || 'fr',
+    shadows: theme.shadows !== false,
+    animations: theme.animations !== false,
+    borderRadius: theme.borderRadius || 'medium'
   };
 
-  // Get configuration from AppConfig
-  const appConfig = AppConfig.getConfig();
-  const themeConfig = getThemeConfig();
+  useThemeApplier(mergedConfig);
 
-  // Merge configurations (backward compatibility)
-  const defaultConfig = {
-    businessName: appConfig.businessInfo.name || themeConfig.businessName || 'POS System',
-    businessLogo: appConfig.businessInfo.logo || themeConfig.businessLogo || null,
-    primaryColor: appConfig.theme.primary || themeConfig.colors?.primary || '#3b82f6',
-    accentColor: appConfig.theme.accent || themeConfig.colors?.accent || '#6366f1',
-    secondaryColor: appConfig.theme.secondary || themeConfig.colors?.secondary || '#f3f4f6',
-    backgroundColor: appConfig.theme.background || themeConfig.colors?.background || '#ffffff',
-    textColor: appConfig.theme.text || themeConfig.colors?.text || '#1f2937',
-    cardBackgroundColor: themeConfig.colors?.cardBackground || '#ffffff',
-    cardBorderColor: themeConfig.colors?.border || '#e5e7eb',
-    textMutedColor: themeConfig.colors?.textMuted || '#6b7280',
-    fontFamily: themeConfig.typography?.fontFamily || 'Inter',
-    fontSize: themeConfig.typography?.fontSize || '14px',
-    navbarPosition: appConfig.layout.navbarPosition || themeConfig.layout?.navbarPosition || 'left',
-    enabledModules: appConfig.enabledModules || [],
-    footerText: `Powered by ${appConfig.businessInfo.name || 'POS System'}`,
-    language: 'fr',
-    ...config
-  };
-
-  // Apply theme dynamically
-  useThemeApplier(defaultConfig);
-
-  // Determine layout flex direction based on navbar position
-  const layoutFlexDirection = defaultConfig.navbarPosition === 'top' ? 'flex-col' : 'flex-row';
+  const layoutFlexDirection = mergedConfig.navbarPosition === 'top' ? 'flex-col' : 'flex-row';
 
   return (
     <div 
@@ -62,53 +46,45 @@ export default function Layout({ children, config = {} /*, license (unused for n
         layoutFlexDirection
       )}
       style={{
-        fontFamily: `"${defaultConfig.fontFamily}", sans-serif`,
-        backgroundColor: defaultConfig.backgroundColor,
-        color: defaultConfig.textColor,
-        fontSize: defaultConfig.fontSize
+        fontFamily: `"${mergedConfig.fontFamily}", sans-serif`,
+        backgroundColor: mergedConfig.backgroundColor,
+        color: mergedConfig.textColor,
+        fontSize: mergedConfig.fontSize
       }}
     >
-      {/* Navbar Component - Overlay style moderne */}
       <POSNavbar 
         onMobileMenuToggle={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
       />
 
-      {/* Main Content Area */}
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
-        {/* Header Component - Avec logo, badges système, user info */}
         <POSHeader 
           onMobileMenuToggle={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
         />
         
-        {/* Content Component - Avec notification toast */}
         <POSContent>
-          {/* Page Content from React Router */}
           <div className="p-4">
             {children}
           </div>
         </POSContent>
         
-        {/* Footer - Garde le footer du template original */}
         <footer 
-          className="border-t p-4 bg-gray-50" 
+          className="border-t p-4" 
           style={{ 
-            borderColor: defaultConfig.cardBorderColor,
-            backgroundColor: defaultConfig.cardBackgroundColor
+            borderColor: mergedConfig.cardBorderColor,
+            backgroundColor: mergedConfig.cardBackgroundColor,
+            color: mergedConfig.textMutedColor
           }}
         >
-          <div 
-            className="flex items-center justify-between text-sm" 
-            style={{ color: defaultConfig.textMutedColor }}
-          >
+          <div className="flex items-center justify-between text-sm">
             <div className="flex items-center space-x-4">
               <Shield className="w-3 h-3" />
-              <span>{defaultConfig.footerText}</span>
+              <span>{mergedConfig.footerText}</span>
               <span>•</span>
               <span>Version 2.1.0</span>
             </div>
             <div className="flex items-center space-x-4">
               <span>
-                Connecté depuis {new Date().toLocaleTimeString('fr-FR', { 
+                {new Date().toLocaleTimeString(config?.theme?.language === 'fr' ? 'fr-FR' : 'en-US', { 
                   hour: '2-digit', 
                   minute: '2-digit' 
                 })}
@@ -122,7 +98,6 @@ export default function Layout({ children, config = {} /*, license (unused for n
         </footer>
       </div>
 
-      {/* Mobile Menu Overlay (si nécessaire) */}
       {isMobileMenuOpen && (
         <div 
           className="fixed inset-0 bg-black bg-opacity-50 z-30 lg:hidden"

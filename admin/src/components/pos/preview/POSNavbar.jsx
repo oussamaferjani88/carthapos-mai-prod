@@ -25,13 +25,20 @@ export const POSNavbar = ({
   modules = [], 
   isDragMode, 
   onComponentSelect, 
-  isVisible 
+  isVisible,
+  isNavbarCollapsed,
+  setIsNavbarCollapsed
 }) => {
   const [isOverlayOpen, setIsOverlayOpen] = useState(false);
   
   // Get animation classes from configuration
   const animationTypeClass = POSConfiguration.getAnimationTypeClass(config);
   const animationSpeedClass = POSConfiguration.getAnimationSpeedClass(config);
+
+  // Resolve dimensions from config
+  const navbarWidth = config.navbarWidth || '64px';
+  const navbarHeight = config.navbarHeight || '48px';
+  const navCollapsible = config.navbarCollapsible === true;
   
   // Génère dynamiquement les items de navigation basés sur les modules sélectionnés
   const navigationItems = useMemo(() => {
@@ -42,13 +49,25 @@ export const POSNavbar = ({
     <>
       {/* Collapsed Icon Bar - Part of Normal Flow */}
       <div 
-        className="h-full w-16 flex flex-col shadow-lg transition-all duration-300 relative z-30"
-        style={{ backgroundColor: config.primaryColor }}
+        className="flex flex-col shadow-lg transition-all duration-300 relative z-30 h-full"
+        style={{ 
+          backgroundColor: config.primaryColor,
+          width: isNavbarCollapsed && navCollapsible ? '0px' : navbarWidth,
+          overflow: isNavbarCollapsed && navCollapsible ? 'hidden' : 'visible',
+          minWidth: isNavbarCollapsed && navCollapsible ? '0px' : navbarWidth,
+          transition: 'width 0.3s ease, min-width 0.3s ease'
+        }}
       >
         {/* Header Icon - Click to Toggle */}
         <button 
           className="p-3 border-b border-white/20 flex items-center justify-center hover:bg-white/10 transition-colors"
-          onClick={() => setIsOverlayOpen(!isOverlayOpen)}
+          onClick={() => {
+            if (navCollapsible && setIsNavbarCollapsed) {
+              setIsNavbarCollapsed(!isNavbarCollapsed);
+            } else {
+              setIsOverlayOpen(!isOverlayOpen);
+            }
+          }}
         >
           <Menu className="w-6 h-6 text-white" />
         </button>
@@ -176,10 +195,11 @@ export const POSNavbar = ({
 
   const renderTopNavbar = () => (
     <div 
-      className="flex flex-row h-16 items-center border-b shadow-sm w-full"
+      className="flex flex-row items-center border-b shadow-sm w-full"
       style={{ 
         backgroundColor: config.backgroundColor,
-        borderColor: config.accentColor + '20'
+        borderColor: config.accentColor + '20',
+        height: navbarHeight
       }}
     >
       {/* Header avec titre */}
@@ -249,7 +269,8 @@ export const POSNavbar = ({
       onComponentSelect={onComponentSelect}
       style={{ 
         position: 'relative',
-        zIndex: 30
+        zIndex: 30,
+        height: '100%'
       }}
     >
       {renderOverlayNavbar()}

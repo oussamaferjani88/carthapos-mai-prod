@@ -1,0 +1,2360 @@
+╔══════════════════════════════════════════════════════════════════════════════════════╗
+║        CARTHAPOS RESTAURANT & CAFÉ EDITION — COMPLETE IMPROVEMENT REPORT          ║
+║                     PFE Scope — Small Cafés, Coffee Shops & Restaurants             ║
+║                                 July 2026                                        ║
+╚══════════════════════════════════════════════════════════════════════════════════════╝
+
+This report is based on a thorough analysis of every line of code in the project.
+NO code is modified. NO code is generated. This is a pure improvement blueprint.
+
+
+═══════════════════════════════════════════════════════════════════════════════════════
+TABLE OF CONTENTS
+═══════════════════════════════════════════════════════════════════════════════════════
+
+PART 1 — Current Module Analysis
+  Dashboard . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .  1.1
+  Sales . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .  1.2
+  Products . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .  1.3
+  Categories . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .  1.4
+  Inventory  . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .  1.5
+  Customers . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .  1.6
+  Cash Register . . . . . . . . . . . . . . . . . . . . . . . . . . . . .  1.7
+  Reports . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .  1.8
+  Receipt Designer . . . . . . . . . . . . . . . . . . . . . . . . . . . .  1.9
+  Settings . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .  1.10
+  Tables . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .  1.11
+  Kitchen  . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .  1.12
+  Menu Management . . . . . . . . . . . . . . . . . . . . . . . . . . . . .  1.13
+
+PART 2 — Improvements for Each Module
+PART 3 — User Experience
+PART 4 — Missing Features (Small Café Scope Only)
+PART 5 — Implementation Priority (Phase 1 / Phase 2 / Phase 3)
+PART 6 — Final Vision
+
+
+╔══════════════════════════════════════════════════════════════════════════════════════╗
+║ PART 1 — CURRENT MODULE ANALYSIS                                                   ║
+╚══════════════════════════════════════════════════════════════════════════════════════╝
+
+────────────────────────────────────────────────────────────────────────────────────────
+1.1 DASHBOARD
+────────────────────────────────────────────────────────────────────────────────────────
+
+CURRENT IMPLEMENTATION:
+- Single React component (551 lines) with inline Card/Badge definitions
+- Uses POSConfiguration for theming
+- Mix of demo data (preview mode) and real DB queries (production mode)
+- 4 KPI cards: totalSales, totalRevenue, productsCount, lowStockCount
+- Bar chart showing monthly revenue (Recharts)
+- Recent orders list (last 5 sales from DB)
+- Auto-refreshes on 'sale-completed' custom event
+
+CURRENT UI:
+- 4 stat cards in a 2x2 grid at the top
+- Bar chart below the cards
+- Recent orders below the chart
+- French labels hardcoded
+- No gradients, no glass effects, no animations
+- All data is either demo or generic (no today/this week filtering)
+
+CURRENT WORKFLOW:
+1. Page loads → useEffect → loadDashboardData()
+2. Queries total sales count and total revenue (ALL TIME — not filtered by day)
+3. Queries products count
+4. Queries low stock count (stock <= 5)
+5. Queries recent 5 orders
+6. Renders everything statically
+
+EXISTING BACKEND:
+- Direct SQL queries via window.electronAPI.query()
+- No dedicated dashboard IPC handlers
+- All queries are hardcoded SQL strings in the frontend
+- No caching, no websocket, no live updates
+
+EXISTING DATABASE SUPPORT:
+- Reads from: sales, products
+- No today-specific filtering
+- No shift data read
+- No customer stats read
+
+CURRENT STRENGTHS:
++ Works in both preview and production mode
++ Basic layout is clean
++ Auto-refreshes after new sale
++ Uses real DB queries (not just demo)
+
+CURRENT WEAKNESSES:
+- Data is ALL TIME instead of today/this week (useless for daily operations)
+- Only 4 KPIs — no profit, no average ticket, no active shift info
+- No time-based charts (hourly/daily/weekly)
+- No low stock alerts, no top products
+- Dashboard is static, no real-time feel
+- No cash drawer status
+- No quick actions (open cash register, new sale, etc.)
+- Inline Card/Badge components duplicate shadcn/ui
+
+MISSING FEATURES:
+- Today's sales (filtered by current date)
+- Active shift status
+- Cash drawer status
+- Best selling products
+- Low stock alerts
+- Average ticket
+- Profit/expense tracking
+- Real-time refresh (polling or SSE)
+
+
+────────────────────────────────────────────────────────────────────────────────────────
+1.2 SALES
+────────────────────────────────────────────────────────────────────────────────────────
+
+CURRENT IMPLEMENTATION:
+- Large component (1157 lines) — biggest in the application
+- Full POS sales screen with product grid, cart, and checkout
+- Product cards grouped by category with icon support
+- Barcode search integration
+- Table selection modal
+- Customer assignment
+- Discount handling (amount or percentage)
+- Payment method selection
+- "Hold order" functionality
+- Floating calculator
+- Local notification system
+
+CURRENT UI:
+- Two-panel layout: cart (left, 320px) + product grid (right)
+- Category tabs horizontal scroll at top of product area
+- Product cards in responsive grid
+- Table selector modal with status colors (green=free, red=occupied, blue=reserved)
+- Payment method popup
+- Cart shows: item name, unit price, quantity controls, line total
+- Footer area shows: subtotal, discount, tax, total, checkout button
+- Custom scrollbars for cart and category area
+
+CURRENT WORKFLOW:
+1. Load products, tables, families from DB
+2. Display product grid with category filtering
+3. Cashier clicks product → adds to cart
+4. Can select table (optional), customer (optional)
+5. Can apply discount (amount or %)
+6. Can hold order (park it for later)
+7. Checkout → payment method selection → confirmPayment()
+8. Sale saved via IPC to SQLite
+9. Table status updated to 'available' on payment
+
+EXISTING BACKEND:
+- window.electronAPI.getProducts() — products list
+- window.electronAPI.getTables() — tables list
+- window.electronAPI.getFamilies() — product families
+- window.electronAPI.addSale(saleData) — save sale
+- window.electronAPI.updateTableStatus(id, status) — update table
+- Full IPC via ipc-sales-handlers.cjs and ipc-database-handlers.cjs
+
+EXISTING DATABASE SUPPORT:
+- Reads from: products, categories, restaurant_tables, product_families
+- Writes to: sales, sale_items, restaurant_tables (status update)
+- Full CRUD for sale transaction
+
+CURRENT STRENGTHS:
++ Large and functional — most complete module in the system
++ Good visual design with modern card UI
++ Category filtering works well
++ Table selection modal is polished
++ Cart management (add, update qty, remove, clear) is complete
++ Discount handling (amount and percentage)
++ Hold/restore order flow
++ Payment method selection
++ Barcode search integration
++ Customer assignment works
+
+CURRENT WEAKNESSES:
+- No kitchen order sent on sale completion (no auto-send to Kitchen Display)
+- No receipt printing on payment (no thermal printer integration in flow)
+- No refund/void/return functionality
+- No quick quantity buttons (1, 2, 3, 5, 10)
+- Product cards lack: stock status, availability indicator
+- No favorites/recent products section
+- No product modifiers in the sales flow (modifiers exist in MenuManagement but aren't used here)
+- No kitchen notes / special instructions per item
+- No order notes
+- Payment popup is basic — no cash denomination calculation
+- No receipt preview before payment
+- Product search is basic text search (no barcode scanner focus)
+- No split payment
+- No quick cash amounts (5€, 10€, 20€ buttons)
+- Keyboard shortcuts are limited
+
+MISSING FEATURES:
+- Kitchen order sending on payment
+- Receipt printing
+- Quick quantity buttons
+- Product modifiers in cart
+- Special instructions per item
+- Stock status on product cards
+- Favorite/recent products
+- Refund/void
+- Cash denomination payment
+- Split payment
+- Receipt preview
+
+
+────────────────────────────────────────────────────────────────────────────────────────
+1.3 PRODUCTS
+────────────────────────────────────────────────────────────────────────────────────────
+
+CURRENT IMPLEMENTATION:
+- 848-line component with full CRUD
+- Table-based product list with search and family filtering
+- ProductFormDialog component for editing
+- CategoryIconPicker for selecting icons
+- Family management (create/edit with icons)
+- Barcode support
+- Delete confirmation dialog
+
+CURRENT UI:
+- Table view with columns: Name, Price, Stock, Category, Barcode, Actions
+- Search bar at top
+- Family filter dropdown
+- "Add Product" and "Manage Families" buttons
+- Dialog forms for product CRUD
+- Inline stock editing
+
+CURRENT WORKFLOW:
+1. Load products and families from DB
+2. Display in table with search/filter
+3. Click "Add Product" → dialog → save → refresh list
+4. Click edit icon → dialog pre-filled → update → refresh
+5. Click delete → confirmation → remove → refresh
+6. Manage families via separate dialog
+
+EXISTING BACKEND:
+- Full IPC via ipc-database-handlers: get-products, add-product, update-product, delete-product
+- Also: get-families, add-family
+- All CRUD operations supported
+
+EXISTING DATABASE SUPPORT:
+- Full CRUD on: products, product_families, categories
+
+CURRENT STRENGTHS:
++ Complete CRUD for products
++ Family management with icons
++ Barcode support
++ Search and filter
++ ProductFormDialog is a separate reusable component
++ Works with real DB in production
+
+CURRENT WEAKNESSES:
+- Table view only — no card/grid view
+- No product images (has image field in DB but no upload/display)
+- No cost price field — cannot calculate profit margin
+- No supplier assignment
+- No low stock badge/indicator in the table
+- No bulk actions (delete multiple, export, import)
+- No product history (price changes, stock changes)
+- No duplicate product detection
+- Pagination is basic (no configurable page size)
+
+MISSING FEATURES:
+- Product images
+- Cost price and profit margin
+- Supplier assignment
+- Product history/audit
+- Bulk actions
+- Grid/card view toggle
+- Low stock visual indicator
+- Stock alerts threshold per product
+
+
+────────────────────────────────────────────────────────────────────────────────────────
+1.4 CATEGORIES
+────────────────────────────────────────────────────────────────────────────────────────
+
+CURRENT IMPLEMENTATION:
+- Categories are managed through the Products page as part of product families
+- No standalone Categories page
+- Categories table exists in the database (categories table)
+- Category CRUD can be done through product families dialog
+
+CURRENT UI:
+- No dedicated category management interface
+- Categories appear as filter dropdown in Products page
+- Category selection in product edit dialog
+
+EXISTING BACKEND:
+- Categories table exists in DB schema
+- No dedicated IPC handler for categories CRUD
+
+EXISTING DATABASE SUPPORT:
+- categories table: id, name, description, color, created_at
+- Used by products.category field (TEXT, not FK)
+
+CURRENT STRENGTHS:
++ Basic category support exists
++ Color field for visual distinction
+
+CURRENT WEAKNESSES:
+- No dedicated category management page
+- No category reordering
+- No category images/icons
+- Category is a TEXT field on products, not a FK constraint
+- No stand-alone Categories page
+
+MISSING FEATURES:
+- Category management page
+- Category reordering (drag and drop)
+- Category icons/images
+- Category display in Sales page with icons
+
+
+────────────────────────────────────────────────────────────────────────────────────────
+1.5 INVENTORY
+────────────────────────────────────────────────────────────────────────────────────────
+
+CURRENT IMPLEMENTATION:
+- 368-line component
+- Two tabs: Inventory (product stock list) + Movements (stock movement history)
+- Product list from DB with search and low-stock filter
+- Stock adjustment dialog (add/remove/set quantity)
+- Movement history with filters (type, search, date range)
+- Movement summary stats (total in, total out, total adjustments)
+
+CURRENT UI:
+- Tab navigation between "Stock" and "Mouvements"
+- Product table: Name, Category, Stock, Price, Actions
+- Low stock filter toggle
+- Stock adjustment modal with three modes: adjust (+/-), set (absolute)
+- Movement history table with filtering
+- Summary cards at top of movements tab
+- Shows low stock count and out of stock count
+
+CURRENT WORKFLOW:
+1. Load products with stock from DB
+2. Cashier searches/filters products
+3. Can filter to show only low stock items
+4. Click "Adjust" on a product → dialog with adjustment type
+5. Save adjustment → stock_movements record created
+6. Movements tab shows history with filterable columns
+7. Summary shows totals for last 30 days
+
+EXISTING BACKEND:
+- IPC: getProducts, updateProductStock
+- IPC: stock:get-movements, stock:add-movement, stock:get-summary
+- Full movement tracking with reasons and user attribution
+
+EXISTING DATABASE SUPPORT:
+- products (stock, min_stock)
+- stock_movements (full audit trail)
+
+CURRENT STRENGTHS:
++ Full stock movement audit trail
++ Three adjustment modes (add, remove, set)
++ Movement history with filtering
++ Summary statistics
++ Low stock filter
++ Works with real DB
+
+CURRENT WEAKNESSES:
+- No inventory dashboard (total value, low stock cards, out of stock alerts)
+- No stock valuation (price * quantity)
+- No "out of stock" badge on products
+- No minimum stock threshold per product (min_stock exists in DB but not used)
+- No inventory alerts/notifications
+- No purchase order suggestions
+- No barcode scanner support for inventory
+- No product image in inventory view
+- No auto-calculation of stock from sales (stock should decrease when a sale is made, but this isn't implemented in the sales flow)
+- No inventory value by category
+- No stock-taking / inventory count feature
+
+MISSING FEATURES:
+- Inventory dashboard
+- Stock valuation
+- Per-product stock alerts threshold
+- Auto stock deduction on sale
+- Inventory count/stock-taking
+- Barcode scanner in inventory
+
+
+────────────────────────────────────────────────────────────────────────────────────────
+1.6 CUSTOMERS
+────────────────────────────────────────────────────────────────────────────────────────
+
+CURRENT IMPLEMENTATION:
+- 451-line component
+- Customer list from DB with search
+- Full CRUD with dialog forms
+- Customer detail view with tabs: Profile, Purchases, Stats, Favorites
+- Purchase history with item counts
+- Customer statistics (visit count, total spent, average ticket)
+- Favorite products tracking
+- Loyalty points display
+
+CURRENT UI:
+- Table view with search
+- Add/Edit dialog with fields: name, email, phone, address, loyalty_points
+- Detail dialog with 4 tabs
+- Purchase history in a sub-table
+- Stats displayed as text values
+- Favorites shown as product list
+
+CURRENT WORKFLOW:
+1. Load customers from DB
+2. Search/filter by name, email, phone
+3. Click to view detail → load purchases, stats, favorites via IPC
+4. Add/edit/delete customers
+5. View purchase history and customer insights
+
+EXISTING BACKEND:
+- IPC: get-customers, add-customer, update-customer, delete-customer
+- IPC: get-customer-purchases, get-customer-stats, get-customer-favorite-products
+- All customer operations have full IPC support
+
+EXISTING DATABASE SUPPORT:
+- customers table: id, name, email, phone, address, loyalty_points, created_at
+- sales table linked by customer_id
+- sale_items for purchase history
+
+CURRENT STRENGTHS:
++ Most complete module per the prior audit (95%)
++ Full CRUD with backend persistence
++ Customer detail with purchases, stats, favorites
++ Loyalty points tracking
++ Search works across multiple fields
++ Fallback demo data when Electron not available
+
+CURRENT WEAKNESSES:
+- No customer notes field in UI (notes would be useful for cafes)
+- No customer birthday/anniversary tracking
+- No customer groups/segments
+- No customer visit frequency/churn tracking
+- No customer contact history
+- UI is table-only (no card view for quick scanning)
+- No quick actions (start sale for this customer)
+- No SMS/email communication integration
+
+MISSING FEATURES (Café Scope):
+- Customer notes (favorite drink, allergies, preferences)
+- Visit frequency display
+- Last visit date
+- Quick sale for customer
+- Customer search in Sales page is already there but could be faster
+
+
+────────────────────────────────────────────────────────────────────────────────────────
+1.7 CASH REGISTER (Caisse)
+────────────────────────────────────────────────────────────────────────────────────────
+
+CURRENT IMPLEMENTATION:
+- 365-line component
+- Active shift tracking (open/close)
+- Shift history with search
+- Opening float entry
+- Closing with denomination counting (14 coin/bill types)
+- Expected vs actual calculation
+- Difference calculation
+- Shift detail view
+
+CURRENT UI:
+- Card showing active shift status (green pulse when open)
+- "Open Register" button when no active shift
+- Tabs: Current Shift + History
+- Open dialog: float amount input
+- Close dialog: count each denomination, notes field
+- History table: Date, User, Duration, Float, Expected, Actual, Diff, Actions
+- Currency formatting hardcoded to € symbol
+
+CURRENT WORKFLOW:
+1. Load active shift on mount
+2. If no shift → show "Open Register" button
+3. Open shift → enter float amount → caisse:open-shift IPC
+4. Shift stays open → cashier processes sales
+5. End of day → close shift → count denominations → caisse:close-shift IPC
+6. View shift history with detail
+
+EXISTING BACKEND:
+- IPC: caisse:get-active-shift, caisse:open-shift, caisse:close-shift
+- IPC: caisse:get-shift-history, caisse:get-shift-detail
+- All cash register operations supported
+
+EXISTING DATABASE SUPPORT:
+- shifts table: user_id, user_name, opening_float, opened_at, closed_at, status,
+  closing_expected, closing_actual, difference, cash_sales, card_sales, other_sales,
+  note, denomination_breakdown
+- cash_drawer_events table for audit trail
+
+CURRENT STRENGTHS:
++ Complete shift management
++ Denomination counting for close
++ Expected vs actual comparison
++ Shift history with detail
++ Strong DB schema
+
+CURRENT WEAKNESSES:
+- Currency hardcoded to € instead of using POSConfiguration.currency
+- No daily summary before closing
+- No mid-shift cash count (cashier should be able to count mid-shift)
+- No "cash in" / "cash out" during shift (for paying suppliers or removing cash)
+- No integration with Sales (sales should automatically update shift totals)
+- UI is basic table-based, not visually polished
+- No export of shift data
+- No shift reports
+
+MISSING FEATURES:
+- Daily summary before closing
+- Mid-shift cash count
+- Cash in/Cash out during shift
+- Auto-integration with sales totals
+- Shift report/PDF print
+- Currency from POSConfiguration
+
+
+────────────────────────────────────────────────────────────────────────────────────────
+1.8 REPORTS
+────────────────────────────────────────────────────────────────────────────────────────
+
+CURRENT IMPLEMENTATION:
+- 1013-line component (very large)
+- Sales overview with Recharts charts (BarChart, PieChart)
+- Hourly sales breakdown (demo data)
+- Category distribution (demo data)
+- Transaction table with extensive filtering
+- BI Export Modal integration
+- Period selection (today, yesterday, week, month)
+- Transaction detail modal
+
+CURRENT UI:
+- Chart cards at top (bar chart for hourly, donut chart for categories)
+- Transaction table below with filters
+- Filters: search term, period, cashier, payment method, status, order type
+- Sortable columns
+- Paginated (10 per page)
+- Transaction detail dialog
+- BI Export button
+
+CURRENT WORKFLOW:
+1. Page loads → shows demo data for charts
+2. Transactions are loaded from demo data (DEMO_TRANSACTIONS array)
+3. User filters transactions with various criteria
+4. User can view transaction detail
+5. User can export to BI (CSV+ZIP)
+
+EXISTING BACKEND:
+- No real backend for reports — all chart data is hardcoded DEMO
+- Transaction table uses hardcoded DEMO_TRANSACTIONS
+- BI Export module is real (ipc-bi-export) for full data export
+- Sales data available via ipc-sales but not used in Reports page
+
+EXISTING DATABASE SUPPORT:
+- sales, sale_items tables exist with all data
+- No report-specific queries in the reports page (demo only)
+
+CURRENT STRENGTHS:
++ Comprehensive filtering
++ Good charting with Recharts
++ BI Export integration
++ Transaction detail modal
++ Sortable and paginated table
+
+CURRENT WEAKNESSES:
+- ALL chart data is hardcoded demo (no real DB queries)
+- ALL transaction data is hardcoded demo
+- No daily/weekly/monthly/yearly aggregation queries
+- No real sales data from DB
+- No top products report
+- No customer analysis
+- No inventory analysis
+- No cash flow report
+- No peak hours analysis
+- Reports page is essentially a mockup, not functional
+
+MISSING FEATURES:
+- Real DB-backed reports
+- Today's sales summary
+- Top products
+- Top categories
+- Customer analysis
+- Payment method breakdown
+- Peak hours analysis
+- Revenue trends
+- Cash flow
+- Print support
+
+
+────────────────────────────────────────────────────────────────────────────────────────
+1.9 RECEIPT DESIGNER
+────────────────────────────────────────────────────────────────────────────────────────
+
+CURRENT IMPLEMENTATION:
+- 1082-line component (very large and detailed)
+- Visual receipt layout designer
+- Paper settings: 58mm or 80mm thermal paper
+- Header section: logo, business name, address
+- Line items section: font, alignment, columns
+- Footer section: thank-you message, barcode/QR code
+- Font customization per section (size, bold, alignment)
+- Section reordering (move up/down)
+- Add/remove sections
+- Preview mode
+- All state local (no backend persistence)
+
+CURRENT UI:
+- Left panel: configuration form with tabs/sections
+- Right panel: live receipt preview
+- Tabs for different receipt sections
+- Toggle switches for show/hide elements
+- Font size, alignment, bold toggles
+- Color pickers
+- Image upload for logo
+- Preview shows how receipt will look on thermal paper
+
+CURRENT WORKFLOW:
+1. User configures each section of the receipt
+2. Preview updates in real-time on the right
+3. User can reorder, add, remove sections
+4. No save/load — all state is local
+
+EXISTING BACKEND:
+- No backend IPC
+- No persistence (settings:get/set are TODO stubs)
+- No print functionality connected
+
+EXISTING DATABASE SUPPORT:
+- None — receipt configuration is not stored
+
+CURRENT STRENGTHS:
++ Very detailed and polished UI
++ Live preview
++ Thermal paper format support (58mm, 80mm)
++ Section customization
++ Logo upload
++ Barcode/QR support
++ Font and alignment controls
+
+CURRENT WEAKNESSES:
+- No persistence — all settings lost on refresh
+- No print functionality connected to thermal printer
+- No connection to Sales flow (receipt not printed after payment)
+- No save/load templates
+- No receipt history
+- No reprint functionality
+- No connection to cash register shift data
+
+MISSING FEATURES:
+- Save/load receipt templates
+- Auto-print on sale
+- Reprint previous receipts
+- Receipt history
+- Cash register integration on receipt
+
+
+────────────────────────────────────────────────────────────────────────────────────────
+1.10 SETTINGS
+────────────────────────────────────────────────────────────────────────────────────────
+
+CURRENT IMPLEMENTATION:
+- 457-line component
+- Business information: name, currency, tax rate, language, timezone
+- Auto-backup toggle
+- Database path display
+- Theme customization tabs (General, Appearance, Security, Database, Hardware, About)
+- License info display
+
+CURRENT UI:
+- Tabbed interface with sections
+- Form inputs for business settings
+- Toggle switches for features
+- Badge indicators for status
+- Database path text display
+- Theme preview colors
+
+CURRENT WORKFLOW:
+1. Load config from Electron
+2. Display current settings in form
+3. User edits settings
+4. Settings:get/set IPC handlers are TODO stubs — no persistence
+5. Changes are lost on refresh
+
+EXISTING BACKEND:
+- settings:get, settings:set, settings:getAll — ALL are TODO stubs (return null/{})
+- No settings persistence at all
+- Theme config comes from app-config.json (read-only)
+
+EXISTING DATABASE SUPPORT:
+- No settings table in database
+- Settings are not persisted anywhere
+
+CURRENT STRENGTHS:
++ Good UI with tabs
++ Comprehensive settings categories
++ License info display
++ Database path display
+
+CURRENT WEAKNESSES:
+- NO persistence — all settings are lost on restart
+- Settings IPC handlers are empty stubs
+- Theme changes cannot be saved
+- Business info cannot be saved
+- No backup configuration beyond basic toggle
+- No user profile settings
+- No printer configuration (printer settings are in Hardware Settings)
+
+MISSING FEATURES:
+- Settings persistence (JSON file or DB table)
+- Working save button
+- Theme persistence
+- Business info persistence
+- Backup schedule configuration
+- Database management tools
+
+
+────────────────────────────────────────────────────────────────────────────────────────
+1.11 TABLES
+────────────────────────────────────────────────────────────────────────────────────────
+
+CURRENT IMPLEMENTATION:
+- 589-line component
+- Visual table grid with drag-and-drop positioning
+- Table CRUD with dialog
+- Bulk table creation
+- Table status management
+- Merge mode (select multiple tables)
+- Transfer mode (move order to another table)
+- Split bill mode (for advanced bill splitting)
+- Drag to reposition tables on floor plan
+
+CURRENT UI:
+- Grid of table cards arranged on a floor canvas
+- Color-coded status: green (available), red (occupied), blue (reserved), gray (cleaning)
+- Table cards show: number, capacity, waiter, notes
+- Overlay mode for merge/transfer/split
+- Bulk create dialog
+
+CURRENT WORKFLOW:
+1. Load tables from DB
+2. Display as visual grid on floor plan
+3. Click table to view/change status, edit details
+4. Merge mode: select multiple tables → merge
+5. Transfer mode: select source → select destination
+6. Bulk create: prefix, start number, end number, capacity
+7. Drag tables to reposition
+
+EXISTING BACKEND:
+- IPC: get-tables (from ipc-database-handlers)
+- IPC: add-table, update-table, delete-table (via generic database:query/execute)
+- Table status updates from Sales page
+
+EXISTING DATABASE SUPPORT:
+- restaurant_tables table: id, table_number, capacity, status, current_order_id, created_at
+
+CURRENT STRENGTHS:
++ Visual floor plan with drag positioning
++ Color-coded statuses
++ Merge/transfer/split modes
++ Bulk creation
++ DB persistence
+
+CURRENT WEAKNESSES:
+- Too complex for a small café — merge, transfer, split bill are enterprise features
+- No waiter assignment visible on table card
+- No occupied time display on table card
+- No quick order button (should link to Sales page with table pre-selected)
+- Floor plan positions (x, y) are not persisted to DB
+- Drag-and-drop is complex and may be confusing
+- No table reservation time display
+
+MISSING FEATURES (Café Scope):
+- Quick order from table
+- Occupied timer display
+- Waiter assignment
+- Simplified UI (remove merge/split/transfer for small café)
+
+
+────────────────────────────────────────────────────────────────────────────────────────
+1.12 KITCHEN
+────────────────────────────────────────────────────────────────────────────────────────
+
+CURRENT IMPLEMENTATION:
+- 516-line component
+- Kitchen Display System (KDS)
+- Orders grouped by status: pending, preparing, ready
+- Priority indicators (2 = high, 1 = normal)
+- Timer/duration tracking
+- Filter by status
+- Order detail dialog
+- Auto-refresh every 30 seconds
+
+CURRENT UI:
+- Card-based layout for orders
+- Three columns: À préparer (pending), En préparation (preparing), Prêt (ready)
+- Each order card shows: table number, items, quantity, special instructions, timer
+- Status badge colors: yellow (pending), blue (preparing), green (ready)
+- Priority badge
+- Filter dropdown for status
+- Order detail dialog with full info
+
+CURRENT WORKFLOW:
+1. Load kitchen orders from DB on mount
+2. Display in kanban-style columns by status
+3. Staff clicks order to advance status (pending → preparing → ready)
+4. Auto-refresh every 30 seconds
+5. Timer shows elapsed time since order was sent
+
+EXISTING BACKEND:
+- IPC: get-kitchen-orders, add-kitchen-order, update-kitchen-order-status
+- Full kitchen order management
+
+EXISTING DATABASE SUPPORT:
+- kitchen_orders table: id, table_number, items (JSON), notes, priority, status,
+  created_at, updated_at
+- NOTE: kitchen_orders is NOT created in ElectronDatabaseManager.cjs (schema gap)
+
+CURRENT STRENGTHS:
++ Kanban-style layout is standard for KDS
++ Priority system
++ Auto-refresh
++ Timer display
++ Order detail
++ DB persistence
+
+CURRENT WEAKNESSES:
+- The kitchen_orders table is NOT in the schema initialization (will fail in production)
+- No audio alert when new order arrives
+- No color-coded timing (green→yellow→red based on elapsed time)
+- No connection from Sales page (sales don't automatically send to kitchen)
+- 30-second refresh is slow for busy kitchen
+- No printer integration (no automatic kitchen ticket printing)
+- No order count badges on status columns
+- Items don't show prep time
+- No "all orders" view
+
+MISSING FEATURES:
+- Audio alerts
+- Color-coded timing
+- Auto-send from Sales
+- Kitchen printer ticket
+- Order count badges
+- Faster refresh (SSE or WebSocket)
+
+
+────────────────────────────────────────────────────────────────────────────────────────
+1.13 MENU MANAGEMENT
+────────────────────────────────────────────────────────────────────────────────────────
+
+CURRENT IMPLEMENTATION:
+- 396-line component
+- Category management (local state, hardcoded demo data)
+- Menu items CRUD (local state, hardcoded demo data)
+- Modifier Groups with radio/checkbox types
+- Modifier items with pricing
+- Local state only — no backend
+
+CURRENT UI:
+- Two sections: Categories + Menu Items
+- Categories listed with order, active status
+- Menu items in a table with: name, price, category, availability
+- Modifier Groups in expandable section
+- Modifier items with name, price, default selection
+- Radio (single select) and checkbox (multi select) modifier types
+
+CURRENT WORKFLOW:
+1. Load hardcoded demo categories
+2. Load hardcoded demo menu items
+3. Load hardcoded demo modifier groups
+4. User can add/edit/delete categories, items, modifiers
+5. All changes are lost on refresh (local state only)
+
+EXISTING BACKEND:
+- NO backend IPC
+- All data is local state with hardcoded demos
+- No persistence
+
+EXISTING DATABASE SUPPORT:
+- product_families table exists but is not used for menu management
+- No menu-specific tables (menu_items, modifier_groups, modifiers)
+- Categories are managed ad-hoc via products
+
+CURRENT STRENGTHS:
++ Good conceptual model with categories, items, modifiers
++ Modifier group types (radio/checkbox) are correct
++ Clean UI layout
+
+CURRENT WEAKNESSES:
+- NO persistence — all demo data, all changes lost
+- No IPC handlers
+- No DB tables for menu-specific data
+- Modifiers not connected to Sales flow
+- Categories not synced with product categories
+- No availability scheduling (time-based menu)
+- No menu visibility toggles
+- No price management (no cost price, no margin)
+
+MISSING FEATURES:
+- DB persistence for categories, items, modifiers
+- Sales page integration for modifiers
+- Availability toggles
+- Category ordering
+
+
+╔══════════════════════════════════════════════════════════════════════════════════════╗
+║ PART 2 — IMPROVEMENTS                                                             ║
+╚══════════════════════════════════════════════════════════════════════════════════════╝
+
+────────────────────────────────────────────────────────────────────────────────────────
+2.1 DASHBOARD — IMPROVEMENTS
+────────────────────────────────────────────────────────────────────────────────────────
+
+REQUIRE: A professional daily operations dashboard suitable for a café manager.
+
+KPI CARDS:
+1. Today's Sales (amount) — filtered by CURRENT_DATE
+2. Today's Orders (count) — filtered by CURRENT_DATE
+3. Average Ticket (total / count) — filtered by CURRENT_DATE
+4. Active Shift Status — from shifts table (show shift ID, user, duration)
+5. Low Stock Count — products where stock <= min_stock
+6. Out of Stock Count — products where stock = 0
+
+Add these KPI cards as large, modern cards with:
+- Icon on left, value on right
+- Trend indicator (up/down arrow with percentage vs yesterday)
+- Subtle gradient background matching the theme
+- Subtle hover elevation
+
+CHARTS:
+1. Today's Hourly Sales (bar chart) — real data grouped by hour
+2. Top 5 Products Today (horizontal bar chart)
+3. Payment Methods Breakdown (donut/pie chart)
+4. Last 7 Days Revenue Trend (line chart)
+
+LAYOUT:
+- Top row: 6 KPI cards in responsive grid (3x2 on desktop, 2x3 on tablet)
+- Middle row: 2 charts side by side (Hourly Sales + Top Products)
+- Bottom row: 2 more charts + Recent Orders list
+- Right sidebar: Active shift summary + Quick Actions
+
+QUICK ACTIONS:
+- "New Sale" button → navigates to /sales
+- "Open Register" button (if no active shift) → opens cash register
+- "View Reports" → navigates to /reports
+
+DATA SOURCE:
+- Replace all demo data with real DB queries
+- Add a dedicated IPC handler: ipc-dashboard-handlers.cjs
+  - dashboard:get-stats (returns all KPI values in one call)
+  - dashboard:get-hourly-sales (for chart)
+  - dashboard:get-top-products (for chart)
+  - dashboard:get-revenue-trend (for 7-day chart)
+- Auto-refresh every 60 seconds (polling)
+- Event listener for 'sale-completed' to refresh immediately
+
+VISUAL IMPROVEMENTS:
+- Use the shadcn/ui Card component (not inline divs)
+- Add subtle entrance animations for cards
+- Use theme colors consistently
+- Add empty state illustration when no data
+- Skeleton loading state
+
+────────────────────────────────────────────────────────────────────────────────────────
+2.2 SALES SCREEN — IMPROVEMENTS
+────────────────────────────────────────────────────────────────────────────────────────
+
+REQUIRE: A fast, intuitive, touch-friendly POS for cashiers in small cafés.
+
+PRODUCT CARDS:
+- Larger, visually distinct cards with:
+  - Product name (bold, large font)
+  - Price (prominent, colored)
+  - Category badge (small, top-right)
+  - Stock indicator (green dot if in stock, red if out, yellow if low)
+  - Quick-add button (large + icon)
+- Grid layout: 4 columns on desktop, 3 on tablet
+- Cards should have hover scale effect and click ripple
+- Animate card entry (staggered fade-in)
+
+CATEGORY NAVIGATION:
+- Horizontal scrollable category pills/chips at the top
+- Each pill shows: icon + category name
+- Active category highlighted with theme color
+- "All" as the first/default pill
+- Categories should load from DB with icons
+
+FAVORITES & RECENTS:
+- "Favorites" as the first category tab (star icon)
+- Manager can mark products as favorites (stored in DB)
+- "Recent Products" section (last 20 used products per cashier)
+- Recent products stored locally or in DB via user_id
+
+FAST SEARCH:
+- Search bar always visible at top
+- Search by: name, barcode, category
+- Auto-focus on page load (for barcode scanner)
+- Barcode scanner integration: auto-detect scanner input
+- Search results filter product grid in real-time
+- Minimum 2 characters before filtering
+
+CUSTOMER ASSIGNMENT:
+- Quick customer search (name/phone)
+- "Guest" as default (no customer)
+- Recently used customers list
+- Quick-add customer from sales screen
+- Customer info shown in cart header when assigned
+
+DISCOUNT WORKFLOW:
+- Discount button in cart footer
+- Two modes: percentage (%) or fixed amount (€)
+- Visual indicator in cart when discount applied
+- Manager approval for discounts > configurable threshold (optional)
+
+CHECKOUT WORKFLOW:
+1. "Pay" button becomes enabled when cart has items
+2. Click Pay → Payment popup appears (modal overlay)
+3. Shows: order total, item count, discount (if any)
+4. Payment methods: Cash, Card, Mobile (configurable)
+5. Cash payment: show numeric keypad for amount tendered
+6. Auto-calculate change
+7. Quick cash buttons: 5€, 10€, 20€, 50€
+8. Card/Mobile: mark as paid, no change calculation
+9. On confirm → save sale → print receipt → send to kitchen → clear cart
+10. Success animation (checkmark + total display)
+
+RECEIPT PREVIEW:
+- Small receipt preview in the cart panel (collapsible)
+- Shows what will print
+- Uses receipt template from Receipt Designer
+
+CART IMPROVEMENTS:
+- Show item count badge on cart icon
+- Group cart items by category
+- Show stock warnings in cart (if item is low stock)
+- "Hold Order" saves to local state + DB
+- "Recall Order" shows list of held orders
+- Drag to reorder cart items (optional)
+
+KEYBOARD SHORTCUTS:
+- F1: New sale
+- F2: Search products
+- F3: Customer search
+- Ctrl+H: Hold order
+- Ctrl+P: Pay
+- Ctrl+D: Discount
+- Esc: Cancel/close modal
+- Number keys: Quick quantity (1, 2, 3, 4, 5)
+- Space: Add selected product
+
+TOUCHSCREEN IMPROVEMENTS:
+- Larger touch targets (min 44px)
+- Buttons with clear visual feedback (tap highlight)
+- Swipe to delete cart item
+- Pinch not required
+- Portrait and landscape support
+
+OVERALL CASHIER EXPERIENCE:
+- Minimal clicks to complete a sale
+- Visual feedback on every action
+- Error messages are friendly and clear
+- Product grid is the primary interaction
+- Cart is always visible on the left
+- Color coding: green for add, red for remove, blue for info
+
+────────────────────────────────────────────────────────────────────────────────────────
+2.3 INVENTORY — IMPROVEMENTS
+────────────────────────────────────────────────────────────────────────────────────────
+
+REQUIRE: A professional inventory module for a small café.
+
+INVENTORY DASHBOARD (new view at top):
+- Total inventory value (sum of price * stock for all products)
+- Low stock count (products where stock <= min_stock)
+- Out of stock count
+- Total products count
+- Each stat as a modern card with icon
+
+LOW STOCK CARDS (below dashboard):
+- List of products with stock <= min_stock, sorted by stock ascending
+- Each card shows: product name, current stock, min stock, category
+- Red/orange/yellow gradient based on severity
+- Quick action buttons: "Order More", "Adjust Stock"
+
+OUT OF STOCK CARDS:
+- Similar to low stock but for stock = 0
+- Gray cards with "OUT" badge
+
+MOVEMENT TIMELINE:
+- Visual timeline of recent stock movements
+- Color-coded: green (in), red (out), blue (adjustment)
+- Shows: product, quantity, reason, user, time
+
+STOCK VALUATION:
+- Auto-calculated total value
+- Value by category
+- Value by product (price * stock)
+
+MOVEMENT REASONS:
+- Predefined reasons: "Sale", "Supplier Delivery", "Waste", "Return",
+  "Count Adjustment", "Initial Stock"
+- Custom reason input
+- Required field for all adjustments
+
+PURCHASE SUGGESTIONS:
+- Auto-generate suggested order quantities for low stock items
+- Based on: min_stock - current_stock (rounded up)
+- Export as simple list or CSV
+
+────────────────────────────────────────────────────────────────────────────────────────
+2.4 PRODUCTS — IMPROVEMENTS
+────────────────────────────────────────────────────────────────────────────────────────
+
+REQUIRE: Professional product management for a small café.
+
+PRODUCT CARDS (alternative to table view):
+- Card/grid view toggle alongside table view
+- Cards show: image (placeholder if none), name, price, stock badge
+- Click card → quick edit popover
+- Color-coded stock indicators
+
+PRODUCT PHOTOS:
+- Image upload per product (stored locally, path saved to DB)
+- Fallback placeholder icon when no image
+- Image preview in product list and in Sales product card
+- Max image size: 500KB, resized on upload
+
+COST & PROFIT:
+- Add "cost_price" field to products (not in current schema)
+- Auto-calculate: profit = selling_price - cost_price
+- Auto-calculate: margin = (profit / selling_price) * 100
+- Display margin % in product list (green if >50%, yellow if >20%, red if <20%)
+- Cost visible only to managers
+
+STOCK & SUPPLIER:
+- Per-product minimum stock threshold (min_stock already in DB, use it)
+- Supplier assignment per product (supplier_id FK)
+- Last supplier delivery date
+- Reorder point: when stock <= min_stock, flag for reorder
+
+BARCODE:
+- Barcode field already exists
+- Barcode generation (EAN-13 or CODE128)
+- Barcode printing from product list
+- Bulk barcode generation
+
+CATEGORY MANAGEMENT (standalone page):
+- New page: /categories
+- CRUD for categories with name, description, color, icon
+- Drag-and-drop reordering
+- Category visibility toggle (hide from Sales screen)
+- Category image
+
+PRODUCT STATISTICS:
+- Times sold (total quantity)
+- Total revenue generated
+- Average quantity per sale
+- Last sale date
+- Price history log
+
+SEARCH & FILTERS:
+- Search by: name, barcode, category, supplier
+- Filter by: category, stock status (in stock, low stock, out of stock)
+- Sort by: name, price, stock, created date
+
+BULK ACTIONS:
+- Bulk delete (select multiple, confirm)
+- Bulk price update (percentage increase/decrease)
+- Bulk category change
+- Export to CSV
+- Import from CSV (with validation)
+
+────────────────────────────────────────────────────────────────────────────────────────
+2.5 CUSTOMERS — IMPROVEMENTS
+────────────────────────────────────────────────────────────────────────────────────────
+
+REQUIRE: Simple but useful customer management for a small café.
+
+CUSTOMER PROFILE:
+- Name, email, phone, address (already exist)
+- Add: notes field (for preferences, allergies, notes like "regular café latte")
+- Add: birthday (date field)
+- Add: customer since date
+- Profile photo
+
+PURCHASE HISTORY:
+- Already implemented — keep as is
+- Add: filters by date range
+- Add: export purchase history
+
+FAVORITE PRODUCTS:
+- Already implemented — improve with:
+  - Auto-detection (products ordered 3+ times are "favorites")
+  - Manual pinning by cashier
+  - Display in Sales page when customer is selected
+
+LIFETIME VALUE:
+- Total spent (already implemented)
+- Average ticket
+- Visit count
+- Visit frequency (visits per month)
+- Last visit date
+
+LOYALTY POINTS:
+- Already implemented
+- Add: points earning rules (e.g., 1 point per 1€ spent)
+- Add: points redemption (e.g., 50 points = 1 free coffee)
+- Add: points history
+
+CUSTOMER NOTES (important for café):
+- Free-text notes per customer
+- Visible in Sales page when customer is selected
+- Examples: "Always orders oat milk", "Allergic to nuts", "Prefers quiet table"
+
+CUSTOMER STATISTICS:
+- Already implemented — keep as is
+- Add: simple charts (spending over time, category preferences)
+- Add: best hour/day for this customer
+
+────────────────────────────────────────────────────────────────────────────────────────
+2.6 REPORTS — IMPROVEMENTS
+────────────────────────────────────────────────────────────────────────────────────────
+
+REQUIRE: Professional BI dashboard for a small café manager. MUST use real DB data.
+
+SALES OVERVIEW:
+- Today's summary: total sales, order count, average ticket, top category
+- Compare with yesterday (percentage change)
+- All from real DB queries filtered by CURRENT_DATE
+
+DAILY REPORTS:
+- Sales by hour chart (real data, not demo)
+- Payment methods breakdown (cash vs card vs mobile)
+- Top 5 products today
+- Top 3 categories today
+- Employee performance (sales by cashier)
+
+WEEKLY REPORTS:
+- 7-day revenue trend (line chart)
+- Day-by-day comparison
+- Best day of the week
+- Week totals vs previous week
+
+MONTHLY REPORTS:
+- 30-day revenue trend
+- Monthly totals
+- Monthly average ticket
+- Month-to-date vs previous month
+
+YEARLY REPORTS:
+- 12-month comparison
+- Year to date totals
+- Growth rate
+
+TOP PRODUCTS:
+- All-time top products (by quantity sold)
+- Top products this week/month
+- Product category breakdown
+
+CUSTOMER ANALYSIS:
+- Top customers by spending
+- Top customers by visit frequency
+- New customers this period
+- Repeat customer rate
+
+INVENTORY ANALYSIS:
+- Current inventory value
+- Low stock items
+- Stock movement summary
+
+CASH FLOW:
+- Daily cash flow summary
+- Shift history summary
+- Cash in vs cash out
+
+PEAK HOURS ANALYSIS:
+- Busiest hours chart
+- Busiest days chart
+- Average ticket by hour
+
+IMPLEMENTATION:
+- Add ipc-reports-handlers.cjs with dedicated report queries
+- All reports pull from real DB (sales, sale_items, customers, etc.)
+- Demo data removed entirely
+- Charts use real data
+- Export to CSV/PDF
+- Print-friendly report layout
+
+────────────────────────────────────────────────────────────────────────────────────────
+2.7 CASH REGISTER — IMPROVEMENTS
+────────────────────────────────────────────────────────────────────────────────────────
+
+REQUIRE: Reliable cash management for a small café.
+
+OPENING SHIFT:
+- Already implemented — improve with:
+  - Pre-fill last shift's closing float as suggestion
+  - Show yesterday's closing summary as reference
+  - Currency symbol from POSConfiguration
+
+CLOSING SHIFT:
+- Already implemented — improve with:
+  - Show expected totals from today's sales (before counting)
+  - Show sales breakdown: cash sales, card sales, total sales
+  - Show number of transactions today
+  - While counting, show progress (X of 14 denominations counted)
+  - Highlight discrepancies (difference > 1€ in red)
+  - Auto-save after confirmation
+  - Print closing report
+
+SHIFT HISTORY:
+- Already implemented — improve with:
+  - Search by date range
+  - Export to CSV
+  - Print shift detail
+  - Show differences as percentage too
+
+CASH IN / CASH OUT (mid-shift):
+- Add "Cash In" button (e.g., add float during shift)
+- Add "Cash Out" button (e.g., remove cash for supplier payment)
+- Record reason and amount
+- Show cash movements in shift detail
+- Track running cash balance
+
+DAILY SUMMARY:
+- Before closing, show full daily summary:
+  - Opening float
+  - Total cash sales
+  - Total card sales
+  - Total other sales
+  - Cash in / Cash out
+  - Expected closing balance
+  - Manual count
+  - Difference
+
+FIXES:
+- Use POSConfiguration.currency instead of hardcoded €
+- Format all monetary values consistently
+- Add loading states to all async operations
+
+────────────────────────────────────────────────────────────────────────────────────────
+2.8 TABLES — IMPROVEMENTS (Simplified for Small Café)
+────────────────────────────────────────────────────────────────────────────────────────
+
+REQUIRE: Simple, functional table management for a café with 5-15 tables.
+
+SIMPLIFIED UI:
+- Remove: merge mode, transfer mode, split bill mode
+- Remove: drag-and-drop floor plan (too complex)
+- Keep: visual grid of tables with status colors
+- Keep: CRUD for tables
+- Keep: bulk creation
+
+IMPROVEMENTS TO KEEP:
+- Larger, clearer status colors
+- Table status: Free (green), Occupied (red), Reserved (blue)
+- Show: table number, capacity, occupied time (if occupied), waiter name
+- Click free table → "New Order" → navigate to /sales with table pre-selected
+- Click occupied table → show options: "View Order", "Pay", "Free Table"
+- Quick "Free Table" button for occupied tables (marks as cleaning first, then available after timer)
+
+NEW FEATURES:
+- Occupied timer (show how long table has been occupied)
+- Reserved time display (show reservation time)
+- Table notes (e.g., "near window", "has allergies")
+- Waiter assignment per table
+- Table history (who sat there, when)
+
+SIMPLIFIED WORKFLOW:
+1. Tables displayed in visual grid
+2. Guest arrives → click free table → "New Order" → Sales page opens with table set
+3. Guest leaves → click occupied table → "Free Table" → status → cleaning → available
+4. Reservation → click table → "Reserve" → set time → status → reserved
+
+────────────────────────────────────────────────────────────────────────────────────────
+2.9 KITCHEN — IMPROVEMENTS (For One Kitchen)
+────────────────────────────────────────────────────────────────────────────────────────
+
+REQUIRE: Simple, effective kitchen display for one kitchen.
+
+SIMPLIFIED UI:
+- Keep: kanban columns (Pending → Preparing → Ready)
+- Keep: card-based display
+- Keep: auto-refresh
+
+IMPROVEMENTS:
+1. Audio Alert: Play a notification sound when a new order arrives
+   - Use HTML5 Audio API or Electron notification
+   - Distinct sound for high priority orders
+2. Color-Coded Timing:
+   - Green: < 5 minutes elapsed
+   - Yellow: 5-10 minutes elapsed
+   - Red: > 10 minutes elapsed (overdue)
+   - Background color of order card changes accordingly
+3. Faster Refresh:
+   - Change from 30s to 10s polling
+   - Better: use Server-Sent Events (SSE) for instant updates
+4. Order Count Badges:
+   - Badge on each column showing count (e.g., "5" on Pending)
+   - Separate count for high-priority items
+5. Kitchen Ticket Printing:
+   - Auto-print order ticket when new order arrives
+   - Use thermal printer integration
+   - Print: table number, items, quantities, special instructions, timestamp
+6. Item-Level Status:
+   - Track each item's status (not just the whole order)
+   - "2/5 items prepared" progress indicator on order card
+7. All Orders View:
+   - Toggle to show completed orders (last hour)
+   - Gray out completed, keep for reference
+8. Clear Complete Button:
+   - "Clear All Completed" to clean up the display
+
+BACKEND FIX:
+- Add kitchen_orders table to ElectronDatabaseManager.cjs createTables()
+- This is critical — without this, kitchen doesn't work in production
+
+────────────────────────────────────────────────────────────────────────────────────────
+2.10 SETTINGS — IMPROVEMENTS
+────────────────────────────────────────────────────────────────────────────────────────
+
+REQUIRE: Working settings persistence for a small café.
+
+CRITICAL FIX:
+- Implement settings:get, settings:set, settings:getAll IPC handlers
+- Store settings in a JSON file (settings.json) in the app data directory
+- Or store in a settings table in the SQLite database
+
+SETTINGS TO PERSIST:
+1. Business Information:
+   - Business name
+   - Address, phone, email
+   - Tax ID / VAT number
+   - Currency symbol and position
+   - Tax rate (default)
+2. Receipt:
+   - Header text
+   - Footer text
+   - Auto-print toggle
+   - Paper size (58mm / 80mm)
+3. Printer:
+   - Printer type (EPSON, Star, etc.)
+   - Interface (USB, Network, Bluetooth)
+   - Auto-print toggle
+4. Backup:
+   - Auto-backup toggle
+   - Backup frequency (daily, weekly)
+   - Backup location
+5. Theme:
+   - Primary color
+   - Background color
+   - Font family
+   - Navbar position
+6. Users:
+   - User management (already mostly there)
+   - Password policy settings
+
+ADD TO SETTINGS PAGE:
+- Working save button with confirmation
+- "Reset to defaults" button
+- Settings imported/exported as JSON
+- Dirty state indicator (unsaved changes dot)
+
+────────────────────────────────────────────────────────────────────────────────────────
+2.11 MENU MANAGEMENT — IMPROVEMENTS
+────────────────────────────────────────────────────────────────────────────────────────
+
+REQUIRE: Working menu management for a small café, connected to Sales.
+
+CRITICAL FIX:
+- Add IPC handlers for menu management:
+  - menu:get-categories
+  - menu:add-category / menu:update-category / menu:delete-category
+  - menu:get-items
+  - menu:add-item / menu:update-item / menu:delete-item
+  - menu:get-modifier-groups
+  - menu:add-modifier-group / menu:update-modifier-group / menu:delete-modifier-group
+- Add DB tables for modifiers
+- Connect to Sales page (modifiers appear when product is added to cart)
+
+IMPROVEMENTS:
+1. Availability Toggle:
+   - Each menu item can be set as "available" or "unavailable"
+   - Unavailable items show as grayed out in Sales page
+   - "Sold out" badge on unavailable items
+2. Category Ordering:
+   - Drag-and-drop to reorder categories
+   - Order is reflected in Sales page category pills
+3. Item Visibility:
+   - Hide items from Sales without deleting
+   - Show/hide per category
+4. Menu Item Groups:
+   - Group items by type (Coffee, Pastries, Hot Drinks, Cold Drinks)
+   - Groups appear as sections in Sales page
+5. Modifier Integration in Sales:
+   - When item is added to cart, modifier dialog appears
+   - Radio buttons for single-select modifiers
+   - Checkboxes for multi-select modifiers
+   - Modifier price added to item line total
+
+
+╔══════════════════════════════════════════════════════════════════════════════════════╗
+║ PART 3 — USER EXPERIENCE                                                           ║
+╚══════════════════════════════════════════════════════════════════════════════════════╝
+
+────────────────────────────────────────────────────────────────────────────────────────
+3.1 NAVIGATION
+────────────────────────────────────────────────────────────────────────────────────────
+
+CURRENT STATE:
+- Left sidebar with text+icon navigation items
+- Items are filtered by enabled modules
+- Active item highlighted with theme color
+- Mobile hamburger menu overlay
+
+IMPROVEMENTS:
+1. Collapsible Sidebar:
+   - Toggle to collapse to icons-only (saves screen space)
+   - Tooltip shows item name on hover when collapsed
+   - Smooth animation for collapse/expand
+2. Breadcrumbs:
+   - Show current page path at top of content area
+   - Already has showBreadcrumbs config option but not used
+3. Quick Navigation:
+   - Press Ctrl+K or Cmd+K for command palette
+   - Search and jump to any page
+4. Badge Notifications:
+   - Show notification badges on nav items (e.g., low stock count on Inventory)
+   - Show pending order count on Kitchen
+   - Show active shift indicator on Cash Register
+5. Active State:
+   - More prominent active state (left border indicator)
+   - Subtle background color on hover
+
+────────────────────────────────────────────────────────────────────────────────────────
+3.2 COLORS & THEMING
+────────────────────────────────────────────────────────────────────────────────────────
+
+CURRENT STATE:
+- POSConfiguration supports 200+ theme properties
+- Primary, secondary, accent, background, text, muted, border colors
+- Theme applied via CSS custom properties on document root
+- Dark mode is partially supported (defined in config, not fully implemented)
+
+IMPROVEMENTS:
+1. Consistent Color Usage:
+   - Primary color for: buttons, active states, links, icons
+   - Accent color for: badges, highlights, sale values
+   - Success (green) for: available tables, completed orders, positive trends
+   - Warning (amber) for: low stock, pending items, medium priority
+   - Danger (red) for: out of stock, overdue items, negative trends, delete actions
+   - Info (blue) for: reserved tables, processing items
+2. Dark Mode:
+   - Full dark mode toggle
+   - Persist preference per user
+   - Smooth transition between modes
+3. Color Accessibility:
+   - Ensure contrast ratios meet WCAG AA
+   - Test all text on all background colors
+   - Provide high-contrast mode option
+
+────────────────────────────────────────────────────────────────────────────────────────
+3.3 TYPOGRAPHY
+────────────────────────────────────────────────────────────────────────────────────────
+
+CURRENT STATE:
+- Uses Inter font family
+- Font size 14px default
+- Font weight 400 default
+
+IMPROVEMENTS:
+1. Consistent Hierarchy:
+   - Page title: 24px bold
+   - Section title: 18px semibold
+   - Card title: 16px semibold
+   - Body text: 14px regular
+   - Small text: 12px regular
+   - Caption: 11px regular
+2. POS-Specific:
+   - Product prices in Sales: 16px bold, primary color
+   - Cart totals: 14px semibold
+   - KPI values: 32px bold
+   - KPI labels: 12px muted
+3. Readability:
+   - Line height: 1.5 for body, 1.2 for headings
+   - Sufficient letter spacing for numbers
+   - Monospace font for transaction IDs, receipt numbers
+
+────────────────────────────────────────────────────────────────────────────────────────
+3.4 SPACING & LAYOUT
+────────────────────────────────────────────────────────────────────────────────────────
+
+CURRENT STATE:
+- Uses Tailwind spacing scale
+- Pages have p-4 padding
+- Cards have consistent rounded corners
+
+IMPROVEMENTS:
+1. Consistent Spacing:
+   - Page padding: p-6 (24px)
+   - Card padding: p-6 (24px)
+   - Section spacing: 32px (8)
+   - Element spacing in cards: 16px (4)
+   - Tight spacing in Sales cart: 8px (2)
+2. Responsive Layout:
+   - Desktop: full layout with sidebar
+   - Tablet: collapsed sidebar
+   - Mobile: bottom navigation bar
+3. Content Density:
+   - Dashboard: spacious cards with breathing room
+   - Sales: dense grid product cards
+   - Data tables: comfortable row height (48px)
+
+────────────────────────────────────────────────────────────────────────────────────────
+3.5 ICONS
+────────────────────────────────────────────────────────────────────────────────────────
+
+CURRENT STATE:
+- Uses lucide-react icons throughout
+- Consistent icon set
+- Icons used in navigation, buttons, cards, empty states
+
+IMPROVEMENTS:
+1. Icon Consistency:
+   - All actions use same icon (e.g., always same edit icon)
+   - Icon + text for important buttons
+   - Icon-only for toolbar actions (with tooltip)
+2. Icon Sizes:
+   - Navigation: 20px
+   - Buttons: 16px (inline with text)
+   - KPI cards: 24px
+   - Empty states: 64px (large, faded)
+   - Status indicators: 12px (dots)
+
+────────────────────────────────────────────────────────────────────────────────────────
+3.6 ANIMATIONS
+────────────────────────────────────────────────────────────────────────────────────────
+
+CURRENT STATE:
+- POSConfiguration has animation settings (type, speed)
+- Animations class in pos-animations.css
+- Animations are enabled by default but minimal usage in pages
+
+IMPROVEMENTS:
+1. Page Transitions:
+   - Fade or slide when navigating between pages
+   - Duration: 200-300ms
+   - Respect user's prefers-reduced-motion setting
+2. Element Animations:
+   - Cards fade in on page load (staggered)
+   - Buttons have hover/active scale effects
+   - Dialog open: scale + fade (zoom-in-95 class exists)
+   - Notification: slide-in from top (slide-in-from-top-2 class exists)
+3. Micro-interactions:
+   - Cart item add: card flies to cart (CSS animation)
+   - Sale complete: success checkmark animation
+   - Table status change: soft color transition
+4. Performance:
+   - Use transform/opacity only (GPU-accelerated)
+   - Avoid animating layout properties
+   - Disable animations if battery saver mode
+
+────────────────────────────────────────────────────────────────────────────────────────
+3.7 DIALOGS
+────────────────────────────────────────────────────────────────────────────────────────
+
+CURRENT STATE:
+- Uses shadcn/ui Dialog component
+- Consistent header/title/footer pattern
+- Some reused dialog patterns
+
+IMPROVEMENTS:
+1. Dialog Consistency:
+   - Same padding, same title size, same button placement
+   - Close on Escape key
+   - Close on backdrop click (configurable)
+   - Prevent close when form is dirty (with confirmation)
+2. Dialog Sizes:
+   - Small: confirmations, alerts (max-w-sm)
+   - Medium: single-item forms (max-w-md)
+   - Large: complex forms, details (max-w-2xl)
+   - Full screen: receipt designer, reports (max-w-full)
+3. Form Dialogs:
+   - First field auto-focused
+   - Enter to submit
+   - Escape to cancel
+   - Validation errors shown inline
+   - Loading state on submit button
+
+────────────────────────────────────────────────────────────────────────────────────────
+3.8 NOTIFICATIONS & TOASTS
+────────────────────────────────────────────────────────────────────────────────────────
+
+CURRENT STATE:
+- notificationManager.js exists but is DISABLED in main.jsx
+- Sales page has its own local notification (localNotification state)
+- No global toast system
+
+IMPROVEMENTS (CRITICAL):
+1. Re-enable Notification System:
+   - Fix bugs in notificationManager.js
+   - Re-enable import in main.jsx
+2. Toast System:
+   - Success: green, checkmark icon (e.g., "Sale completed")
+   - Error: red, X icon (e.g., "Failed to save product")
+   - Warning: amber, alert icon (e.g., "Low stock: Croissant")
+   - Info: blue, info icon (e.g., "Backup completed")
+   - Duration: 3s for success, 5s for errors, persistent for warnings
+   - Stack multiple toasts
+   - Dismiss button on all toasts
+3. Notification Center:
+   - Bell icon in header
+   - Dropdown with recent notifications
+   - Mark as read functionality
+   - Notification types: stock alerts, shift reminders, backup reminders
+
+────────────────────────────────────────────────────────────────────────────────────────
+3.9 LOADING & EMPTY STATES
+────────────────────────────────────────────────────────────────────────────────────────
+
+CURRENT STATE:
+- Some pages have loading spinners
+- Some pages have empty state messages
+- Inconsistent approach
+
+IMPROVEMENTS:
+1. Loading States:
+   - Skeleton screens for data lists (pulsing rectangles)
+   - Spinner for in-progress operations
+   - Progress bar for export/backup operations
+   - Shimmer effect for cards loading
+2. Empty States:
+   - Every data list needs an empty state
+   - Illustration/icon (64px, muted)
+   - Title: "No data yet" or similar
+   - Description: helpful message
+   - Action button: "Add your first product"
+3. Error States:
+   - Friendly error message
+   - Retry button
+   - Option to contact support
+   - Don't show raw error messages to users
+
+────────────────────────────────────────────────────────────────────────────────────────
+3.10 SEARCH
+────────────────────────────────────────────────────────────────────────────────────────
+
+CURRENT STATE:
+- Search is implemented per-page with useState + filter
+- Text-based, case-insensitive
+- No debouncing
+
+IMPROVEMENTS:
+1. Unified Search Experience:
+   - Search bar always at top of list pages
+   - Debounced input (300ms delay)
+   - Clear button
+   - Recent searches (stored in local state)
+2. Search Fields:
+   - Products: name, barcode, category, supplier
+   - Customers: name, email, phone
+   - Sales: receipt number, customer name, cashier
+   - Inventory: product name, category
+3. Visual Feedback:
+   - Highlight matching text in results
+   - Show result count
+   - "No results" message with suggestions
+
+────────────────────────────────────────────────────────────────────────────────────────
+3.11 PERFORMANCE
+────────────────────────────────────────────────────────────────────────────────────────
+
+CURRENT STATE:
+- Lazy-loaded page components (good)
+- Production mode disables StrictMode (good)
+- Console.log is disabled in production (good, but aggressive)
+
+IMPROVEMENTS:
+1. Data Caching:
+   - Cache products list (invalidates on product change)
+   - Cache categories
+   - Cache configuration
+   - Use React Query or simple context caching
+2. Virtualization:
+   - For large lists (>100 items): use react-window or similar
+   - Products list, sales history, customer list
+3. Bundle Size:
+   - Verify tree-shaking is working
+   - Consider code-splitting large components (Reports.jsx at 1013 lines, Sales.jsx at 1157 lines)
+   - Lazy-load chart library (Recharts) only on Reports page
+4. Render Optimization:
+   - Use React.memo for list items
+   - Use useMemo for filtered/computed data
+   - Use useCallback for event handlers passed to children
+   - Avoid inline styles in frequently re-rendered components
+
+────────────────────────────────────────────────────────────────────────────────────────
+3.12 TOUCHSCREEN USABILITY
+────────────────────────────────────────────────────────────────────────────────────────
+
+REQUIRE: The POS must work on touchscreen devices (tablets, touch monitors).
+
+IMPROVEMENTS:
+1. Touch Targets:
+   - All interactive elements: min 44x44px (Apple HIG)
+   - Buttons: min 48px height
+   - Cart quantity buttons: 36x36px (currently 28x28px)
+   - Product cards: tap whole card (not just + button)
+2. Gestures:
+   - Swipe left on cart item: delete (with undo)
+   - Swipe right on order in kitchen: next status
+   - Pull to refresh: data lists
+3. No Hover-Dependent Features:
+   - All functionality accessible without hover
+   - Tooltips on long-press or tap-hold
+4. Keyboard Avoidance:
+   - When software keyboard opens, page scrolls to keep active field visible
+   - Auto-focus numeric keypad for price inputs
+5. Orientation:
+   - Sales page optimized for landscape (tablet in POS stand)
+   - Other pages work in portrait
+   - Lock to landscape for sales mode
+
+────────────────────────────────────────────────────────────────────────────────────────
+3.13 ACCESSIBILITY
+────────────────────────────────────────────────────────────────────────────────────────
+
+IMPROVEMENTS:
+1. Keyboard Navigation:
+   - All actions accessible via keyboard
+   - Visible focus indicators
+   - Tab order follows visual order
+2. Screen Reader Support:
+   - aria-labels on icon-only buttons
+   - aria-live regions for dynamic content
+   - role attributes on custom components
+   - alt text on all images
+3. Color Contrast:
+   - All text meets WCAG AA (4.5:1 for normal, 3:1 for large)
+   - Status colors distinguishable without color
+   - Text on colored backgrounds has sufficient contrast
+4. Reduced Motion:
+   - Respect prefers-reduced-motion
+   - Remove all animations when enabled
+   - Still show transitions (instant) for usability
+
+────────────────────────────────────────────────────────────────────────────────────────
+3.14 DESKTOP EXPERIENCE
+────────────────────────────────────────────────────────────────────────────────────────
+
+IMPROVEMENTS:
+1. Window Management:
+   - Minimize to tray (Electron)
+   - Remember window size and position
+   - Full-screen mode for kiosk
+2. Electron Features:
+   - Global shortcuts (even when minimized — for barcode scanner)
+   - File system access for backup/restore
+   - Native notifications
+   - Auto-updater
+3. Mouse Interactions:
+   - Right-click context menus
+   - Double-click to edit in tables
+   - Scroll wheel for quantity adjustment
+   - Drag and drop where useful (table positioning, receipt sections)
+
+
+╔══════════════════════════════════════════════════════════════════════════════════════╗
+║ PART 4 — MISSING FEATURES (Small Café Scope Only)                                  ║
+╚══════════════════════════════════════════════════════════════════════════════════════╝
+
+Only features that a small café truly needs. NO enterprise features. NO complex features.
+
+────────────────────────────────────────────────────────────────────────────────────────
+4.1 RECEIPT REPRINT
+────────────────────────────────────────────────────────────────────────────────────────
+- After sale, ability to reprint the receipt
+- Access via: Sales History, Customer Purchase History, Reports
+- Show receipt preview before printing
+- Reprint without modifying the original sale
+
+────────────────────────────────────────────────────────────────────────────────────────
+4.2 VOID SALE
+────────────────────────────────────────────────────────────────────────────────────────
+- Void/cancel an entire sale (with reason)
+- Requires manager approval (password)
+- Record in audit log
+- Show voided status in reports
+- Restore stock for voided items
+- Must be tracked for cash register reconciliation
+
+────────────────────────────────────────────────────────────────────────────────────────
+4.3 REFUND / RETURN
+────────────────────────────────────────────────────────────────────────────────────────
+- Return individual items from a sale
+- Partial refund (some items, not entire order)
+- Full refund
+- Reason required
+- Manager approval
+- Stock restored on return
+- Tracked in reports
+
+────────────────────────────────────────────────────────────────────────────────────────
+4.4 DISCOUNT APPROVAL
+────────────────────────────────────────────────────────────────────────────────────────
+- Configurable threshold for automatic discount approval
+- Discounts above threshold require manager PIN
+- Manager PIN entry popup
+- Audit log for approved discounts
+
+────────────────────────────────────────────────────────────────────────────────────────
+4.5 STOCK ALERTS
+────────────────────────────────────────────────────────────────────────────────────────
+- Notification when product stock falls below min_stock
+- Dashboard alert card
+- Toast notification
+- Color-coded in product list (green/yellow/red)
+- Configurable thresholds per product
+
+────────────────────────────────────────────────────────────────────────────────────────
+4.6 SIMPLE EXPENSES
+────────────────────────────────────────────────────────────────────────────────────────
+- Record daily expenses (supplier payment, maintenance, utilities)
+- Expense type/category dropdown
+- Amount, notes, date
+- Attach receipt photo (optional)
+- View expenses in reports
+- Deduct from cash register shift (cash out)
+
+────────────────────────────────────────────────────────────────────────────────────────
+4.7 DAILY SUMMARY (End of Day Report)
+────────────────────────────────────────────────────────────────────────────────────────
+- Printed summary at end of day
+- Shows: total sales, payment breakdown, discounts given
+- Number of transactions
+- Average ticket
+- Top products
+- Shift information
+- Cash register closing summary
+
+────────────────────────────────────────────────────────────────────────────────────────
+4.8 SALES NOTES
+────────────────────────────────────────────────────────────────────────────────────────
+- Free-text note on each sale
+- Examples: "Customer complained about coffee", "Special request handled"
+- Visible in sale detail and reports
+- Not printed on receipt (internal only)
+
+────────────────────────────────────────────────────────────────────────────────────────
+4.9 FAVORITE PRODUCTS (per cashier or global)
+────────────────────────────────────────────────────────────────────────────────────────
+- Manager can mark products as favorites
+- Favorites appear as first category tab in Sales
+- Per-cashier favorites (stored by user_id)
+- Quick access to most-sold items
+
+────────────────────────────────────────────────────────────────────────────────────────
+4.10 RECENT PRODUCTS
+────────────────────────────────────────────────────────────────────────────────────────
+- Last 10 products added to cart (across sessions)
+- Shown as a category in Sales
+- Speeds up re-ordering for regular customers
+- Stored locally or per-user in DB
+
+────────────────────────────────────────────────────────────────────────────────────────
+4.11 QUICK QUANTITY BUTTONS
+────────────────────────────────────────────────────────────────────────────────────────
+- In the cart, next to quantity controls: buttons for 1, 2, 3, 5, 10
+- Or in a popup when clicking quantity
+- Also keyboard shortcuts: 1-5 keys set quantity directly
+- Speeds up ordering multiples
+
+────────────────────────────────────────────────────────────────────────────────────────
+4.12 PRODUCT AVAILABILITY TOGGLE
+────────────────────────────────────────────────────────────────────────────────────────
+- Quick toggle on product to mark as "available" / "unavailable"
+- Unavailable items hidden or grayed in Sales
+- "Sold Out" badge on products with stock = 0
+- Auto-mark as unavailable when stock reaches 0
+
+────────────────────────────────────────────────────────────────────────────────────────
+4.13 KITCHEN NOTES
+────────────────────────────────────────────────────────────────────────────────────────
+- Per-item special instructions in Sales cart
+- Examples: "Well done", "No onions", "Extra cheese"
+- Displayed in Kitchen Display System
+- Printed on kitchen ticket
+
+────────────────────────────────────────────────────────────────────────────────────────
+4.14 CUSTOMER NOTES
+────────────────────────────────────────────────────────────────────────────────────────
+- Free-text field on customer profile
+- Examples: "Prefers oat milk", "Regular Monday morning"
+- Displayed when customer is selected in Sales
+- Useful for personalized service
+
+────────────────────────────────────────────────────────────────────────────────────────
+4.15 BUSINESS STATISTICS DASHBOARD
+────────────────────────────────────────────────────────────────────────────────────────
+- Simple dashboard showing:
+  - Today vs yesterday comparison
+  - This week vs last week
+  - Monthly revenue trend
+  - Top products
+  - Payment method usage
+- All from real DB data
+
+────────────────────────────────────────────────────────────────────────────────────────
+4.16 BARCODE SCANNER AUTO-DETECT
+────────────────────────────────────────────────────────────────────────────────────────
+- Automatically detect barcode scanner input (fast typing)
+- Differentiate from keyboard input by timing
+- Focus search field when scanner is detected
+- Look up product and add to cart directly
+- Visual feedback when scanned
+
+────────────────────────────────────────────────────────────────────────────────────────
+4.17 PRINTING (Thermal Receipt + Kitchen Ticket)
+────────────────────────────────────────────────────────────────────────────────────────
+- Thermal receipt printing on ESC/POS printers
+- Kitchen ticket printing (smaller format)
+- Configurable auto-print
+- Reprint from history
+- Printer status check
+
+────────────────────────────────────────────────────────────────────────────────────────
+4.18 PRODUCT SEARCH BY CATEGORY FILTER
+────────────────────────────────────────────────────────────────────────────────────────
+- Already partially there — improve with:
+  - Multi-category selection (show multiple)
+  - Category icons in filter pills
+  - Category color indicators
+
+────────────────────────────────────────────────────────────────────────────────────────
+4.19 HOLD/RECALL ORDERS
+────────────────────────────────────────────────────────────────────────────────────────
+- Already partially there — improve with:
+  - Persist held orders in DB (survive restart)
+  - Show held order count in nav or header
+  - Recall held order from any page
+  - Notification when held order is old (>30 min)
+
+────────────────────────────────────────────────────────────────────────────────────────
+4.20 QUICK OPEN REGISTER
+────────────────────────────────────────────────────────────────────────────────────────
+- Button/indicator in header to show shift status
+- "Open Register" quick action without navigating to Cash Register page
+- Show active shift duration in header
+
+
+╔══════════════════════════════════════════════════════════════════════════════════════╗
+║ PART 5 — IMPLEMENTATION PRIORITY                                                   ║
+╚══════════════════════════════════════════════════════════════════════════════════════╝
+
+Each recommendation is classified as Phase 1 (Critical), Phase 2 (Important), or Phase 3 (Future).
+
+────────────────────────────────────────────────────────────────────────────────────────
+PHASE 1 — CRITICAL (Before PFE Demonstration)
+────────────────────────────────────────────────────────────────────────────────────────
+These are the minimum requirements to make CarthaPOS a functional, professional
+POS for a small café. Without these, the system is not production-ready.
+
+ORDER  MODULE          | RECOMMENDATION
+──────────────────────────────────────────────────────────────────────────────────────
+1      Settings        | Implement settings:get/set IPC handlers (PERSISTENCE)
+2      Reports         | Replace ALL demo data with real DB queries
+3      Dashboard       | Replace demo data with real DB queries (today-filtered)
+4      Kitchen         | Add kitchen_orders table to ElectronDatabaseManager schema
+5      Kitchen         | Auto-send order to kitchen when sale is completed
+6      Sales           | Connect receipt printing (thermal printer) to payment flow
+7      Sales           | Add "quick quantity" buttons (1, 2, 3, 5, 10)
+8      Menu Management | Add IPC handlers + DB tables for persistence
+9      Menu Management | Connect modifiers to Sales flow
+10     Inventory       | Auto-deduct stock when sale is completed
+11     Products        | Add cost_price field and profit margin calculation
+12     Products        | Use min_stock for low stock alerts
+13     Customers       | Add customer notes field
+14     Sales           | Add per-item special instructions (kitchen notes)
+15     Settings        | Use POSConfiguration.currency everywhere (fix hardcoded €)
+16     Global          | Re-enable notificationManager.js (fix bugs)
+17     All Pages       | Add consistent loading states (skeleton/spinner)
+18     All Pages       | Add consistent empty states for all data lists
+19     Kitchen         | Add audio alert for new orders
+20     Kitchen         | Add color-coded timing (green/yellow/red)
+21     Cash Register   | Use POSConfiguration.currency (fix hardcoded €)
+22     Global          | Fix UserContext.jsx (implement or remove)
+23     Global          | Fix Login.jsx (implement or remove)
+24     Reports         | Add real sales data queries (remove demo data)
+
+ESTIMATED EFFORT: 6-8 weeks (single developer)
+
+────────────────────────────────────────────────────────────────────────────────────────
+PHASE 2 — IMPORTANT (After Phase 1)
+────────────────────────────────────────────────────────────────────────────────────────
+These features significantly improve usability and professionalism. Recommended before
+real-world deployment.
+
+ORDER  MODULE          | RECOMMENDATION
+──────────────────────────────────────────────────────────────────────────────────────
+1      Dashboard       | Add hourly sales chart (real data)
+2      Dashboard       | Add top products chart
+3      Dashboard       | Add payment methods breakdown chart
+4      Dashboard       | Add active shift status card
+5      Dashboard       | Auto-refresh every 60s
+6      Sales           | Add cash denomination payment popup (tendered + change)
+7      Sales           | Add receipt preview before payment
+8      Sales           | Add product stock indicator on cards
+9      Sales           | Add "Favorites" and "Recent" product sections
+10     Products        | Add product image upload and display
+11     Products        | Add category management page (standalone)
+12     Products        | Add grid/card view toggle
+13     Inventory       | Add inventory dashboard (total value, low stock, out of stock)
+14     Inventory       | Add out-of-stock auto-alert
+15     Customers       | Add birthday field
+16     Customers       | Add visit frequency display
+17     Customers       | Add customer auto-favorite detection
+18     Tables          | Add occupied timer display
+19     Tables          | Add quick "New Order" action (navigates to Sales)
+20     Kitchen         | Add order count badges on columns
+21     Kitchen         | Reduce refresh to 10s or use SSE
+22     Reports         | Add daily summary report (end of day)
+23     Reports         | Add top products report
+24     Reports         | Add payment methods analysis
+25     Reports         | Add peak hours analysis
+26     Settings        | Add working save/load for all settings
+27     Settings        | Add theme persistence
+28     Cash Register   | Add Cash In / Cash Out mid-shift
+29     Cash Register   | Add daily summary before closing
+30     Receipt Designer | Add save/load templates
+31     Receipt Designer | Connect to auto-print on sale
+32     Global          | Add toast notification system (re-enable)
+33     Sales           | Add "Void Sale" functionality (with manager approval)
+34     Sales           | Add "Refund" functionality (with manager approval)
+35     Sales           | Add discount approval threshold
+36     Global          | Add keyboard shortcuts (Ctrl+K, F1-F3, etc.)
+37     UX              | Add breadcrumbs navigation
+38     UX              | Add collapsible sidebar
+39     UX              | Improve page transition animations
+
+ESTIMATED EFFORT: 8-12 weeks (single developer)
+
+────────────────────────────────────────────────────────────────────────────────────────
+PHASE 3 — FUTURE (After PFE, Nice to Have)
+────────────────────────────────────────────────────────────────────────────────────────
+These are polish improvements. The system is already functional without them.
+
+ORDER  MODULE          | RECOMMENDATION
+──────────────────────────────────────────────────────────────────────────────────────
+1      Sales           | Add barcode scanner auto-detect (keyboard wedge)
+2      Sales           | Add recent products (per-cashier)
+3      Inventory       | Add stock-taking / inventory count feature
+4      Inventory       | Add purchase order suggestions
+5      Inventory       | Add CSV import/export
+6      Products        | Add bulk price update
+7      Products        | Add CSV import/export
+8      Reports         | Add expense tracking
+9      Reports         | Add daily/weekly/monthly/yearly PDF export
+10     Reports         | Add BI Export fully integrated
+11     Cash Register   | Add shift report PDF print
+12     Kitchen         | Add kitchen ticket printer integration
+13     Tables          | Add table reservation time display
+14     Settings        | Add backup scheduling
+15     Settings        | Add database management tools
+16     UX              | Add dark mode toggle (full)
+17     UX              | Add command palette (Ctrl+K)
+18     UX              | Add right-click context menus
+19     UX              | Add drag-and-drop table floor plan
+20     UX              | Add touch gestures (swipe for status change)
+21     UX              | Add high-contrast accessibility mode
+22     UX              | Add screen reader support (aria)
+23     UX              | Add PWA support for tablet mode
+24     Performance     | Add React Query for data caching
+25     Performance     | Add virtualized lists for large datasets
+26     Performance     | Add code-splitting for large components
+27     Features        | Add sales notes per transaction
+28     Features        | Add reprint receipt from history
+29     Features        | Add daily end-of-day printed summary
+30     Features        | Add product availability quick toggle
+31     Features        | Add customer notes visible in Sales
+
+ESTIMATED EFFORT: 12-16 weeks (single developer)
+
+
+╔══════════════════════════════════════════════════════════════════════════════════════╗
+║ PART 6 — FINAL VISION                                                              ║
+╚══════════════════════════════════════════════════════════════════════════════════════╝
+
+────────────────────────────────────────────────────────────────────────────────────────
+WHAT CARTHAPOS RESTAURANT & CAFÉ EDITION LOOKS LIKE AFTER PHASE 1
+────────────────────────────────────────────────────────────────────────────────────────
+
+After completing all Phase 1 improvements, CarthaPOS will be a polished,
+professional POS system suitable for small cafés, coffee shops, snack bars,
+fast food restaurants, and small restaurants.
+
+THE USER EXPERIENCE:
+
+1. LAUNCH & LOGIN
+   ┌──────────────────────────────────────────────┐
+   │  Elegant login screen with café branding     │
+   │  User badge/PIN login for quick access       │
+   │  Auto-login for single-user setups           │
+   └──────────────────────────────────────────────┘
+
+2. DASHBOARD (Home Screen)
+   ┌──────────────────────────────────────────────┐
+   │  Header: Business name, active shift         │
+   │  indicator, clock, user avatar               │
+   │                                               │
+   │  ┌──────┐ ┌──────┐ ┌──────┐ ┌──────┐       │
+   │  │Sales │ │Orders│ │Avg   │ │Low   │       │
+   │  │€1,247│ │  23  │ │€54.22│ │Stock │       │
+   │  │  +8% │ │ +12% │ │ -2%  │ │  3   │       │
+   │  └──────┘ └──────┘ └──────┘ └──────┘       │
+   │                                               │
+   │  ┌──────────────┐  ┌──────────────────┐      │
+   │  │ Hourly Sales │  │  Top Products    │      │
+   │  │  (bar chart) │  │  (horizontal bar)│      │
+   │  └──────────────┘  └──────────────────┘      │
+   │                                               │
+   │  ┌──────────────┐  ┌──────────────────┐      │
+   │  │ Payment Mix  │  │  Recent Orders   │      │
+   │  │ (donut chart)│  │  (last 5 with    │      │
+   │  │              │  │   status badges) │      │
+   │  └──────────────┘  └──────────────────┘      │
+   └──────────────────────────────────────────────┘
+
+3. SALES SCREEN (Primary Interface)
+   ┌──────────────────────────────────────────────┐
+   │ [Search... 🔍]  [Category 1] [Cat 2] [Cat 3] │
+   │                                               │
+   │ ┌──── Cart (320px) ────┐ ┌── Products Grid ─┐│
+   │ │  Table T1 | Customer  │ │                  ││
+   │ │                       │ │  ┌──┐ ┌──┐ ┌──┐ ││
+   │ │  ☕ Café Latte  x2    │ │  │C │ │C │ │C │ ││
+   │ │    3.50€       7.00€ │ │  │a │ │a │ │a │ ││
+   │ │  🥐 Croissant  x1    │ │  │r │ │r │ │r │ ││
+   │ │    2.00€       2.00€ │ │  │d │ │d │ │d │ ││
+   │ │                       │ │  │  │ │  │ │  │ ││
+   │ │  ─────────────────── │ │  └──┘ └──┘ └──┘ ││
+   │ │  Subtotal:     9.00€ │ │  ┌──┐ ┌──┐ ┌──┐ ││
+   │ │  Discount:     -0.90€│ │  │  │ │  │ │  │ ││
+   │ │  Tax (19%):    1.54€ │ │  │P │ │P │ │P │ ││
+   │ │  Total:        9.64€ │ │  │r │ │r │ │r │ ││
+   │ │                       │ │  │o │ │o │ │o │ ││
+   │ │  [Hold] [Clear] [Pay]│ │  │d │ │d │ │d │ ││
+   │ └───────────────────────┘ └──────────────────┘│
+   └──────────────────────────────────────────────┘
+
+4. PAYMENT POPUP
+   ┌───────────────────────────────────────────┐
+   │           Total: €9.64                     │
+   │                                            │
+   │  💵 Cash    💳 Card    📱 Mobile           │
+   │                                            │
+   │  (if Cash) Amount Tendered: [____]         │
+   │  Change: €0.36                             │
+   │  [5€] [10€] [20€] [50€]                   │
+   │                                            │
+   │  [Cancel]        [Confirm Payment]         │
+   └───────────────────────────────────────────┘
+
+5. KITCHEN DISPLAY
+   ┌───────────────────────────────────────────┐
+   │ ⏳ To Prepare (3)  👨‍🍳 In Progress (2)  ✅ Ready (1) │
+   │ ┌─────────┐ ┌─────────┐ ┌─────────┐      │
+   │ │Table T1 │ │Table T3 │ │Table T5 │      │
+   │ │2 items  │ │4 items  │ │1 item   │      │
+   │ │🟡 3 min │ │🔵 7 min │ │🟢 Done  │      │
+   │ │🔊 HIGH  │ │         │ │         │      │
+   │ │[Preparing│ │[Ready]  │ │[Served]  │      │
+   │ └─────────┘ └─────────┘ └─────────┘      │
+   └───────────────────────────────────────────┘
+
+6. CASH REGISTER
+   ┌───────────────────────────────────────────┐
+   │ 🟢 Caisse ouverte · Sophie · 4h32m        │
+   │ Fond: €100  |  Ventes: €847  |  Écart: €0 │
+   │                                            │
+   │ ┌─── Open ───┐  ┌─── Close ────────────┐  │
+   │ │ Float: €100 │  │ Count denominations   │  │
+   │ │ Date: today │  │ Expected: €947.50     │  │
+   │ └─────────────┘  │ Actual:   [___]       │  │
+   │                   │ Difference: €0        │  │
+   │  ┌── History ──┐  │ Reason: [________]   │  │
+   │  │ Date | User  │  │ [Close Register]    │  │
+   │  │ Diff | Detail│  └────────────────────┘  │
+   │  └─────────────┘                           │
+   └───────────────────────────────────────────┘
+
+7. REPORTS
+   ┌───────────────────────────────────────────┐
+   │ Today: €847 (↑12% vs yesterday)            │
+   │ Orders: 23  |  Avg: €36.83                 │
+   │                                            │
+   │ ┌────────────────┐ ┌──────────────────┐   │
+   │ │ Revenue (7-day) │ │ Top Products      │   │
+   │ │  (line chart)   │ │  (horizontal bar) │   │
+   │ └────────────────┘ └──────────────────┘   │
+   │                                            │
+   │ ┌────────────────┐ ┌──────────────────┐   │
+   │ │ Payment Split   │ │ Peak Hours        │   │
+   │ │  (donut chart)  │ │  (bar chart)      │   │
+   │ └────────────────┘ └──────────────────┘   │
+   │                                            │
+   │ [Export CSV] [Export PDF] [Print] [BI Exp] │
+   └───────────────────────────────────────────┘
+
+8. SETTINGS
+   ┌───────────────────────────────────────────┐
+   │ ⚙️ General | 🎨 Appearance | 🔐 Security   │
+   │                                            │
+   │ Business Name: [Café du Coin___]           │
+   │ Currency: [TND ▼]       Tax: [19%]        │
+   │ Language: [Français ▼]                     │
+   │                                            │
+   │ Receipt: [Auto-print] [Paper: 80mm]        │
+   │ Printer: [EPSON TM-T20 ▼] [USB ▼]          │
+   │                                            │
+   │ Backup: [Daily] [Location: ___]            │
+   │ Theme: [Pick Color] [Font: Inter]           │
+   │                                            │
+   │ [💾 Save Settings] [↺ Reset to Defaults]   │
+   └───────────────────────────────────────────┘
+
+DESIGN PRINCIPLES:
+- Clean, modern, minimal — inspired by Square POS and Lightspeed
+- One primary action per screen
+- Data at-a-glance (KPIs, charts)
+- Professional color scheme with café-appropriate warm tones
+- Consistent spacing, typography, and interaction patterns
+- Touch-friendly for tablet use
+- Keyboard-efficient for desktop use
+
+TECHNICAL QUALITY:
+- All data persisted (no demo data, no local-only state)
+- All settings saved and restored
+- All API calls have loading, error, and empty states
+- Consistent notification system (not disabled)
+- Proper Electron main ↔ renderer separation
+- Smooth animations (not disabled)
+- Error recovery (not disabled)
+
+PFE DEMONSTRATION SCENARIO:
+A PFE evaluator sits at the system and can:
+
+1. Launch the application → see login screen
+2. Login as admin → see dashboard with real data
+3. Navigate to Sales → add products to cart, assign table, add discount
+4. Complete payment → see receipt print, see order appear in Kitchen
+5. Go to Kitchen → see the order, advance status to preparing, then ready
+6. Go to Cash Register → open shift, see sales reflected, close shift
+7. Go to Reports → see daily sales chart, top products, payment breakdown
+8. Go to Settings → change business name, save, restart → change persists
+9. Go to Products → add new product with image, see it appear in Sales
+10. Go to Customers → create customer, add notes, see purchase history
+
+All of this works with real data, real persistence, and professional UI.
+
+FINAL SCORE AFTER PHASE 1: ~85% (from current ~69%)
+FINAL SCORE AFTER PHASE 2: ~92%
+FINAL SCORE AFTER PHASE 3: ~96%
+
+═══════════════════════════════════════════════════════════════════════════════════════
+END OF REPORT
+═══════════════════════════════════════════════════════════════════════════════════════

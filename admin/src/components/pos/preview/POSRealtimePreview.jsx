@@ -63,6 +63,9 @@ export default function POSRealtimePreview({
       maxWidth: '1200px',
       compactMode: false,
       navbarCollapsible: false,
+      navbarWidth: '64px',
+      navbarHeight: '48px',
+      sidebarCollapsible: true,
       components: {
         cards: {
           borderRadius: 'medium',

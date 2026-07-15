@@ -153,6 +153,9 @@ function filterValidConfigurationFields(configuration) {
     'language',
     'timezone',
     'navbarPosition',
+    'navbarWidth',
+    'navbarHeight',
+    'sidebarCollapsible',
     'cardBackgroundColor',
     'borderColor',
     'textMutedColor',
@@ -191,7 +194,32 @@ function filterValidConfigurationFields(configuration) {
     'showModuleBadges',
     'favicon',
     'brandWatermark',
-    'splashScreen'
+    'splashScreen',
+    'businessAddress',
+    'businessPhone',
+    'businessEmail',
+    'businessWebsite',
+    'businessTaxId',
+    'welcomeText',
+    'footerText',
+    'receiptHeader',
+    'receiptFooter',
+    'printReceiptAuto',
+    'receiptPaperWidth',
+    'receiptShowLogo',
+    'receiptShowBusinessInfo',
+    'receiptShowQR',
+    'receiptQRContent',
+    'receiptCopies',
+    'animationType',
+    'animationSpeed',
+    'cardAnimations',
+    'cardAnimationType',
+    'cardAnimationSpeed',
+    'enableNotifications',
+    'enableCaching',
+    'lazyLoading',
+    'keyboardNavigation'
   ];
 
   // Mappage des valeurs string vers les valeurs correctes
@@ -357,6 +385,54 @@ function filterValidConfigurationFields(configuration) {
     navbarPosition: value => {
       if (typeof value === 'string') return value;
       return 'left';
+    },
+    navbarWidth: value => {
+      if (typeof value === 'string') return value;
+      return '64px';
+    },
+    navbarHeight: value => {
+      if (typeof value === 'string') return value;
+      return '48px';
+    },
+    receiptHeader: value => {
+      if (typeof value === 'string') return value;
+      return '';
+    },
+    receiptFooter: value => {
+      if (typeof value === 'string') return value;
+      return '';
+    },
+    businessAddress: value => {
+      if (typeof value === 'string') return value;
+      return '';
+    },
+    businessPhone: value => {
+      if (typeof value === 'string') return value;
+      return '';
+    },
+    businessEmail: value => {
+      if (typeof value === 'string') return value;
+      return '';
+    },
+    businessWebsite: value => {
+      if (typeof value === 'string') return value;
+      return '';
+    },
+    businessTaxId: value => {
+      if (typeof value === 'string') return value;
+      return '';
+    },
+    welcomeText: value => {
+      if (typeof value === 'string') return value;
+      return '';
+    },
+    footerText: value => {
+      if (typeof value === 'string') return value;
+      return '';
+    },
+    receiptQRContent: value => {
+      if (typeof value === 'string') return value;
+      return 'website';
     }
   };
 
@@ -379,7 +455,16 @@ function filterValidConfigurationFields(configuration) {
     showModuleIcons: value => value === true || value === 'true',
     showModuleBadges: value => value === true || value === 'true',
     brandWatermark: value => value === true || value === 'true',
-    splashScreen: value => value === true || value === 'true'
+    splashScreen: value => value === true || value === 'true',
+    sidebarCollapsible: value => value !== false && value !== 'false',
+    receiptShowLogo: value => value !== false && value !== 'false',
+    receiptShowBusinessInfo: value => value !== false && value !== 'false',
+    receiptShowQR: value => value === true || value === 'true',
+    printReceiptAuto: value => value === true || value === 'true',
+    enableNotifications: value => value !== false && value !== 'false',
+    enableCaching: value => value !== false && value !== 'false',
+    lazyLoading: value => value !== false && value !== 'false',
+    keyboardNavigation: value => value !== false && value !== 'false'
   };
 
   const filtered = {};

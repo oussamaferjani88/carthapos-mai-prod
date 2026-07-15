@@ -114,14 +114,14 @@ function registerDatabaseHandlers(getDatabase) {
        const db = getDatabase();
        if (!db) throw new Error('Database not initialized');
        
-       const { name, price, category, family, barcode, stock, image, description } = product;
-       
-       console.log(`⏱️ [ADD-PRODUCT START] Adding: "${name}" - Family: "${family}"`);
-       
-        return new Promise((resolve, reject) => {
-          db.run(
-            'INSERT INTO products (name, price, category, family, barcode, stock, image, description) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-            [name, price, category || family, family, barcode || null, stock || 0, image || null, description || ''],
+        const { name, price, cost_price, category, family, barcode, stock, min_stock, unit, supplier, image, description } = product;
+        
+        console.log(`⏱️ [ADD-PRODUCT START] Adding: "${name}" - Family: "${family}"`);
+        
+         return new Promise((resolve, reject) => {
+           db.run(
+             'INSERT INTO products (name, price, cost_price, category, family, barcode, stock, min_stock, unit, supplier, image, description) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+             [name, price, cost_price || 0, category || family, family, barcode || null, stock || 0, min_stock || 0, unit || 'unit', supplier || '', image || null, description || ''],
             function(err) {
               const duration = Date.now() - startTime;
               if (err) {
@@ -148,14 +148,14 @@ function registerDatabaseHandlers(getDatabase) {
        const db = getDatabase();
        if (!db) throw new Error('Database not initialized');
        
-       const { name, price, category, family, barcode, stock, image, description } = product;
-       
-       console.log(`⏱️ [UPDATE-PRODUCT START] ID: ${id} - "${name}"`);
-       
-       return new Promise((resolve, reject) => {
-         db.run(
-           'UPDATE products SET name = ?, price = ?, category = ?, family = ?, barcode = ?, stock = ?, image = ?, description = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
-            [name, price, category || family, family, barcode || null, stock || 0, image || null, description || '', id],
+        const { name, price, cost_price, category, family, barcode, stock, min_stock, unit, supplier, image, description } = product;
+        
+        console.log(`⏱️ [UPDATE-PRODUCT START] ID: ${id} - "${name}"`);
+        
+        return new Promise((resolve, reject) => {
+          db.run(
+            'UPDATE products SET name = ?, price = ?, cost_price = ?, category = ?, family = ?, barcode = ?, stock = ?, min_stock = ?, unit = ?, supplier = ?, image = ?, description = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
+             [name, price, cost_price || 0, category || family, family, barcode || null, stock || 0, min_stock || 0, unit || 'unit', supplier || '', image || null, description || '', id],
            function(err) {
              const duration = Date.now() - startTime;
              if (err) {
@@ -227,12 +227,22 @@ function registerDatabaseHandlers(getDatabase) {
       const db = getDatabase();
       if (!db) throw new Error('Database not initialized');
       
-      const { table_number, capacity } = table;
+      const { table_number, capacity, waiter, notes, x, y, zone, area_name } = table;
       
       return new Promise((resolve, reject) => {
         db.run(
-          'INSERT INTO restaurant_tables (table_number, capacity) VALUES (?, ?)',
-          [table_number, capacity || 2],
+          `INSERT INTO restaurant_tables (table_number, capacity, waiter, notes, x, y, zone, area_name)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+          [
+            table_number,
+            capacity || 2,
+            waiter || '',
+            notes || '',
+            x || 50,
+            y || 50,
+            zone || '',
+            area_name || ''
+          ],
           function(err) {
             if (err) {
               console.error('❌ Error adding table:', err.message);
@@ -254,13 +264,27 @@ function registerDatabaseHandlers(getDatabase) {
     try {
       const db = getDatabase();
       if (!db) throw new Error('Database not initialized');
-      
-      const { table_number, capacity } = table;
+
+      // Build dynamic SET from provided fields
+      const fields = ['table_number', 'capacity', 'waiter', 'notes', 'status', 'x', 'y', 'zone', 'area_name', 'merged_tables', 'merged_into', 'current_order_id'];
+      const setClauses = [];
+      const params = [];
+
+      for (const field of fields) {
+        if (table[field] !== undefined) {
+          setClauses.push(`${field} = ?`);
+          params.push(table[field]);
+        }
+      }
+
+      if (setClauses.length === 0) return { success: false, reason: 'No fields to update' };
+
+      params.push(id);
       
       return new Promise((resolve, reject) => {
         db.run(
-          'UPDATE restaurant_tables SET table_number = ?, capacity = ? WHERE id = ?',
-          [table_number, capacity || 2, id],
+          `UPDATE restaurant_tables SET ${setClauses.join(', ')} WHERE id = ?`,
+          params,
           function(err) {
             if (err) {
               console.error('❌ Error updating table:', err.message);

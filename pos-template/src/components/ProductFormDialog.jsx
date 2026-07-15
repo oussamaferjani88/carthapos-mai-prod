@@ -59,9 +59,13 @@ const ProductFormDialog = memo(function ProductFormDialog({
         const form = formRef.current;
         form.querySelector('[name="name"]') && (form.querySelector('[name="name"]').value = editingProduct?.name || '');
         form.querySelector('[name="price"]') && (form.querySelector('[name="price"]').value = editingProduct?.price?.toString() || '');
+        form.querySelector('[name="cost_price"]') && (form.querySelector('[name="cost_price"]').value = editingProduct?.cost_price?.toString() || '');
         form.querySelector('[name="barcode"]') && (form.querySelector('[name="barcode"]').value = editingProduct?.barcode || '');
         form.querySelector('[name="description"]') && (form.querySelector('[name="description"]').value = editingProduct?.description || '');
         form.querySelector('[name="stock"]') && (form.querySelector('[name="stock"]').value = editingProduct?.stock?.toString() || '0');
+        form.querySelector('[name="min_stock"]') && (form.querySelector('[name="min_stock"]').value = editingProduct?.min_stock?.toString() || '0');
+        form.querySelector('[name="unit"]') && (form.querySelector('[name="unit"]').value = editingProduct?.unit || 'unit');
+        form.querySelector('[name="supplier"]') && (form.querySelector('[name="supplier"]').value = editingProduct?.supplier || '');
       }
       setFamily(editingProduct?.family || editingProduct?.category || '');
       setBarcodeDisplay(editingProduct?.barcode || '');
@@ -154,9 +158,13 @@ const ProductFormDialog = memo(function ProductFormDialog({
     const fd = new FormData(form);
     const name = fd.get('name') || '';
     const price = fd.get('price') || '';
+    const cost_price = fd.get('cost_price') || '';
     const barcode = fd.get('barcode') || '';
     const description = fd.get('description') || '';
     const stock = parseInt(fd.get('stock')) || 0;
+    const min_stock = parseInt(fd.get('min_stock')) || 0;
+    const unit = fd.get('unit') || 'unit';
+    const supplier = fd.get('supplier') || '';
 
     console.log(`⏱️ [PRODUCT_FORM] Refs read in ${Date.now() - startTime}ms`);
 
@@ -175,8 +183,12 @@ const ProductFormDialog = memo(function ProductFormDialog({
         name,
         family,
         price: parseFloat(price),
+        cost_price: parseFloat(cost_price) || 0,
         barcode,
         stock,
+        min_stock,
+        unit,
+        supplier,
         image: imageData,
         description
       };
@@ -280,6 +292,26 @@ const ProductFormDialog = memo(function ProductFormDialog({
                 </span>
               </div>
             </div>
+
+            {/* Prix d'achat */}
+            <div className="grid gap-2">
+              <Label htmlFor="cost_price">Prix d'achat</Label>
+              <div className="relative">
+                <Input
+                  id="cost_price"
+                  name="cost_price"
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  defaultValue={editingProduct?.cost_price?.toString() || ''}
+                  placeholder="0.00"
+                  className="pr-8"
+                />
+                <span className="absolute right-3 top-1/2 transform -translate-y-1/2 text-muted-foreground">
+                  DT
+                </span>
+              </div>
+            </div>
           
             {/* Stock */}
             <div className="grid gap-2">
@@ -292,6 +324,42 @@ const ProductFormDialog = memo(function ProductFormDialog({
                 step="1"
                 defaultValue={editingProduct?.stock?.toString() || '0'}
                 placeholder="0"
+              />
+            </div>
+
+            {/* Stock minimum d'alerte */}
+            <div className="grid gap-2">
+              <Label htmlFor="min_stock">Stock minimum (alerte)</Label>
+              <Input
+                id="min_stock"
+                name="min_stock"
+                type="number"
+                min="0"
+                step="1"
+                defaultValue={editingProduct?.min_stock?.toString() || '0'}
+                placeholder="0"
+              />
+            </div>
+
+            {/* Unité */}
+            <div className="grid gap-2">
+              <Label htmlFor="unit">Unité</Label>
+              <Input
+                id="unit"
+                name="unit"
+                defaultValue={editingProduct?.unit || 'unit'}
+                placeholder="Ex: kg, L, pièce, unit"
+              />
+            </div>
+
+            {/* Fournisseur */}
+            <div className="grid gap-2">
+              <Label htmlFor="supplier">Fournisseur</Label>
+              <Input
+                id="supplier"
+                name="supplier"
+                defaultValue={editingProduct?.supplier || ''}
+                placeholder="Nom du fournisseur"
               />
             </div>
 

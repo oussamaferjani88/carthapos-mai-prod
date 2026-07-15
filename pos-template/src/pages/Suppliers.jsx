@@ -47,7 +47,8 @@ export default function Suppliers() {
     contact_person: '',
     email: '',
     phone: '',
-    address: ''
+    address: '',
+    notes: ''
   });
 
   useEffect(() => {
@@ -133,7 +134,7 @@ export default function Suppliers() {
       
       setDialogOpen(false);
       setEditingSupplier(null);
-      setFormData({ name: '', contact_person: '', email: '', phone: '', address: '' });
+      setFormData({ name: '', contact_person: '', email: '', phone: '', address: '', notes: '' });
       loadSuppliers();
     } catch (error) {
       console.error('Error saving supplier:', error);
@@ -143,7 +144,7 @@ export default function Suppliers() {
 
   const openCreateDialog = () => {
     setEditingSupplier(null);
-    setFormData({ name: '', contact_person: '', email: '', phone: '', address: '' });
+    setFormData({ name: '', contact_person: '', email: '', phone: '', address: '', notes: '' });
     setDialogOpen(true);
   };
 
@@ -154,7 +155,8 @@ export default function Suppliers() {
       contact_person: supplier.contact_person || '',
       email: supplier.email || '',
       phone: supplier.phone || '',
-      address: supplier.address || ''
+      address: supplier.address || '',
+      notes: supplier.notes || ''
     });
     setDialogOpen(true);
   };
@@ -464,6 +466,17 @@ export default function Suppliers() {
                 onChange={(e) => setFormData({ ...formData, address: e.target.value })}
                 placeholder="Adresse complète du fournisseur"
                 rows={3}
+              />
+            </div>
+
+            <div className="grid gap-2">
+              <Label htmlFor="notes">Notes</Label>
+              <Textarea
+                id="notes"
+                value={formData.notes}
+                onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
+                placeholder="Notes internes..."
+                rows={2}
               />
             </div>
             

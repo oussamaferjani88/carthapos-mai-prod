@@ -441,4 +441,9 @@ class ThermalPrinterManager {
 // Instance globale
 export const thermalPrinter = new ThermalPrinterManager();
 
+// Rendre accessible globalement pour les pages
+if (typeof window !== 'undefined') {
+  window.thermalPrinter = thermalPrinter;
+}
+
 export default ThermalPrinterManager;
