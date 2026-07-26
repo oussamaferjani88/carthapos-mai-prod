@@ -1,4 +1,3 @@
-import { Navigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 
 export default function ProtectedRoute({ children }) {
@@ -9,7 +8,12 @@ export default function ProtectedRoute({ children }) {
   }
 
   if (!isAuthenticated) {
-    return <Navigate to="/login" replace />;
+    // Return null instead of <Navigate to="/login">.
+    // The parent (AppContent) already handles unauthenticated state by rendering
+    // UserSelectScreen. Using <Navigate to="/login"> caused an infinite redirect
+    // loop because there is no /login route — the catch-all * redirects to /,
+    // ProtectedRoute fires again → loop → React error #300.
+    return null;
   }
 
   return children;

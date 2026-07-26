@@ -15,9 +15,10 @@ async function generateInsights(clientId, businessType, timezone = 'UTC') {
     if (!summary) return insights;
 
     // Revenue insight (all business types)
-    if (summary.revenueByDay && summary.revenueByDay.length > 0) {
-      const totalRevenue = summary.revenueByDay.reduce((s, d) => s + (d.revenue || 0), 0);
-      const bestDay = summary.revenueByDay.reduce((a, b) => ((a.revenue || 0) > (b.revenue || 0) ? a : b), {});
+    const revenueDays = summary.revenue || summary.revenueByDay || [];
+    if (revenueDays.length > 0) {
+      const totalRevenue = revenueDays.reduce((s, d) => s + (d.revenue || 0), 0);
+      const bestDay = revenueDays.reduce((a, b) => ((a.revenue || 0) > (b.revenue || 0) ? a : b), {});
       insights.push({
         type: 'OPPORTUNITY',
         title: 'Top Revenue Day',

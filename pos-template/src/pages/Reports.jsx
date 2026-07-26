@@ -1,79 +1,190 @@
-import { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
 import { Button } from '../components/ui/button';
 import { Badge } from '../components/ui/badge';
 import { Input } from '../components/ui/input';
+import { Label } from '../components/ui/label';
 import { Table, TableHeader, TableBody, TableHead, TableRow, TableCell } from '../components/ui/table';
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
-import { TrendingUp, Euro, ShoppingCart, Package, Calendar, Download, Search, ArrowUpDown, ChevronLeft, ChevronRight, Receipt, Eye, X } from 'lucide-react';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '../components/ui/dialog';
+import { Skeleton } from '../components/ui/skeleton';
+import {
+  BarChart, Bar, LineChart, Line, PieChart, Pie, Cell, XAxis, YAxis,
+  CartesianGrid, Tooltip, Legend, ResponsiveContainer, Area, AreaChart,
+  ComposedChart
+} from 'recharts';
+import {
+  TrendingUp, Euro, ShoppingCart, Users, Package,
+  Download, Search, ArrowUpDown, ChevronLeft, ChevronRight, ChevronFirst,
+  ChevronLast, Receipt, Eye, X, Printer, Clock, CreditCard,
+  Banknote, BarChart3, PieChart as PieChartIcon, Activity,
+  UserCheck, RefreshCw, AlertCircle, Inbox, ArrowUpRight, ArrowDownRight,
+  FileSpreadsheet
+} from 'lucide-react';
 import BiExportModal from '../components/BiExportModal';
 import { POSConfiguration } from '../lib/POSConfiguration';
 import { useAppConfig } from '../hooks/useAppConfig';
-import { isPreviewMode, getPreviewData, logEnvironment } from '../utils/environment';
 
-const DEMO_HOURLY_DATA = [
-  { hour: '08h', sales: 5, revenue: 23.50 },
-  { hour: '09h', sales: 12, revenue: 67.80 },
-  { hour: '10h', sales: 18, revenue: 89.20 },
-  { hour: '11h', sales: 25, revenue: 134.70 },
-  { hour: '12h', sales: 45, revenue: 267.90 },
-  { hour: '13h', sales: 38, revenue: 198.40 },
-  { hour: '14h', sales: 22, revenue: 123.60 },
-  { hour: '15h', sales: 15, revenue: 78.30 },
-  { hour: '16h', sales: 19, revenue: 95.80 },
-  { hour: '17h', sales: 28, revenue: 156.20 },
-  { hour: '18h', sales: 12, revenue: 67.40 }
+const PERIOD_PRESETS = [
+  { value: 'today', label: "Aujourd'hui" },
+  { value: 'yesterday', label: 'Hier' },
+  { value: 'this_week', label: 'Cette Semaine' },
+  { value: 'last_week', label: 'Semaine Dernière' },
+  { value: 'this_month', label: 'Ce Mois' },
+  { value: 'last_month', label: 'Mois Dernier' },
+  { value: 'this_year', label: 'Cette Année' },
+  { value: 'last_year', label: 'Année Dernière' },
+  { value: 'custom', label: 'Personnalisé' },
 ];
 
-const DEMO_CATEGORY_DATA = [
-  { name: 'Boissons', value: 45, color: '#3B82F6' },
-  { name: 'Viennoiseries', value: 28, color: '#10B981' },
-  { name: 'Sandwichs', value: 18, color: '#F59E0B' },
-  { name: 'Salades', value: 12, color: '#EF4444' },
-  { name: 'Pâtisseries', value: 15, color: '#8B5CF6' },
-  { name: 'Autres', value: 8, color: '#6B7280' }
+const PAYMENT_METHODS_FILTER = [
+  { value: 'all', label: 'Tous les moyens' },
+  { value: 'cash', label: 'Espèces' },
+  { value: 'card', label: 'Carte' },
+  { value: 'mobile', label: 'Mobile' },
+  { value: 'credit', label: 'Crédit' },
 ];
 
-const DEMO_TRANSACTIONS = [
-  { id: 1, receiptNumber: 'RCP-2026-0001', date: '2026-07-13', time: '08:23', cashier: 'Sophie Martin', customer: 'Jean Dupont', table: 5, orderType: 'Dine-in', paymentMethod: 'Espèces', items: 3, discount: 0, tax: 4.75, total: 29.75, status: 'Complété' },
-  { id: 2, receiptNumber: 'RCP-2026-0002', date: '2026-07-13', time: '08:45', cashier: 'Marc Laurent', customer: 'Marie Lambert', table: null, orderType: 'À emporter', paymentMethod: 'Carte', items: 2, discount: 0, tax: 2.85, total: 17.85, status: 'Complété' },
-  { id: 3, receiptNumber: 'RCP-2026-0003', date: '2026-07-13', time: '09:12', cashier: 'Sophie Martin', customer: 'Pierre Moreau', table: 3, orderType: 'Dine-in', paymentMethod: 'Carte', items: 4, discount: 3.50, tax: 5.70, total: 35.20, status: 'Complété' },
-  { id: 4, receiptNumber: 'RCP-2026-0004', date: '2026-07-13', time: '09:30', cashier: 'Lucas Petit', customer: 'Client sans ticket', table: null, orderType: 'À emporter', paymentMethod: 'Mobile', items: 1, discount: 0, tax: 1.90, total: 11.90, status: 'Complété' },
-  { id: 5, receiptNumber: 'RCP-2026-0005', date: '2026-07-13', time: '10:05', cashier: 'Marc Laurent', customer: 'Anne Leroy', table: 2, orderType: 'Dine-in', paymentMethod: 'Espèces', items: 5, discount: 5.00, tax: 6.65, total: 41.65, status: 'En cours' },
-  { id: 6, receiptNumber: 'RCP-2026-0006', date: '2026-07-13', time: '10:30', cashier: 'Sophie Martin', customer: 'Thomas Dubois', table: 7, orderType: 'Dine-in', paymentMethod: 'Carte', items: 2, discount: 0, tax: 3.80, total: 23.80, status: 'Complété' },
-  { id: 7, receiptNumber: 'RCP-2026-0007', date: '2026-07-13', time: '11:15', cashier: 'Lucas Petit', customer: 'Claire Fontaine', table: 1, orderType: 'Dine-in', paymentMethod: 'Mobile', items: 3, discount: 2.00, tax: 4.37, total: 27.37, status: 'Complété' },
-  { id: 8, receiptNumber: 'RCP-2026-0008', date: '2026-07-13', time: '11:45', cashier: 'Marc Laurent', customer: 'Client sans ticket', table: null, orderType: 'Livraison', paymentMethod: 'Carte', items: 4, discount: 0, tax: 5.70, total: 35.70, status: 'Annulé' },
-  { id: 9, receiptNumber: 'RCP-2026-0009', date: '2026-07-13', time: '12:20', cashier: 'Sophie Martin', customer: 'Nicolas Girard', table: 4, orderType: 'Dine-in', paymentMethod: 'Espèces', items: 6, discount: 8.00, tax: 7.60, total: 47.60, status: 'Complété' },
-  { id: 10, receiptNumber: 'RCP-2026-0010', date: '2026-07-13', time: '12:50', cashier: 'Lucas Petit', customer: 'Julie Mercier', table: 6, orderType: 'Dine-in', paymentMethod: 'Carte', items: 2, discount: 0, tax: 3.23, total: 20.23, status: 'Complété' },
-  { id: 11, receiptNumber: 'RCP-2026-0011', date: '2026-07-13', time: '13:30', cashier: 'Marc Laurent', customer: 'Antoine Roux', table: 8, orderType: 'Dine-in', paymentMethod: 'Mobile', items: 3, discount: 0, tax: 4.75, total: 29.75, status: 'Complété' },
-  { id: 12, receiptNumber: 'RCP-2026-0012', date: '2026-07-13', time: '14:00', cashier: 'Sophie Martin', customer: 'Client sans ticket', table: null, orderType: 'À emporter', paymentMethod: 'Carte', items: 1, discount: 0, tax: 1.52, total: 9.52, status: 'Remboursé' },
-  { id: 13, receiptNumber: 'RCP-2026-0013', date: '2026-07-13', time: '14:45', cashier: 'Lucas Petit', customer: 'Sarah Bernard', table: null, orderType: 'Livraison', paymentMethod: 'Carte', items: 3, discount: 2.50, tax: 4.27, total: 26.77, status: 'Complété' },
-  { id: 14, receiptNumber: 'RCP-2026-0014', date: '2026-07-13', time: '15:20', cashier: 'Marc Laurent', customer: 'David Muller', table: 2, orderType: 'Dine-in', paymentMethod: 'Espèces', items: 2, discount: 0, tax: 2.85, total: 17.85, status: 'En cours' },
-  { id: 15, receiptNumber: 'RCP-2026-0015', date: '2026-07-13', time: '16:00', cashier: 'Sophie Martin', customer: 'Emma Colin', table: 5, orderType: 'Dine-in', paymentMethod: 'Carte', items: 4, discount: 0, tax: 6.65, total: 41.65, status: 'Complété' },
-  { id: 16, receiptNumber: 'RCP-2026-0016', date: '2026-07-12', time: '08:30', cashier: 'Sophie Martin', customer: 'Jean Dupont', table: 3, orderType: 'Dine-in', paymentMethod: 'Espèces', items: 2, discount: 0, tax: 2.85, total: 17.85, status: 'Complété' },
-  { id: 17, receiptNumber: 'RCP-2026-0017', date: '2026-07-12', time: '09:15', cashier: 'Marc Laurent', customer: 'Marie Lambert', table: null, orderType: 'À emporter', paymentMethod: 'Carte', items: 3, discount: 1.50, tax: 4.27, total: 26.77, status: 'Complété' },
-  { id: 18, receiptNumber: 'RCP-2026-0018', date: '2026-07-12', time: '10:00', cashier: 'Lucas Petit', customer: 'Pierre Moreau', table: 7, orderType: 'Dine-in', paymentMethod: 'Mobile', items: 5, discount: 0, tax: 7.60, total: 47.60, status: 'Complété' },
-  { id: 19, receiptNumber: 'RCP-2026-0019', date: '2026-07-12', time: '11:30', cashier: 'Sophie Martin', customer: 'Client sans ticket', table: null, orderType: 'Livraison', paymentMethod: 'Carte', items: 2, discount: 0, tax: 3.80, total: 23.80, status: 'Annulé' },
-  { id: 20, receiptNumber: 'RCP-2026-0020', date: '2026-07-12', time: '12:15', cashier: 'Marc Laurent', customer: 'Anne Leroy', table: 1, orderType: 'Dine-in', paymentMethod: 'Espèces', items: 4, discount: 5.00, tax: 5.70, total: 35.20, status: 'Complété' },
-  { id: 21, receiptNumber: 'RCP-2026-0021', date: '2026-07-11', time: '09:00', cashier: 'Lucas Petit', customer: 'Thomas Dubois', table: 4, orderType: 'Dine-in', paymentMethod: 'Carte', items: 3, discount: 0, tax: 4.75, total: 29.75, status: 'Complété' },
-  { id: 22, receiptNumber: 'RCP-2026-0022', date: '2026-07-11', time: '10:30', cashier: 'Sophie Martin', customer: 'Nicolas Girard', table: null, orderType: 'À emporter', paymentMethod: 'Mobile', items: 1, discount: 0, tax: 1.90, total: 11.90, status: 'Complété' },
-  { id: 23, receiptNumber: 'RCP-2026-0023', date: '2026-07-11', time: '13:00', cashier: 'Marc Laurent', customer: 'Julie Mercier', table: 6, orderType: 'Dine-in', paymentMethod: 'Carte', items: 4, discount: 3.00, tax: 5.89, total: 36.89, status: 'Complété' },
-  { id: 24, receiptNumber: 'RCP-2026-0024', date: '2026-07-10', time: '08:45', cashier: 'Lucas Petit', customer: 'Client sans ticket', table: null, orderType: 'À emporter', paymentMethod: 'Espèces', items: 2, discount: 0, tax: 1.90, total: 11.90, status: 'Complété' },
-  { id: 25, receiptNumber: 'RCP-2026-0025', date: '2026-07-10', time: '11:00', cashier: 'Sophie Martin', customer: 'Claire Fontaine', table: 2, orderType: 'Dine-in', paymentMethod: 'Carte', items: 3, discount: 0, tax: 4.75, total: 29.75, status: 'Complété' }
+const SHIFT_STATUS_FILTER = [
+  { value: 'all', label: 'Tous les statuts' },
+  { value: 'open', label: 'Ouvert' },
+  { value: 'closed', label: 'Fermé' },
 ];
 
-export default function Reports() {
-  const [showBiExport, setShowBiExport] = useState(false);
+const CATEGORY_COLORS = [
+  '#3B82F6', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6',
+  '#EC4899', '#06B6D4', '#84CC16', '#F97316', '#6366F1',
+];
 
-  // Log environment on component mount
+const CHART_TOOLTIP_STYLE = {
+  backgroundColor: 'rgba(255,255,255,0.96)',
+  border: '1px solid #e5e7eb',
+  borderRadius: '8px',
+  boxShadow: '0 4px 12px rgba(0,0,0,0.1)',
+  padding: '12px 16px',
+  fontSize: '13px',
+};
+
+function formatPrice(v) {
+  return new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'EUR' }).format(v || 0);
+}
+
+function formatNumber(v) {
+  return new Intl.NumberFormat('fr-FR').format(v || 0);
+}
+
+function formatPercent(v) {
+  if (v == null || isNaN(v)) return '0%';
+  const sign = v >= 0 ? '+' : '';
+  return `${sign}${v.toFixed(1)}%`;
+}
+
+function getDateRange(period, customStart, customEnd) {
+  if (period === 'custom' && customStart && customEnd) {
+    return { period: 'custom', start: customStart, end: customEnd };
+  }
+  return { period, start: undefined, end: undefined };
+}
+
+function useDebounce(value, delay = 400) {
+  const [debounced, setDebounced] = useState(value);
   useEffect(() => {
-    logEnvironment();
-  }, []);
+    const t = setTimeout(() => setDebounced(value), delay);
+    return () => clearTimeout(t);
+  }, [value, delay]);
+  return debounced;
+}
 
-  // Theme configuration integration
+/* ───────── ErrorBoundary ───────── */
+class ChartErrorBoundary extends React.Component {
+  constructor(props) {
+    super(props);
+    this.state = { hasError: false, error: null };
+  }
+  static getDerivedStateFromError(error) {
+    return { hasError: true, error };
+  }
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="h-[300px] flex items-center justify-center">
+          <div className="text-center">
+            <AlertCircle className="h-10 w-10 text-destructive mx-auto mb-2" />
+            <p className="text-sm font-medium text-destructive">Erreur de graphique</p>
+            <p className="text-xs text-muted-foreground mt-1">Impossible d'afficher ce graphique</p>
+          </div>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
+/* ───────── Empty state ───────── */
+function EmptyState({ icon: Icon, title, description }) {
+  return (
+    <div className="h-[300px] flex items-center justify-center">
+      <div className="text-center">
+        <Icon className="h-12 w-12 text-muted-foreground/50 mx-auto mb-3" />
+        <p className="text-sm font-medium text-muted-foreground">{title}</p>
+        {description && <p className="text-xs text-muted-foreground mt-1">{description}</p>}
+      </div>
+    </div>
+  );
+}
+
+/* ───────── Skeleton loaders ───────── */
+function KpiSkeleton() {
+  return (
+    <Card>
+      <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+        <Skeleton className="h-4 w-28" />
+        <Skeleton className="h-4 w-4 rounded" />
+      </CardHeader>
+      <CardContent>
+        <Skeleton className="h-8 w-24 mb-2" />
+        <Skeleton className="h-3 w-36" />
+      </CardContent>
+    </Card>
+  );
+}
+
+function ChartSkeleton({ height = 300 }) {
+  return (
+    <Card>
+      <CardHeader>
+        <Skeleton className="h-5 w-40" />
+        <Skeleton className="h-3 w-56" />
+      </CardHeader>
+      <CardContent>
+        <Skeleton className={`w-full`} style={{ height }} />
+      </CardContent>
+    </Card>
+  );
+}
+
+function TableSkeleton({ rows = 5, cols = 6 }) {
+  return (
+    <div className="space-y-3">
+      {Array.from({ length: rows }).map((_, i) => (
+        <div key={i} className="flex gap-4">
+          {Array.from({ length: cols }).map((_, j) => (
+            <Skeleton key={j} className="h-4 flex-1" />
+          ))}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/* ───────── Main Component ───────── */
+export default function Reports() {
   const { config: electronConfig } = useAppConfig();
-  const getConfig = () => {
+  const [showBiExport, setShowBiExport] = useState(false);
+  const [activeTab, setActiveTab] = useState('dashboard');
+
+  const getConfig = useCallback(() => {
     if (electronConfig && electronConfig.theme) {
       return POSConfiguration.createConfig(electronConfig.theme);
     }
@@ -81,987 +192,1679 @@ export default function Reports() {
       primaryColor: '#3b82f6',
       backgroundColor: '#ffffff',
       textColor: '#1f2937',
-      currency: 'DT',
+      currency: 'EUR',
       currencyPosition: 'after',
-      taxRate: 19
+      taxRate: 20,
     });
-  };
-  const config = getConfig();
-  const styles = POSConfiguration.getStyles(config);
+  }, [electronConfig]);
 
-  const formatPrice = (price) => {
-    if (config.currencyPosition === 'before') {
-      return `${config.currency}${price.toFixed(2)}`;
-    }
-    return `${price.toFixed(2)} ${config.currency}`;
-  };
+  const config = useMemo(() => getConfig(), [getConfig]);
 
+  const themeColors = useMemo(() => [
+    config.primaryColor,
+    config.accentColor || '#10B981',
+    '#F59E0B', '#EF4444', '#8B5CF6', '#EC4899',
+    '#06B6D4', '#84CC16', '#F97316', '#6366F1',
+  ], [config.primaryColor, config.accentColor]);
+
+  /* ─── Period State ─── */
   const [selectedPeriod, setSelectedPeriod] = useState('today');
-  const [salesData, setSalesData] = useState([]);
-  const [categoryData, setCategoryData] = useState([]);
+  const [customStart, setCustomStart] = useState('');
+  const [customEnd, setCustomEnd] = useState('');
 
-  // Transaction table state
-  const [transactions, setTransactions] = useState([]);
-  const [searchTerm, setSearchTerm] = useState('');
-  const [filterPeriod, setFilterPeriod] = useState('all');
-  const [filterCashier, setFilterCashier] = useState('all');
-  const [filterPayment, setFilterPayment] = useState('all');
-  const [filterStatus, setFilterStatus] = useState('all');
-  const [filterOrderType, setFilterOrderType] = useState('all');
-  const [sortField, setSortField] = useState('date');
-  const [sortDirection, setSortDirection] = useState('desc');
-  const [currentPage, setCurrentPage] = useState(1);
-  const [selectedTransaction, setSelectedTransaction] = useState(null);
-  const [showDetailModal, setShowDetailModal] = useState(false);
-  const rowsPerPage = 10;
-
-  const filteredTransactions = useMemo(() => {
-    let result = [...transactions];
-
-    // Search filter
-    if (searchTerm) {
-      const term = searchTerm.toLowerCase();
-      result = result.filter(tx =>
-        tx.receiptNumber.toLowerCase().includes(term) ||
-        tx.customer.toLowerCase().includes(term) ||
-        tx.cashier.toLowerCase().includes(term)
-      );
-    }
-
-    // Period filter
-    if (filterPeriod !== 'all') {
-      const now = new Date();
-      const today = now.toISOString().split('T')[0];
-      const yesterday = new Date(now);
-      yesterday.setDate(yesterday.getDate() - 1);
-      const yesterdayStr = yesterday.toISOString().split('T')[0];
-      const weekAgo = new Date(now);
-      weekAgo.setDate(weekAgo.getDate() - 7);
-      const monthAgo = new Date(now);
-      monthAgo.setMonth(monthAgo.getMonth() - 1);
-
-      result = result.filter(tx => {
-        const txDate = tx.date;
-        switch (filterPeriod) {
-          case 'today': return txDate === today;
-          case 'yesterday': return txDate === yesterdayStr;
-          case 'week': return new Date(txDate) >= weekAgo;
-          case 'month': return new Date(txDate) >= monthAgo;
-          default: return true;
-        }
-      });
-    }
-
-    // Cashier filter
-    if (filterCashier !== 'all') {
-      result = result.filter(tx => tx.cashier === filterCashier);
-    }
-
-    // Payment method filter
-    if (filterPayment !== 'all') {
-      result = result.filter(tx => tx.paymentMethod === filterPayment);
-    }
-
-    // Status filter
-    if (filterStatus !== 'all') {
-      result = result.filter(tx => tx.status === filterStatus);
-    }
-
-    // Order type filter
-    if (filterOrderType !== 'all') {
-      result = result.filter(tx => tx.orderType === filterOrderType);
-    }
-
-    // Sorting
-    result.sort((a, b) => {
-      let cmp = 0;
-      switch (sortField) {
-        case 'receiptNumber': cmp = a.receiptNumber.localeCompare(b.receiptNumber); break;
-        case 'date': cmp = a.date.localeCompare(b.date) || a.time.localeCompare(b.time); break;
-        case 'cashier': cmp = a.cashier.localeCompare(b.cashier); break;
-        case 'customer': cmp = a.customer.localeCompare(b.customer); break;
-        case 'table': cmp = (a.table || 0) - (b.table || 0); break;
-        case 'orderType': cmp = a.orderType.localeCompare(b.orderType); break;
-        case 'paymentMethod': cmp = a.paymentMethod.localeCompare(b.paymentMethod); break;
-        case 'items': cmp = a.items - b.items; break;
-        case 'total': cmp = a.total - b.total; break;
-        case 'status': cmp = a.status.localeCompare(b.status); break;
-        default: cmp = 0;
-      }
-      return sortDirection === 'asc' ? cmp : -cmp;
-    });
-
-    return result;
-  }, [transactions, searchTerm, filterPeriod, filterCashier, filterPayment, filterStatus, filterOrderType, sortField, sortDirection]);
-
-  const totalPages = Math.ceil(filteredTransactions.length / rowsPerPage);
-  const paginatedTransactions = filteredTransactions.slice(
-    (currentPage - 1) * rowsPerPage,
-    currentPage * rowsPerPage
+  const periodOpts = useMemo(
+    () => getDateRange(selectedPeriod, customStart, customEnd),
+    [selectedPeriod, customStart, customEnd]
   );
 
-  const handleSort = (field) => {
-    if (sortField === field) {
-      setSortDirection(d => d === 'asc' ? 'desc' : 'asc');
-    } else {
-      setSortField(field);
-      setSortDirection('desc');
-    }
-  };
+  /* ─── Dashboard State ─── */
+  const [dashboard, setDashboard] = useState(null);
+  const [salesByPeriod, setSalesByPeriod] = useState([]);
+  const [categories, setCategories] = useState([]);
+  const [topProducts, setTopProducts] = useState([]);
+  const [paymentMethods, setPaymentMethods] = useState([]);
+  const [dashboardLoading, setDashboardLoading] = useState(false);
+  const [dashboardError, setDashboardError] = useState(null);
 
-  const openTransactionDetail = (tx) => {
-    setSelectedTransaction(tx);
-    setShowDetailModal(true);
-  };
+  /* ─── Analytics State ─── */
+  const [cashiers, setCashiers] = useState(null);
+  const [revenueTrends, setRevenueTrends] = useState([]);
+  const [hourlyHeatmap, setHourlyHeatmap] = useState([]);
+  const [customerStats, setCustomerStats] = useState(null);
+  const [analyticsLoading, setAnalyticsLoading] = useState(false);
+  const [analyticsError, setAnalyticsError] = useState(null);
 
-  const getStatusBadgeVariant = (status) => {
-    switch (status) {
-      case 'Complété': return 'default';
-      case 'En cours': return 'secondary';
-      case 'Annulé': return 'destructive';
-      case 'Remboursé': return 'outline';
-      default: return 'outline';
-    }
-  };
+  /* ─── Transactions State ─── */
+  const [txData, setTxData] = useState({ data: [], total: 0, totalPages: 0, page: 1, perPage: 15 });
+  const [txSearch, setTxSearch] = useState('');
+  const [txPaymentFilter, setTxPaymentFilter] = useState('all');
+  const [txSortBy, setTxSortBy] = useState('date');
+  const [txSortDir, setTxSortDir] = useState('desc');
+  const [txPage, setTxPage] = useState(1);
+  const [txLoading, setTxLoading] = useState(false);
+  const [txError, setTxError] = useState(null);
+  const [selectedTx, setSelectedTx] = useState(null);
+  const [txDetailOpen, setTxDetailOpen] = useState(false);
+  const debouncedTxSearch = useDebounce(txSearch, 400);
 
-  const uniqueCashiers = [...new Set(transactions.map(tx => tx.cashier))];
-  const uniquePayments = [...new Set(transactions.map(tx => tx.paymentMethod))];
-  const uniqueStatuses = [...new Set(transactions.map(tx => tx.status))];
-  const uniqueOrderTypes = [...new Set(transactions.map(tx => tx.orderType))];
+  /* ─── Cash Shifts State ─── */
+  const [shiftData, setShiftData] = useState({ data: [], total: 0, totalPages: 0, page: 1, perPage: 15 });
+  const [shiftSearch, setShiftSearch] = useState('');
+  const [shiftStatusFilter, setShiftStatusFilter] = useState('all');
+  const [shiftSortBy, setShiftSortBy] = useState('opened_at');
+  const [shiftSortDir, setShiftSortDir] = useState('desc');
+  const [shiftPage, setShiftPage] = useState(1);
+  const [shiftLoading, setShiftLoading] = useState(false);
+  const [shiftError, setShiftError] = useState(null);
+  const [expandedShift, setExpandedShift] = useState(null);
+  const debouncedShiftSearch = useDebounce(shiftSearch, 400);
 
-  const [stats, setStats] = useState({
-    totalSales: 0,
-    totalRevenue: 0,
-    averageTicket: 0,
-    topProduct: null
-  });
-  const [loading, setLoading] = useState(true);
+  /* ─── X/Z Reports State ─── */
+  const [zReportHistory, setZReportHistory] = useState([]);
+  const [zReportLoading, setZReportLoading] = useState(false);
+  const [xReportData, setXReportData] = useState(null);
+  const [xReportLoading, setXReportLoading] = useState(false);
+  const [zCloseDialogOpen, setZCloseDialogOpen] = useState(false);
+  const [zCloseSummary, setZCloseSummary] = useState(null);
+  const [zCloseClosingAmount, setZCloseClosingAmount] = useState('');
+  const [selectedZReport, setSelectedZReport] = useState(null);
+  const [zDetailOpen, setZDetailOpen] = useState(false);
 
-  useEffect(() => {
-    loadReportsData();
-  }, [selectedPeriod]);
+  /* ═══════════════════ DATA LOADING ═══════════════════ */
 
-  const loadReportsData = async () => {
+  const loadDashboard = useCallback(async () => {
+    if (!window.electronAPI) return;
+    setDashboardLoading(true);
+    setDashboardError(null);
     try {
-      setLoading(true);
-      
-      // Preview mode: use demo data
-      if (isPreviewMode()) {
-        setSalesData(DEMO_HOURLY_DATA);
-        setCategoryData(DEMO_CATEGORY_DATA);
-        
-        const totalSales = DEMO_HOURLY_DATA.reduce((sum, item) => sum + item.sales, 0);
-        const totalRevenue = DEMO_HOURLY_DATA.reduce((sum, item) => sum + item.revenue, 0);
-        
-        setStats({
-          totalSales,
-          totalRevenue,
-          averageTicket: totalRevenue / totalSales,
-          topProduct: 'Café Expresso'
-        });
-
-        setTransactions(DEMO_TRANSACTIONS);
-        
-        setLoading(false);
-        return;
-      }
-
-      // Production mode: load from database
-      if (!window.electronAPI) {
-        console.warn('⚠️ Electron API not available');
-        setSalesData([]);
-        setCategoryData([]);
-        setStats({
-          totalSales: 0,
-          totalRevenue: 0,
-          averageTicket: 0,
-          topProduct: null
-        });
-        setLoading(false);
-        return;
-      }
-
-      // Get date range based on selected period
-      const dateRange = getDateRangeForPeriod(selectedPeriod);
-      
-      // Load sales data grouped by hour (for today) or by day (for other periods)
-      const groupBy = selectedPeriod === 'today' ? 'hour' : 'day';
-      const salesQuery = selectedPeriod === 'today' 
-        ? `SELECT 
-             strftime('%H', created_at) as hour,
-             COUNT(*) as sales,
-             COALESCE(SUM(total), 0) as revenue
-           FROM sales 
-           WHERE DATE(created_at) = DATE('now', 'localtime')
-           GROUP BY hour
-           ORDER BY hour`
-        : `SELECT 
-             DATE(created_at) as date,
-             COUNT(*) as sales,
-             COALESCE(SUM(total), 0) as revenue
-           FROM sales 
-           WHERE created_at >= ? AND created_at < ?
-           GROUP BY DATE(created_at)
-           ORDER BY date`;
-
-      const salesResult = selectedPeriod === 'today'
-        ? await window.electronAPI.query(salesQuery)
-        : await window.electronAPI.query(salesQuery, [dateRange.start, dateRange.end]);
-
-      // Format hourly data
-      const formattedSalesData = selectedPeriod === 'today'
-        ? salesResult.map(item => ({
-            hour: `${item.hour}h`,
-            sales: item.sales,
-            revenue: parseFloat(item.revenue)
-          }))
-        : salesResult.map(item => ({
-            hour: new Date(item.date).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' }),
-            sales: item.sales,
-            revenue: parseFloat(item.revenue)
-          }));
-
-      setSalesData(formattedSalesData);
-
-      // Load category data
-      const categoryQuery = `
-        SELECT 
-          p.category,
-          COUNT(si.id) as count
-        FROM sale_items si
-        JOIN products p ON si.product_id = p.id
-        JOIN sales s ON si.sale_id = s.id
-        WHERE s.created_at >= ? AND s.created_at < ?
-        GROUP BY p.category
-        ORDER BY count DESC
-      `;
-
-      const categoryResult = await window.electronAPI.query(categoryQuery, [dateRange.start, dateRange.end]);
-      
-      const totalItems = categoryResult.reduce((sum, cat) => sum + cat.count, 0);
-      const colors = ['#3B82F6', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6', '#6B7280'];
-      
-      const formattedCategoryData = categoryResult.map((cat, index) => ({
-        name: cat.category || 'Sans catégorie',
-        value: totalItems > 0 ? Math.round((cat.count / totalItems) * 100) : 0,
-        color: colors[index % colors.length]
-      }));
-
-      setCategoryData(formattedCategoryData);
-
-      // Calculate stats
-      const totalSales = formattedSalesData.reduce((sum, item) => sum + item.sales, 0);
-      const totalRevenue = formattedSalesData.reduce((sum, item) => sum + item.revenue, 0);
-
-      // Get top product
-      const topProductQuery = `
-        SELECT p.name, COUNT(si.id) as count
-        FROM sale_items si
-        JOIN products p ON si.product_id = p.id
-        JOIN sales s ON si.sale_id = s.id
-        WHERE s.created_at >= ? AND s.created_at < ?
-        GROUP BY p.id
-        ORDER BY count DESC
-        LIMIT 1
-      `;
-      
-      const topProductResult = await window.electronAPI.query(topProductQuery, [dateRange.start, dateRange.end]);
-      
-      setStats({
-        totalSales,
-        totalRevenue,
-        averageTicket: totalSales > 0 ? totalRevenue / totalSales : 0,
-        topProduct: topProductResult[0]?.name || null
-      });
-
-      // Load transactions from DB
-      await loadTransactions(dateRange);
-
-    } catch (error) {
-      console.error('❌ Error loading reports data:', error);
-      setSalesData([]);
-      setCategoryData([]);
-      setStats({
-        totalSales: 0,
-        totalRevenue: 0,
-        averageTicket: 0,
-        topProduct: null
-      });
+      const [dashRes, salesRes, catRes, topRes, payRes] = await Promise.all([
+        window.electronAPI.reportDashboard(periodOpts),
+        window.electronAPI.reportSalesByPeriod(periodOpts),
+        window.electronAPI.reportCategories(periodOpts),
+        window.electronAPI.reportTopProducts({ ...periodOpts, limit: 5 }),
+        window.electronAPI.reportPaymentMethods(periodOpts),
+      ]);
+      setDashboard(dashRes);
+      setSalesByPeriod(salesRes?.data || []);
+      setCategories(catRes?.data || []);
+      setTopProducts(topRes?.data || []);
+      setPaymentMethods(payRes?.data || []);
+    } catch (err) {
+      console.error('Dashboard load error:', err);
+      setDashboardError(err.message || 'Erreur lors du chargement du tableau de bord');
     } finally {
-      setLoading(false);
+      setDashboardLoading(false);
+    }
+  }, [periodOpts]);
+
+  const loadAnalytics = useCallback(async () => {
+    if (!window.electronAPI) return;
+    setAnalyticsLoading(true);
+    setAnalyticsError(null);
+    try {
+      const [cashiersRes, revenueRes, heatmapRes, custRes] = await Promise.all([
+        window.electronAPI.reportCashiers(periodOpts),
+        window.electronAPI.reportRevenueTrends(periodOpts),
+        window.electronAPI.reportHourlyHeatmap(periodOpts),
+        window.electronAPI.reportCustomers(periodOpts),
+      ]);
+      setCashiers(cashiersRes);
+      setRevenueTrends(revenueRes?.data || []);
+      setHourlyHeatmap(heatmapRes?.data || []);
+      setCustomerStats(custRes);
+    } catch (err) {
+      console.error('Analytics load error:', err);
+      setAnalyticsError(err.message || 'Erreur lors du chargement des analyses');
+    } finally {
+      setAnalyticsLoading(false);
+    }
+  }, [periodOpts]);
+
+  const loadTransactions = useCallback(async () => {
+    if (!window.electronAPI) return;
+    setTxLoading(true);
+    setTxError(null);
+    try {
+      const res = await window.electronAPI.reportTransactions({
+        ...periodOpts,
+        page: txPage,
+        perPage: 15,
+        search: debouncedTxSearch || undefined,
+        paymentMethod: txPaymentFilter !== 'all' ? txPaymentFilter : undefined,
+        sortBy: txSortBy,
+        sortDir: txSortDir,
+      });
+      setTxData(res || { data: [], total: 0, totalPages: 0, page: 1, perPage: 15 });
+    } catch (err) {
+      console.error('Transactions load error:', err);
+      setTxError(err.message || 'Erreur lors du chargement des transactions');
+    } finally {
+      setTxLoading(false);
+    }
+  }, [periodOpts, txPage, debouncedTxSearch, txPaymentFilter, txSortBy, txSortDir]);
+
+  const loadCashShifts = useCallback(async () => {
+    if (!window.electronAPI) return;
+    setShiftLoading(true);
+    setShiftError(null);
+    try {
+      const res = await window.electronAPI.reportCashShifts({
+        start: periodOpts.start,
+        end: periodOpts.end,
+        page: shiftPage,
+        perPage: 15,
+        search: debouncedShiftSearch || undefined,
+        status: shiftStatusFilter !== 'all' ? shiftStatusFilter : undefined,
+        sortBy: shiftSortBy,
+        sortDir: shiftSortDir,
+      });
+      setShiftData(res || { data: [], total: 0, totalPages: 0, page: 1, perPage: 15 });
+    } catch (err) {
+      console.error('Cash shifts load error:', err);
+      setShiftError(err.message || 'Erreur lors du chargement des caisses');
+    } finally {
+      setShiftLoading(false);
+    }
+  }, [periodOpts, shiftPage, debouncedShiftSearch, shiftStatusFilter, shiftSortBy, shiftSortDir]);
+
+  const loadXReport = useCallback(async () => {
+    if (!window.electronAPI) return;
+    setXReportLoading(true);
+    try {
+      const res = await window.electronAPI.generateXReport({ period: selectedPeriod, start: periodOpts.start, end: periodOpts.end });
+      setXReportData(res);
+    } catch (err) {
+      console.error('X Report load error:', err);
+    } finally {
+      setXReportLoading(false);
+    }
+  }, [selectedPeriod, periodOpts]);
+
+  const loadZReportHistory = useCallback(async () => {
+    if (!window.electronAPI) return;
+    setZReportLoading(true);
+    try {
+      const res = await window.electronAPI.getZReportHistory({ page: 1, perPage: 50 });
+      setZReportHistory(res?.data || []);
+    } catch (err) {
+      console.error('Z Report history load error:', err);
+    } finally {
+      setZReportLoading(false);
+    }
+  }, []);
+
+  const handleZClose = async () => {
+    try {
+      const res = await window.electronAPI.generateZReport({
+        closing_amount: parseFloat(zCloseClosingAmount) || 0
+      });
+      setZCloseSummary(res);
+      setZCloseDialogOpen(false);
+      setZCloseClosingAmount('');
+      loadZReportHistory();
+      if (activeTab === 'cash_shifts') loadCashShifts();
+    } catch (err) {
+      console.error('Z Report close error:', err);
     }
   };
 
-  // Load transactions from database
-  const loadTransactions = async (dateRange) => {
-    if (!window.electronAPI) {
-      setTransactions(DEMO_TRANSACTIONS);
+  /* ─── Auto-refresh on new sale ─── */
+  useEffect(() => {
+    const handleSaleCompleted = () => {
+      if (activeTab === 'dashboard') loadDashboard();
+      if (activeTab === 'analytics') loadAnalytics();
+    };
+    window.addEventListener('sale-completed', handleSaleCompleted);
+    return () => window.removeEventListener('sale-completed', handleSaleCompleted);
+  }, [activeTab, loadDashboard, loadAnalytics]);
+
+  /* ─── Period change triggers ─── */
+  useEffect(() => {
+    if (activeTab === 'dashboard') loadDashboard();
+    if (activeTab === 'analytics') loadAnalytics();
+    if (activeTab === 'transactions') { setTxPage(1); loadTransactions(); }
+    if (activeTab === 'cash_shifts') { setShiftPage(1); loadCashShifts(); }
+    if (activeTab === 'xz_reports') { loadXReport(); loadZReportHistory(); }
+  }, [activeTab, selectedPeriod, customStart, customEnd]);
+
+  useEffect(() => { if (activeTab === 'transactions') loadTransactions(); }, [activeTab, debouncedTxSearch, txPaymentFilter, txSortBy, txSortDir, txPage]);
+  useEffect(() => { if (activeTab === 'cash_shifts') loadCashShifts(); }, [activeTab, debouncedShiftSearch, shiftStatusFilter, shiftSortBy, shiftSortDir, shiftPage]);
+
+  /* ═══════════════════ DERIVED DATA ═══════════════════ */
+
+  const kpis = useMemo(() => {
+    if (!dashboard) return null;
+    const c = dashboard.current || {};
+    const p = dashboard.previous || {};
+    const pctChange = (curr, prev) => {
+      if (!prev || prev === 0) return curr > 0 ? 100 : 0;
+      return ((curr - prev) / Math.abs(prev)) * 100;
+    };
+    return [
+      {
+        key: 'totalSales',
+        title: 'Total Ventes',
+        value: formatNumber(c.totalSales),
+        previous: formatNumber(p.totalSales),
+        change: pctChange(c.totalSales, p.totalSales),
+        icon: ShoppingCart,
+        colorClass: 'text-blue-600',
+        bgClass: 'bg-blue-50',
+      },
+      {
+        key: 'revenue',
+        title: "Chiffre d'Affaires",
+        value: formatPrice(c.totalRevenue),
+        previous: formatPrice(p.totalRevenue),
+        change: pctChange(c.totalRevenue, p.totalRevenue),
+        icon: Euro,
+        colorClass: 'text-green-600',
+        bgClass: 'bg-green-50',
+      },
+      {
+        key: 'avgSale',
+        title: 'Panier Moyen',
+        value: formatPrice(c.avgSale),
+        previous: formatPrice(p.avgSale),
+        change: pctChange(c.avgSale, p.avgSale),
+        icon: TrendingUp,
+        colorClass: 'text-purple-600',
+        bgClass: 'bg-purple-50',
+      },
+      {
+        key: 'uniqueCustomers',
+        title: 'Clients Uniques',
+        value: formatNumber(c.uniqueCustomers),
+        previous: formatNumber(p.uniqueCustomers),
+        change: pctChange(c.uniqueCustomers, p.uniqueCustomers),
+        icon: Users,
+        colorClass: 'text-orange-600',
+        bgClass: 'bg-orange-50',
+      },
+    ];
+  }, [dashboard]);
+
+  const categoryChartData = useMemo(() => {
+    return categories.map((c, i) => ({
+      name: c.name || 'Sans catégorie',
+      value: c.count || c.value || 0,
+      color: themeColors[i % themeColors.length],
+    }));
+  }, [categories, themeColors]);
+
+  const paymentChartData = useMemo(() => {
+    const labels = { cash: 'Espèces', card: 'Carte', mobile: 'Mobile', credit: 'Crédit' };
+    return paymentMethods.map((p, i) => ({
+      name: labels[p.method] || p.method || 'Autre',
+      value: p.count || p.total || 0,
+      color: themeColors[i % themeColors.length],
+    }));
+  }, [paymentMethods, themeColors]);
+
+  /* ═══════════════════ EXPORT ═══════════════════ */
+
+  const exportCSV = useCallback(() => {
+    let rows = [];
+    let headers = [];
+
+    if (activeTab === 'dashboard' && topProducts.length > 0) {
+      headers = ['Produit', 'Catégorie', 'Ventes', 'Quantité', 'Revenu'];
+      rows = topProducts.map(p => [p.name, p.category, p.salesCount, p.totalQuantity, p.totalRevenue]);
+    } else if (activeTab === 'analytics' && cashiers?.data?.length > 0) {
+      headers = ['Caissier', 'Ventes', 'Revenu Total', 'Panier Moyen'];
+      rows = cashiers.data.map(c => [c.full_name, c.salesCount, c.totalRevenue, c.avgSale]);
+    } else if (activeTab === 'transactions' && txData.data.length > 0) {
+      headers = ['ID', 'Date', 'Caissier', 'Client', 'Montant', 'Paiement'];
+      rows = txData.data.map(t => [
+        t.receiptNumber || `RCP-${String(t.id).padStart(6, '0')}`,
+        t.date, t.cashier, t.customer, t.total, t.paymentMethod,
+      ]);
+    } else if (activeTab === 'cash_shifts' && shiftData.data.length > 0) {
+      headers = ['ID', 'Caissier', 'Ouverture', 'Fermeture', 'Ventes', 'Statut'];
+      rows = shiftData.data.map(s => [
+        `#${s.id}`, s.cashier_name || s.user_name, s.opened_at, s.closed_at || 'En cours',
+        s.total_sales || 0, s.status,
+      ]);
+    } else {
       return;
     }
-    try {
-      const txQuery = `
-        SELECT 
-          s.id, s.total, s.tax, s.discount, s.discount_percentage, s.subtotal,
-          s.payment_method, s.table_id, s.created_at, s.notes,
-          u.full_name as cashier_name,
-          c.name as customer_name,
-          (SELECT COUNT(*) FROM sale_items si WHERE si.sale_id = s.id) as item_count
-        FROM sales s
-        LEFT JOIN users u ON u.id = s.user_id
-        LEFT JOIN customers c ON c.id = s.customer_id
-        WHERE s.created_at >= ? AND s.created_at < ?
-        ORDER BY s.created_at DESC
-        LIMIT 500
-      `;
-      const txData = await window.electronAPI.query(txQuery, [dateRange.start, dateRange.end]);
-      setTransactions((txData || []).map(row => {
-        const d = new Date(row.created_at);
-        return {
-          id: row.id,
-          receiptNumber: `RCP-${String(row.id).padStart(6, '0')}`,
-          date: d.toLocaleDateString('fr-CA'),
-          time: d.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }),
-          cashier: row.cashier_name || 'Inconnu',
-          customer: row.customer_name || 'Client sans ticket',
-          table: row.table_id,
-          orderType: row.table_id ? 'Dine-in' : 'À emporter',
-          paymentMethod: row.payment_method === 'cash' || row.payment_method === 'espèces' ? 'Espèces' :
-                         row.payment_method === 'card' || row.payment_method === 'carte' ? 'Carte' :
-                         row.payment_method === 'mobile' ? 'Mobile' : row.payment_method || 'Carte',
-          items: row.item_count || 0,
-          discount: row.discount || 0,
-          tax: row.tax || 0,
-          total: row.total || 0,
-          status: 'Complété'
-        };
-      }));
-    } catch (e) {
-      console.error('Error loading transactions:', e);
-      setTransactions(DEMO_TRANSACTIONS);
-    }
-  };
 
-  // Helper function to get date range based on period
-  const getDateRangeForPeriod = (period) => {
-    const now = new Date();
-    let start, end;
+    const csvContent = [
+      headers.join(';'),
+      ...rows.map(r => r.map(v => `"${String(v ?? '').replace(/"/g, '""')}"`).join(';')),
+    ].join('\n');
 
-    switch (period) {
-      case 'today':
-        start = new Date(now.setHours(0, 0, 0, 0)).toISOString();
-        end = new Date(now.setHours(23, 59, 59, 999)).toISOString();
-        break;
-      case 'yesterday':
-        const yesterday = new Date(now);
-        yesterday.setDate(yesterday.getDate() - 1);
-        start = new Date(yesterday.setHours(0, 0, 0, 0)).toISOString();
-        end = new Date(yesterday.setHours(23, 59, 59, 999)).toISOString();
-        break;
-      case 'week':
-        const weekStart = new Date(now);
-        weekStart.setDate(weekStart.getDate() - weekStart.getDay());
-        start = new Date(weekStart.setHours(0, 0, 0, 0)).toISOString();
-        end = new Date().toISOString();
-        break;
-      case 'month':
-        start = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
-        end = new Date().toISOString();
-        break;
-      case 'year':
-        start = new Date(now.getFullYear(), 0, 1).toISOString();
-        end = new Date().toISOString();
-        break;
-      default:
-        start = new Date(now.setHours(0, 0, 0, 0)).toISOString();
-        end = new Date(now.setHours(23, 59, 59, 999)).toISOString();
-    }
+    const blob = new Blob(['\uFEFF' + csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `rapport_${activeTab}_${new Date().toISOString().slice(0, 10)}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }, [activeTab, topProducts, cashiers, txData, shiftData]);
 
-    return { start, end };
-  };
+  const printView = useCallback(() => {
+    window.print();
+  }, []);
 
-  const periods = [
-    { value: 'today', label: 'Aujourd\'hui' },
-    { value: 'yesterday', label: 'Hier' },
-    { value: 'week', label: 'Cette semaine' },
-    { value: 'month', label: 'Ce mois' },
-    { value: 'year', label: 'Cette année' }
-  ];
+  /* ═══════════════════ HANDLERS ═══════════════════ */
 
-  const statCards = [
-    {
-      title: 'Ventes totales',
-      value: stats.totalSales,
-      description: 'Transactions effectuées',
-      icon: ShoppingCart,
-      color: 'text-blue-600'
-    },
-    {
-      title: 'Chiffre d\'affaires',
-      value: formatPrice(stats.totalRevenue),
-      description: 'Revenus générés',
-      icon: Euro,
-      color: 'text-green-600'
-    },
-    {
-      title: 'Ticket moyen',
-      value: formatPrice(stats.averageTicket),
-      description: 'Montant moyen par vente',
-      icon: TrendingUp,
-      color: 'text-purple-600'
-    },
-    {
-      title: 'Produit vedette',
-      value: stats.topProduct || 'N/A',
-      description: 'Produit le plus vendu',
-      icon: Package,
-      color: 'text-orange-600'
-    }
-  ];
+  const handleTxSort = useCallback((field) => {
+    setTxSortDir(d => (txSortBy === field ? (d === 'asc' ? 'desc' : 'asc') : 'desc'));
+    setTxSortBy(field);
+    setTxPage(1);
+  }, [txSortBy]);
 
-  if (loading) {
+  const handleShiftSort = useCallback((field) => {
+    setShiftSortDir(d => (shiftSortBy === field ? (d === 'asc' ? 'desc' : 'asc') : 'desc'));
+    setShiftSortBy(field);
+    setShiftPage(1);
+  }, [shiftSortBy]);
+
+  const openTxDetail = useCallback((tx) => {
+    setSelectedTx(tx);
+    setTxDetailOpen(true);
+  }, []);
+
+  const refreshCurrent = useCallback(() => {
+    if (activeTab === 'dashboard') loadDashboard();
+    else if (activeTab === 'analytics') loadAnalytics();
+    else if (activeTab === 'transactions') loadTransactions();
+    else if (activeTab === 'cash_shifts') loadCashShifts();
+    else if (activeTab === 'xz_reports') { loadXReport(); loadZReportHistory(); }
+  }, [activeTab, loadDashboard, loadAnalytics, loadTransactions, loadCashShifts, loadXReport, loadZReportHistory]);
+
+  /* ═══════════════════ KPI CARD ═══════════════════ */
+
+  function KpiCard({ kpi }) {
+    const isPositive = kpi.change >= 0;
     return (
-      <div className="space-y-6">
-        <h1 className="text-3xl font-bold">Rapports</h1>
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-          {[...Array(4)].map((_, i) => (
-            <Card key={i} className="animate-pulse">
-              <CardHeader className="pb-2">
-                <div className="h-4 bg-muted rounded w-3/4"></div>
-              </CardHeader>
-              <CardContent>
-                <div className="h-8 bg-muted rounded w-1/2 mb-2"></div>
-                <div className="h-3 bg-muted rounded w-full"></div>
-              </CardContent>
-            </Card>
-          ))}
+      <Card>
+        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+          <CardTitle className="text-sm font-medium text-muted-foreground">{kpi.title}</CardTitle>
+          <div className={`p-2 rounded-lg ${kpi.bgClass}`}>
+            <kpi.icon className={`h-4 w-4 ${kpi.colorClass}`} />
+          </div>
+        </CardHeader>
+        <CardContent>
+          <div className="text-2xl font-bold">{kpi.value}</div>
+          <div className="flex items-center gap-1.5 mt-1">
+            <span className={`flex items-center text-xs font-medium ${isPositive ? 'text-green-600' : 'text-red-600'}`}>
+              {isPositive ? <ArrowUpRight className="h-3 w-3" /> : <ArrowDownRight className="h-3 w-3" />}
+              {formatPercent(kpi.change)}
+            </span>
+            <span className="text-xs text-muted-foreground">vs période précédente</span>
+          </div>
+          <p className="text-xs text-muted-foreground mt-1">
+            Période précédente : {kpi.previous}
+          </p>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  /* ═══════════════════ CUSTOM TOOLTIP ═══════════════════ */
+
+  function SalesTooltip({ active, payload, label }) {
+    if (!active || !payload?.length) return null;
+    return (
+      <div style={CHART_TOOLTIP_STYLE}>
+        <p className="font-semibold text-sm mb-1">{label}</p>
+        {payload.map((p, i) => (
+          <p key={i} style={{ color: p.color }} className="text-xs">
+            {p.name === 'revenue' ? `Revenu : ${formatPrice(p.value)}` : `Ventes : ${formatNumber(p.value)}`}
+          </p>
+        ))}
+      </div>
+    );
+  }
+
+  function PieTooltip({ active, payload }) {
+    if (!active || !payload?.length) return null;
+    return (
+      <div style={CHART_TOOLTIP_STYLE}>
+        <p className="font-semibold text-sm">{payload[0].name}</p>
+        <p className="text-xs text-muted-foreground">{formatNumber(payload[0].value)}</p>
+      </div>
+    );
+  }
+
+  /* ═══════════════════ PAGINATION ═══════════════════ */
+
+  function Pagination({ page, totalPages, onPageChange, total }) {
+    if (totalPages <= 1) return null;
+
+    const getPages = () => {
+      const pages = [];
+      const maxVisible = 7;
+      if (totalPages <= maxVisible) {
+        for (let i = 1; i <= totalPages; i++) pages.push(i);
+      } else {
+        pages.push(1);
+        if (page > 3) pages.push('...');
+        const start = Math.max(2, page - 1);
+        const end = Math.min(totalPages - 1, page + 1);
+        for (let i = start; i <= end; i++) pages.push(i);
+        if (page < totalPages - 2) pages.push('...');
+        pages.push(totalPages);
+      }
+      return pages;
+    };
+
+    return (
+      <div className="flex items-center justify-between pt-4">
+        <span className="text-sm text-muted-foreground">
+          {formatNumber(total)} résultat(s) — Page {page} sur {totalPages}
+        </span>
+        <div className="flex items-center gap-1">
+          <Button variant="outline" size="icon" className="h-8 w-8" disabled={page <= 1} onClick={() => onPageChange(1)}>
+            <ChevronFirst className="h-4 w-4" />
+          </Button>
+          <Button variant="outline" size="icon" className="h-8 w-8" disabled={page <= 1} onClick={() => onPageChange(page - 1)}>
+            <ChevronLeft className="h-4 w-4" />
+          </Button>
+          {getPages().map((p, i) =>
+            p === '...' ? (
+              <span key={`e${i}`} className="px-1 text-muted-foreground">…</span>
+            ) : (
+              <Button
+                key={p}
+                variant={page === p ? 'default' : 'outline'}
+                size="icon"
+                className="h-8 w-8 text-xs"
+                onClick={() => onPageChange(p)}
+              >
+                {p}
+              </Button>
+            )
+          )}
+          <Button variant="outline" size="icon" className="h-8 w-8" disabled={page >= totalPages} onClick={() => onPageChange(page + 1)}>
+            <ChevronRight className="h-4 w-4" />
+          </Button>
+          <Button variant="outline" size="icon" className="h-8 w-8" disabled={page >= totalPages} onClick={() => onPageChange(totalPages)}>
+            <ChevronLast className="h-4 w-4" />
+          </Button>
         </div>
       </div>
     );
   }
 
-  const hasData = salesData.length > 0 || stats.totalSales > 0;
+  /* ═══════════════════ STATUS BADGE ═══════════════════ */
 
-  return (
-    <>
-    <div className="space-y-6">
-      <div className="flex justify-between items-center">
-        <div>
-          <h1 className="text-3xl font-bold">Rapports</h1>
-          <p className="text-muted-foreground">
-            Analysez les performances de votre activité
-          </p>
+  function StatusBadge({ status }) {
+    const map = {
+      completed: { label: 'Complété', variant: 'default' },
+      Complété: { label: 'Complété', variant: 'default' },
+      open: { label: 'Ouvert', variant: 'secondary' },
+      Ouvert: { label: 'Ouvert', variant: 'secondary' },
+      closed: { label: 'Fermé', variant: 'outline' },
+      Fermé: { label: 'Fermé', variant: 'outline' },
+      cancelled: { label: 'Annulé', variant: 'destructive' },
+      Annulé: { label: 'Annulé', variant: 'destructive' },
+      refunded: { label: 'Remboursé', variant: 'outline' },
+      Remboursé: { label: 'Remboursé', variant: 'outline' },
+    };
+    const info = map[status] || { label: status, variant: 'outline' };
+    return <Badge variant={info.variant}>{info.label}</Badge>;
+  }
+
+  /* ═══════════════════ SORT HEADER ═══════════════════ */
+
+  function SortHead({ label, field, sortBy, sortDir, onSort }) {
+    const active = sortBy === field;
+    return (
+      <TableHead
+        className="cursor-pointer select-none whitespace-nowrap"
+        onClick={() => onSort(field)}
+      >
+        <div className="flex items-center gap-1">
+          {label}
+          {active && <ArrowUpDown className="h-3 w-3 opacity-60" />}
+          {active && <span className="text-[10px] opacity-40">{sortDir === 'asc' ? '↑' : '↓'}</span>}
         </div>
-        
-        <div className="flex items-center gap-2">
-          <Button variant="outline" onClick={() => setShowBiExport(true)}>
-            <Download className="mr-2 h-4 w-4" />
-            Export BI
-          </Button>
-          <Calendar className="h-4 w-4 text-muted-foreground" />
-          <Select value={selectedPeriod} onValueChange={setSelectedPeriod}>
-            <SelectTrigger className="w-48">
+      </TableHead>
+    );
+  }
+
+  /* ═══════════════════ PERIOD SELECTOR ═══════════════════ */
+
+  function PeriodSelector() {
+    return (
+      <div className="flex flex-wrap items-center gap-2">
+        <div className="flex items-center gap-1 bg-muted rounded-lg p-1">
+          {PERIOD_PRESETS.map(p => (
+            <Button
+              key={p.value}
+              variant={selectedPeriod === p.value ? 'default' : 'ghost'}
+              size="sm"
+              className="h-7 px-2.5 text-xs"
+              onClick={() => setSelectedPeriod(p.value)}
+            >
+              {p.label}
+            </Button>
+          ))}
+        </div>
+        {selectedPeriod === 'custom' && (
+          <div className="flex items-center gap-2 ml-2">
+            <Input
+              type="date"
+              value={customStart}
+              onChange={e => setCustomStart(e.target.value)}
+              className="h-7 w-36 text-xs"
+            />
+            <span className="text-xs text-muted-foreground">à</span>
+            <Input
+              type="date"
+              value={customEnd}
+              onChange={e => setCustomEnd(e.target.value)}
+              className="h-7 w-36 text-xs"
+            />
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  /* ═══════════════════ DASHBOARD TAB ═══════════════════ */
+
+  function DashboardTab() {
+    return (
+      <div className="space-y-6">
+        {/* KPI Cards */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          {dashboardLoading
+            ? Array.from({ length: 4 }).map((_, i) => <KpiSkeleton key={i} />)
+            : kpis?.map(k => <KpiCard key={k.key} kpi={k} />)
+          }
+        </div>
+
+        {dashboardError && (
+          <Card className="border-destructive/50 bg-destructive/5">
+            <CardContent className="py-4 flex items-center gap-3">
+              <AlertCircle className="h-5 w-5 text-destructive shrink-0" />
+              <p className="text-sm text-destructive">{dashboardError}</p>
+              <Button variant="outline" size="sm" className="ml-auto" onClick={loadDashboard}>
+                <RefreshCw className="h-3 w-3 mr-1" /> Réessayer
+              </Button>
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Charts Row */}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          {/* Sales by period chart */}
+          <Card className="lg:col-span-2">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <BarChart3 className="h-5 w-5 text-muted-foreground" />
+                Évolution des Ventes
+              </CardTitle>
+              <CardDescription>Revenus et nombre de ventes par période</CardDescription>
+            </CardHeader>
+            <CardContent>
+              {dashboardLoading ? (
+                <Skeleton className="h-[300px] w-full" />
+              ) : salesByPeriod.length === 0 ? (
+                <EmptyState icon={ShoppingCart} title="Aucune vente" description="Les données apparaîtront après les premières ventes" />
+              ) : (
+                <ChartErrorBoundary>
+                  <ResponsiveContainer width="100%" height={300}>
+                    <ComposedChart data={salesByPeriod}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                      <XAxis dataKey="label" tick={{ fontSize: 11 }} />
+                      <YAxis yAxisId="left" tick={{ fontSize: 11 }} />
+                      <YAxis yAxisId="right" orientation="right" tick={{ fontSize: 11 }} />
+                      <Tooltip content={<SalesTooltip />} />
+                      <Legend />
+                      <Bar yAxisId="left" dataKey="revenue" name="revenue" fill={config.primaryColor} radius={[4, 4, 0, 0]} opacity={0.85} />
+                      <Line yAxisId="right" type="monotone" dataKey="count" name="count" stroke={config.accentColor || '#10B981'} strokeWidth={2} dot={{ r: 3 }} />
+                    </ComposedChart>
+                  </ResponsiveContainer>
+                </ChartErrorBoundary>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Category pie */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <PieChartIcon className="h-5 w-5 text-muted-foreground" />
+                Catégories
+              </CardTitle>
+              <CardDescription>Performance par catégorie</CardDescription>
+            </CardHeader>
+            <CardContent>
+              {dashboardLoading ? (
+                <Skeleton className="h-[300px] w-full" />
+              ) : categoryChartData.length === 0 ? (
+                <EmptyState icon={Package} title="Aucune catégorie" />
+              ) : (
+                <ChartErrorBoundary>
+                  <ResponsiveContainer width="100%" height={200}>
+                    <PieChart>
+                      <Pie
+                        data={categoryChartData}
+                        cx="50%"
+                        cy="50%"
+                        innerRadius={45}
+                        outerRadius={80}
+                        paddingAngle={4}
+                        dataKey="value"
+                      >
+                        {categoryChartData.map((entry, i) => (
+                          <Cell key={i} fill={entry.color} />
+                        ))}
+                      </Pie>
+                      <Tooltip content={<PieTooltip />} />
+                    </PieChart>
+                  </ResponsiveContainer>
+                  <div className="grid grid-cols-2 gap-1.5 mt-4">
+                    {categoryChartData.map((c) => (
+                      <div key={c.name} className="flex items-center gap-2 text-xs">
+                        <div className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: c.color }} />
+                        <span className="truncate">{c.name}</span>
+                        <Badge variant="outline" className="ml-auto text-[10px] px-1.5 py-0">{formatNumber(c.value)}</Badge>
+                      </div>
+                    ))}
+                  </div>
+                </ChartErrorBoundary>
+              )}
+            </CardContent>
+          </Card>
+        </div>
+
+        {/* Payment methods + Top products */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          {/* Payment methods */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <CreditCard className="h-5 w-5 text-muted-foreground" />
+                Modes de Paiement
+              </CardTitle>
+              <CardDescription>Répartition par moyen de paiement</CardDescription>
+            </CardHeader>
+            <CardContent>
+              {dashboardLoading ? (
+                <Skeleton className="h-[250px] w-full" />
+              ) : paymentChartData.length === 0 ? (
+                <EmptyState icon={CreditCard} title="Aucune donnée de paiement" />
+              ) : (
+                <ChartErrorBoundary>
+                  <ResponsiveContainer width="100%" height={250}>
+                    <PieChart>
+                      <Pie
+                        data={paymentChartData}
+                        cx="50%"
+                        cy="50%"
+                        outerRadius={90}
+                        dataKey="value"
+                        label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
+                      >
+                        {paymentChartData.map((entry, i) => (
+                          <Cell key={i} fill={entry.color} />
+                        ))}
+                      </Pie>
+                      <Tooltip content={<PieTooltip />} />
+                    </PieChart>
+                  </ResponsiveContainer>
+                </ChartErrorBoundary>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Top 5 products */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Package className="h-5 w-5 text-muted-foreground" />
+                Top 5 Produits
+              </CardTitle>
+              <CardDescription>Produits les plus vendus</CardDescription>
+            </CardHeader>
+            <CardContent>
+              {dashboardLoading ? (
+                <TableSkeleton rows={5} cols={4} />
+              ) : topProducts.length === 0 ? (
+                <EmptyState icon={Inbox} title="Aucun produit vendu" />
+              ) : (
+                <div className="overflow-x-auto">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead className="w-8">#</TableHead>
+                        <TableHead>Produit</TableHead>
+                        <TableHead className="text-right">Ventes</TableHead>
+                        <TableHead className="text-right">Revenu</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {topProducts.map((p, i) => (
+                        <TableRow key={p.id || i}>
+                          <TableCell>
+                            <Badge variant="outline" className="w-6 h-6 flex items-center justify-center text-[10px] p-0">
+                              {i + 1}
+                            </Badge>
+                          </TableCell>
+                          <TableCell>
+                            <div>
+                              <p className="font-medium text-sm">{p.name}</p>
+                              <p className="text-xs text-muted-foreground">{p.category || p.family}</p>
+                            </div>
+                          </TableCell>
+                          <TableCell className="text-right text-sm">{formatNumber(p.salesCount || p.totalQuantity)}</TableCell>
+                          <TableCell className="text-right text-sm font-medium">{formatPrice(p.totalRevenue)}</TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </div>
+      </div>
+    );
+  }
+
+  /* ═══════════════════ ANALYTICS TAB ═══════════════════ */
+
+  function AnalyticsTab() {
+    const cashierData = useMemo(() => {
+      if (!cashiers?.data) return [];
+      return cashiers.data.map(c => ({
+        name: c.full_name || c.username,
+        sales: c.salesCount || 0,
+        revenue: c.totalRevenue || 0,
+        avg: c.avgSale || 0,
+      }));
+    }, [cashiers]);
+
+    const heatmapData = useMemo(() => {
+      return hourlyHeatmap.map(h => ({
+        hour: `${String(h.hour).padStart(2, '0')}h`,
+        count: h.count || h.sales || 0,
+        revenue: h.revenue || 0,
+      }));
+    }, [hourlyHeatmap]);
+
+    return (
+      <div className="space-y-6">
+        {analyticsError && (
+          <Card className="border-destructive/50 bg-destructive/5">
+            <CardContent className="py-4 flex items-center gap-3">
+              <AlertCircle className="h-5 w-5 text-destructive shrink-0" />
+              <p className="text-sm text-destructive">{analyticsError}</p>
+              <Button variant="outline" size="sm" className="ml-auto" onClick={loadAnalytics}>
+                <RefreshCw className="h-3 w-3 mr-1" /> Réessayer
+              </Button>
+            </CardContent>
+          </Card>
+        )}
+
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          {/* Cashier performance */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Users className="h-5 w-5 text-muted-foreground" />
+                Ventes par Caissier
+              </CardTitle>
+              <CardDescription>Performance de chaque caissier</CardDescription>
+            </CardHeader>
+            <CardContent>
+              {analyticsLoading ? (
+                <Skeleton className="h-[300px] w-full" />
+              ) : cashierData.length === 0 ? (
+                <EmptyState icon={Users} title="Aucune donnée caissier" />
+              ) : (
+                <ChartErrorBoundary>
+                  <ResponsiveContainer width="100%" height={Math.max(200, cashierData.length * 50)}>
+                    <BarChart data={cashierData} layout="vertical">
+                      <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                      <XAxis type="number" tick={{ fontSize: 11 }} />
+                      <YAxis type="category" dataKey="name" width={120} tick={{ fontSize: 11 }} />
+                      <Tooltip
+                        contentStyle={CHART_TOOLTIP_STYLE}
+                        formatter={(value, name) => [name === 'revenue' ? formatPrice(value) : formatNumber(value), name === 'revenue' ? 'Revenu' : 'Ventes']}
+                      />
+                      <Bar dataKey="revenue" fill={config.primaryColor} radius={[0, 4, 4, 0]} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </ChartErrorBoundary>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Revenue trends */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Activity className="h-5 w-5 text-muted-foreground" />
+                Tendances Revenus
+              </CardTitle>
+              <CardDescription>Évolution du chiffre d'affaires</CardDescription>
+            </CardHeader>
+            <CardContent>
+              {analyticsLoading ? (
+                <Skeleton className="h-[300px] w-full" />
+              ) : revenueTrends.length === 0 ? (
+                <EmptyState icon={Activity} title="Aucune tendance disponible" />
+              ) : (
+                <ChartErrorBoundary>
+                  <ResponsiveContainer width="100%" height={300}>
+                    <AreaChart data={revenueTrends}>
+                      <defs>
+                        <linearGradient id="revenueGradient" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="5%" stopColor={config.primaryColor} stopOpacity={0.2} />
+                          <stop offset="95%" stopColor={config.primaryColor} stopOpacity={0} />
+                        </linearGradient>
+                      </defs>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                      <XAxis dataKey="label" tick={{ fontSize: 11 }} />
+                      <YAxis tick={{ fontSize: 11 }} />
+                      <Tooltip
+                        contentStyle={CHART_TOOLTIP_STYLE}
+                        formatter={(value) => [formatPrice(value), 'Revenu']}
+                      />
+                      <Area
+                        type="monotone"
+                        dataKey="revenue"
+                        stroke={config.primaryColor}
+                        strokeWidth={2}
+                        fill="url(#revenueGradient)"
+                        dot={{ r: 3, fill: config.primaryColor }}
+                      />
+                    </AreaChart>
+                  </ResponsiveContainer>
+                </ChartErrorBoundary>
+              )}
+            </CardContent>
+          </Card>
+        </div>
+
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          {/* Hourly heatmap */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Clock className="h-5 w-5 text-muted-foreground" />
+                Heures de Pointe
+              </CardTitle>
+              <CardDescription>Nombre de ventes par heure</CardDescription>
+            </CardHeader>
+            <CardContent>
+              {analyticsLoading ? (
+                <Skeleton className="h-[250px] w-full" />
+              ) : heatmapData.length === 0 ? (
+                <EmptyState icon={Clock} title="Aucune donnée horaire" />
+              ) : (
+                <ChartErrorBoundary>
+                  <ResponsiveContainer width="100%" height={250}>
+                    <BarChart data={heatmapData}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                      <XAxis dataKey="hour" tick={{ fontSize: 10 }} interval={1} />
+                      <YAxis tick={{ fontSize: 11 }} />
+                      <Tooltip
+                        contentStyle={CHART_TOOLTIP_STYLE}
+                        formatter={(value, name) => [formatNumber(value), name === 'count' ? 'Ventes' : 'Revenu']}
+                      />
+                      <Bar dataKey="count" fill={config.accentColor || '#8B5CF6'} radius={[3, 3, 0, 0]} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </ChartErrorBoundary>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Customer stats */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <UserCheck className="h-5 w-5 text-muted-foreground" />
+                Statistiques Clients
+              </CardTitle>
+              <CardDescription>Aperçu de la clientèle</CardDescription>
+            </CardHeader>
+            <CardContent>
+              {analyticsLoading ? (
+                <div className="space-y-4">
+                  <Skeleton className="h-10 w-full" />
+                  <Skeleton className="h-10 w-full" />
+                  <Skeleton className="h-10 w-full" />
+                  <Skeleton className="h-24 w-full" />
+                </div>
+              ) : !customerStats ? (
+                <EmptyState icon={Users} title="Aucune donnée client" />
+              ) : (
+                <div className="space-y-4">
+                  <div className="grid grid-cols-3 gap-3">
+                    <div className="text-center p-3 bg-muted/50 rounded-lg">
+                      <p className="text-2xl font-bold">{formatNumber(customerStats.totalCustomers || 0)}</p>
+                      <p className="text-xs text-muted-foreground">Total clients</p>
+                    </div>
+                    <div className="text-center p-3 bg-muted/50 rounded-lg">
+                      <p className="text-2xl font-bold text-green-600">{formatNumber(customerStats.newCustomers || 0)}</p>
+                      <p className="text-xs text-muted-foreground">Nouveaux</p>
+                    </div>
+                    <div className="text-center p-3 bg-muted/50 rounded-lg">
+                      <p className="text-2xl font-bold text-blue-600">{customerStats.repeatRate || 0}%</p>
+                      <p className="text-xs text-muted-foreground">Fidélité</p>
+                    </div>
+                  </div>
+                  {customerStats.topSpenders?.length > 0 && (
+                    <div>
+                      <p className="text-xs font-medium text-muted-foreground mb-2">Top clients</p>
+                      <div className="space-y-1.5">
+                        {customerStats.topSpenders.slice(0, 5).map((c, i) => (
+                          <div key={i} className="flex items-center justify-between text-sm py-1 border-b last:border-0">
+                            <span className="font-medium">{c.name || c.customer_name}</span>
+                            <span className="text-muted-foreground">{formatPrice(c.totalSpent || c.total)}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </div>
+      </div>
+    );
+  }
+
+  /* ═══════════════════ TRANSACTIONS TAB ═══════════════════ */
+
+  function TransactionsTab() {
+    const transactions = txData.data || [];
+    const [expandedTx, setExpandedTx] = useState(null);
+
+    const toggleTxExpand = useCallback((id) => {
+      setExpandedTx(prev => (prev === id ? null : id));
+    }, []);
+
+    return (
+      <div className="space-y-4">
+        <div className="flex flex-col md:flex-row md:items-center gap-3">
+          <div className="relative flex-1 max-w-sm">
+            <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+            <Input
+              placeholder="Rechercher reçu, client, produit..."
+              className="pl-8"
+              value={txSearch}
+              onChange={e => { setTxSearch(e.target.value); setTxPage(1); }}
+            />
+          </div>
+          <Select value={txPaymentFilter} onValueChange={v => { setTxPaymentFilter(v); setTxPage(1); }}>
+            <SelectTrigger className="w-40">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              {periods.map((period) => (
-                <SelectItem key={period.value} value={period.value}>
-                  {period.label}
-                </SelectItem>
+              {PAYMENT_METHODS_FILTER.map(m => (
+                <SelectItem key={m.value} value={m.value}>{m.label}</SelectItem>
               ))}
             </SelectContent>
           </Select>
         </div>
-      </div>
 
-      {/* Statistiques */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-        {statCards.map((stat) => (
-          <Card key={stat.title}>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">
-                {stat.title}
-              </CardTitle>
-              <stat.icon className={`h-4 w-4 ${stat.color}`} />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">{stat.value}</div>
-              <p className="text-xs text-muted-foreground">
-                {stat.description}
-              </p>
+        {txError && (
+          <Card className="border-destructive/50 bg-destructive/5">
+            <CardContent className="py-3 flex items-center gap-3">
+              <AlertCircle className="h-4 w-4 text-destructive shrink-0" />
+              <p className="text-sm text-destructive">{txError}</p>
+              <Button variant="outline" size="sm" className="ml-auto" onClick={loadTransactions}>
+                <RefreshCw className="h-3 w-3 mr-1" /> Réessayer
+              </Button>
             </CardContent>
           </Card>
-        ))}
-      </div>
+        )}
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Graphique des ventes */}
         <Card>
-          <CardHeader>
-            <CardTitle>Évolution des ventes</CardTitle>
-            <CardDescription>
-              Ventes par heure pour la période sélectionnée
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            {salesData.length === 0 ? (
-              <div className="h-[300px] flex items-center justify-center">
-                <div className="text-center">
-                  <ShoppingCart className="h-12 w-12 text-muted-foreground mx-auto mb-3" />
-                  <p className="text-muted-foreground">Aucune vente pour cette période</p>
-                  <p className="text-sm text-muted-foreground mt-1">
-                    Les données apparaîtront une fois les ventes effectuées
-                  </p>
-                </div>
+          <CardContent className="p-0">
+            {txLoading ? (
+              <div className="p-4">
+                <TableSkeleton rows={8} cols={7} />
+              </div>
+            ) : transactions.length === 0 ? (
+              <div className="py-16">
+                <EmptyState icon={Receipt} title="Aucune transaction" description="Les transactions apparaîtront après les ventes" />
               </div>
             ) : (
-              <ResponsiveContainer width="100%" height={300}>
-                <BarChart data={salesData}>
-                  <CartesianGrid strokeDasharray="3 3" />
-                  <XAxis dataKey="hour" />
-                  <YAxis />
-                  <Tooltip 
-                    formatter={(value, name) => [
-                      name === 'sales' ? `${value} ventes` : formatPrice(value),
-                      name === 'sales' ? 'Ventes' : 'Revenus'
-                    ]}
-                  />
-                  <Bar dataKey="sales" fill="#3B82F6" name="sales" />
-                </BarChart>
-              </ResponsiveContainer>
-            )}
-          </CardContent>
-        </Card>
-
-        {/* Répartition par catégorie */}
-        <Card>
-          <CardHeader>
-            <CardTitle>Ventes par catégorie</CardTitle>
-            <CardDescription>
-              Répartition des ventes par type de produit
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            {categoryData.length === 0 ? (
-              <div className="h-[300px] flex items-center justify-center">
-                <div className="text-center">
-                  <Package className="h-12 w-12 text-muted-foreground mx-auto mb-3" />
-                  <p className="text-muted-foreground">Aucune donnée de catégorie</p>
-                  <p className="text-sm text-muted-foreground mt-1">
-                    Les catégories apparaîtront une fois les ventes effectuées
-                  </p>
-                </div>
-              </div>
-            ) : (
-              <div className="flex flex-col space-y-4">
-                <ResponsiveContainer width="100%" height={200}>
-                  <PieChart>
-                    <Pie
-                      data={categoryData}
-                      cx="50%"
-                      cy="50%"
-                      innerRadius={40}
-                      outerRadius={80}
-                      paddingAngle={5}
-                      dataKey="value"
-                    >
-                      {categoryData.map((entry, index) => (
-                        <Cell key={`cell-${index}`} fill={entry.color} />
-                      ))}
-                    </Pie>
-                    <Tooltip formatter={(value) => [`${value}%`, 'Part']} />
-                  </PieChart>
-                </ResponsiveContainer>
-                
-                <div className="grid grid-cols-2 gap-2">
-                  {categoryData.map((category) => (
-                    <div key={category.name} className="flex items-center space-x-2">
-                      <div 
-                        className="w-3 h-3 rounded-full"
-                        style={{ backgroundColor: category.color }}
-                      ></div>
-                      <span className="text-sm">{category.name}</span>
-                      <Badge variant="outline" className="ml-auto">
-                        {category.value}%
-                      </Badge>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* Tableau des performances */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Performances détaillées</CardTitle>
-          <CardDescription>
-            Analyse détaillée par tranche horaire
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          {salesData.length === 0 ? (
-            <div className="text-center py-8">
-              <TrendingUp className="h-12 w-12 text-muted-foreground mx-auto mb-3" />
-              <p className="text-muted-foreground">Aucune donnée de performance</p>
-              <p className="text-sm text-muted-foreground mt-1">
-                Les performances apparaîtront une fois les ventes effectuées
-              </p>
-            </div>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full">
-                <thead>
-                  <tr className="border-b">
-                    <th className="text-left p-2">Heure</th>
-                    <th className="text-right p-2">Ventes</th>
-                    <th className="text-right p-2">Revenus</th>
-                    <th className="text-right p-2">Ticket moyen</th>
-                    <th className="text-right p-2">Performance</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {salesData.map((item, index) => {
-                    const avgTicket = item.sales > 0 ? item.revenue / item.sales : 0;
-                    const performance = item.sales > 20 ? 'Excellente' : 
-                                      item.sales > 15 ? 'Bonne' : 
-                                      item.sales > 10 ? 'Moyenne' : 'Faible';
-                    const performanceColor = item.sales > 20 ? 'text-green-600' : 
-                                           item.sales > 15 ? 'text-blue-600' : 
-                                           item.sales > 10 ? 'text-orange-600' : 'text-red-600';
-                    
-                    return (
-                      <tr key={index} className="border-b">
-                        <td className="p-2 font-medium">{item.hour}</td>
-                        <td className="text-right p-2">{item.sales}</td>
-                        <td className="text-right p-2">{formatPrice(item.revenue)}</td>
-                        <td className="text-right p-2">{formatPrice(avgTicket)}</td>
-                        <td className={`text-right p-2 font-medium ${performanceColor}`}>
-                          {performance}
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </CardContent>
-      </Card>
-
-      <BiExportModal open={showBiExport} onOpenChange={setShowBiExport} />
-
-      {/* Sales Transactions Table */}
-      <Card>
-        <CardHeader>
-          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-            <div>
-              <CardTitle>Transactions</CardTitle>
-              <CardDescription>
-                {filteredTransactions.length} transaction(s) trouvée(s)
-              </CardDescription>
-            </div>
-            <div className="flex flex-col md:flex-row gap-2">
-              <div className="relative">
-                <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-                <Input
-                  placeholder="Rechercher reçu, client..."
-                  className="pl-8 w-56"
-                  value={searchTerm}
-                  onChange={(e) => { setSearchTerm(e.target.value); setCurrentPage(1); }}
-                />
-              </div>
-            </div>
-          </div>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          {/* Filters */}
-          <div className="flex flex-wrap gap-2">
-            <Select value={filterPeriod} onValueChange={(v) => { setFilterPeriod(v); setCurrentPage(1); }}>
-              <SelectTrigger className="w-36"><SelectValue placeholder="Période" /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">Toutes les périodes</SelectItem>
-                <SelectItem value="today">Aujourd'hui</SelectItem>
-                <SelectItem value="yesterday">Hier</SelectItem>
-                <SelectItem value="week">7 derniers jours</SelectItem>
-                <SelectItem value="month">30 derniers jours</SelectItem>
-              </SelectContent>
-            </Select>
-            <Select value={filterCashier} onValueChange={(v) => { setFilterCashier(v); setCurrentPage(1); }}>
-              <SelectTrigger className="w-40"><SelectValue placeholder="Caissier" /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">Tous les caissiers</SelectItem>
-                {uniqueCashiers.map(c => <SelectItem key={c} value={c}>{c}</SelectItem>)}
-              </SelectContent>
-            </Select>
-            <Select value={filterPayment} onValueChange={(v) => { setFilterPayment(v); setCurrentPage(1); }}>
-              <SelectTrigger className="w-36"><SelectValue placeholder="Paiement" /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">Tous les moyens</SelectItem>
-                {uniquePayments.map(p => <SelectItem key={p} value={p}>{p}</SelectItem>)}
-              </SelectContent>
-            </Select>
-            <Select value={filterOrderType} onValueChange={(v) => { setFilterOrderType(v); setCurrentPage(1); }}>
-              <SelectTrigger className="w-36"><SelectValue placeholder="Type" /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">Tous les types</SelectItem>
-                {uniqueOrderTypes.map(o => <SelectItem key={o} value={o}>{o}</SelectItem>)}
-              </SelectContent>
-            </Select>
-            <Select value={filterStatus} onValueChange={(v) => { setFilterStatus(v); setCurrentPage(1); }}>
-              <SelectTrigger className="w-36"><SelectValue placeholder="Statut" /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">Tous les statuts</SelectItem>
-                {uniqueStatuses.map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}
-              </SelectContent>
-            </Select>
-          </div>
-
-          {/* Table */}
-          <div className="rounded-md border">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead className="cursor-pointer select-none" onClick={() => handleSort('receiptNumber')}>
-                    <div className="flex items-center gap-1">Reçu {sortField === 'receiptNumber' && <ArrowUpDown className="h-3 w-3" />}</div>
-                  </TableHead>
-                  <TableHead className="cursor-pointer select-none" onClick={() => handleSort('date')}>
-                    <div className="flex items-center gap-1">Date {sortField === 'date' && <ArrowUpDown className="h-3 w-3" />}</div>
-                  </TableHead>
-                  <TableHead className="cursor-pointer select-none" onClick={() => handleSort('cashier')}>
-                    <div className="flex items-center gap-1">Caissier {sortField === 'cashier' && <ArrowUpDown className="h-3 w-3" />}</div>
-                  </TableHead>
-                  <TableHead className="cursor-pointer select-none" onClick={() => handleSort('customer')}>
-                    <div className="flex items-center gap-1">Client {sortField === 'customer' && <ArrowUpDown className="h-3 w-3" />}</div>
-                  </TableHead>
-                  <TableHead className="cursor-pointer select-none" onClick={() => handleSort('table')}>
-                    <div className="flex items-center gap-1">Table {sortField === 'table' && <ArrowUpDown className="h-3 w-3" />}</div>
-                  </TableHead>
-                  <TableHead className="cursor-pointer select-none" onClick={() => handleSort('orderType')}>
-                    <div className="flex items-center gap-1">Type {sortField === 'orderType' && <ArrowUpDown className="h-3 w-3" />}</div>
-                  </TableHead>
-                  <TableHead className="cursor-pointer select-none" onClick={() => handleSort('paymentMethod')}>
-                    <div className="flex items-center gap-1">Paiement {sortField === 'paymentMethod' && <ArrowUpDown className="h-3 w-3" />}</div>
-                  </TableHead>
-                  <TableHead className="cursor-pointer select-none text-right" onClick={() => handleSort('items')}>
-                    <div className="flex items-center justify-end gap-1">Qté {sortField === 'items' && <ArrowUpDown className="h-3 w-3" />}</div>
-                  </TableHead>
-                  <TableHead className="cursor-pointer select-none text-right" onClick={() => handleSort('total')}>
-                    <div className="flex items-center justify-end gap-1">Total {sortField === 'total' && <ArrowUpDown className="h-3 w-3" />}</div>
-                  </TableHead>
-                  <TableHead className="cursor-pointer select-none" onClick={() => handleSort('status')}>
-                    <div className="flex items-center gap-1">Statut {sortField === 'status' && <ArrowUpDown className="h-3 w-3" />}</div>
-                  </TableHead>
-                  <TableHead className="text-right">Actions</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {paginatedTransactions.length === 0 ? (
-                  <TableRow>
-                    <TableCell colSpan={11} className="h-32 text-center text-muted-foreground">
-                      Aucune transaction trouvée
-                    </TableCell>
-                  </TableRow>
-                ) : (
-                  paginatedTransactions.map((tx) => (
-                    <TableRow key={tx.id}>
-                      <TableCell className="font-medium">{tx.receiptNumber}</TableCell>
-                      <TableCell>{tx.date} <span className="text-muted-foreground">{tx.time}</span></TableCell>
-                      <TableCell>{tx.cashier}</TableCell>
-                      <TableCell className="max-w-[140px] truncate">{tx.customer}</TableCell>
-                      <TableCell>{tx.table ? `Table ${tx.table}` : '-'}</TableCell>
-                      <TableCell>{tx.orderType}</TableCell>
-                      <TableCell>{tx.paymentMethod}</TableCell>
-                      <TableCell className="text-right">{tx.items}</TableCell>
-                      <TableCell className="text-right font-medium">{formatPrice(tx.total)}</TableCell>
-                      <TableCell>
-                        <Badge variant={getStatusBadgeVariant(tx.status)}>{tx.status}</Badge>
-                      </TableCell>
-                      <TableCell className="text-right">
-                        <Button variant="ghost" size="icon" onClick={() => openTransactionDetail(tx)}>
-                          <Eye className="h-4 w-4" />
-                        </Button>
-                      </TableCell>
+              <div className="overflow-x-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <SortHead label="Reçu" field="id" sortBy={txSortBy} sortDir={txSortDir} onSort={handleTxSort} />
+                      <SortHead label="Date" field="date" sortBy={txSortBy} sortDir={txSortDir} onSort={handleTxSort} />
+                      <SortHead label="Client" field="customer" sortBy={txSortBy} sortDir={txSortDir} onSort={handleTxSort} />
+                      <SortHead label="Caissier" field="cashier" sortBy={txSortBy} sortDir={txSortDir} onSort={handleTxSort} />
+                      <SortHead label="Montant" field="total" sortBy={txSortBy} sortDir={txSortDir} onSort={handleTxSort} />
+                      <SortHead label="Paiement" field="paymentMethod" sortBy={txSortBy} sortDir={txSortDir} onSort={handleTxSort} />
+                      <TableHead className="w-12"></TableHead>
                     </TableRow>
-                  ))
-                )}
-              </TableBody>
-            </Table>
+                  </TableHeader>
+                  <TableBody>
+                    {transactions.map(tx => {
+                      const receiptNo = tx.receiptNumber || `RCP-${String(tx.id).padStart(6, '0')}`;
+                      const isExpanded = expandedTx === tx.id;
+                      return (
+                        <>
+                          <TableRow className="cursor-pointer" onClick={() => toggleTxExpand(tx.id)}>
+                            <TableCell className="font-medium text-xs">{receiptNo}</TableCell>
+                            <TableCell className="text-xs">
+                              {tx.date}
+                              {tx.time && <span className="text-muted-foreground ml-1">{tx.time}</span>}
+                            </TableCell>
+                            <TableCell className="text-xs max-w-[140px] truncate">{tx.customer || '—'}</TableCell>
+                            <TableCell className="text-xs">{tx.cashier || '—'}</TableCell>
+                            <TableCell className="text-xs font-medium text-right">{formatPrice(tx.total)}</TableCell>
+                            <TableCell className="text-xs">{tx.paymentMethod || '—'}</TableCell>
+                            <TableCell>
+                              <Button variant="ghost" size="icon" className="h-6 w-6" onClick={e => { e.stopPropagation(); openTxDetail(tx); }}>
+                                <Eye className="h-3.5 w-3.5" />
+                              </Button>
+                            </TableCell>
+                          </TableRow>
+                          {isExpanded && (
+                            <TableRow>
+                              <TableCell colSpan={7} className="bg-muted/30 p-3">
+                                <div className="text-xs space-y-1">
+                                  {tx.items && tx.items.length > 0 ? (
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+                                      {tx.items.map((item, j) => (
+                                        <div key={j} className="flex justify-between bg-background rounded px-2 py-1">
+                                          <span>{item.product_name || 'Produit'} × {item.quantity}</span>
+                                          <span className="font-medium">{formatPrice((item.price || 0) * (item.quantity || 0))}</span>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  ) : (
+                                    <p className="text-muted-foreground">Détails non disponibles</p>
+                                  )}
+                                  <div className="flex justify-between pt-2 border-t mt-2">
+                                    <span className="text-muted-foreground">Paiement : {tx.paymentMethod}</span>
+                                    {tx.tableNumber && <span className="text-muted-foreground">Table #{tx.tableNumber}</span>}
+                                  </div>
+                                </div>
+                              </TableCell>
+                            </TableRow>
+                          )}
+                        </>
+                      );
+                    })}
+                  </TableBody>
+                </Table>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        <Pagination page={txData.page} totalPages={txData.totalPages} total={txData.total} onPageChange={setTxPage} />
+      </div>
+    );
+  }
+
+  /* ═══════════════════ CASH SHIFTS TAB ═══════════════════ */
+
+  function CashShiftsTab() {
+    const shifts = shiftData.data || [];
+
+    return (
+      <div className="space-y-4">
+        <div className="flex flex-col md:flex-row md:items-center gap-3">
+          <div className="relative flex-1 max-w-sm">
+            <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+            <Input
+              placeholder="Rechercher par caissier..."
+              className="pl-8"
+              value={shiftSearch}
+              onChange={e => { setShiftSearch(e.target.value); setShiftPage(1); }}
+            />
           </div>
+          <Select value={shiftStatusFilter} onValueChange={v => { setShiftStatusFilter(v); setShiftPage(1); }}>
+            <SelectTrigger className="w-36">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {SHIFT_STATUS_FILTER.map(m => (
+                <SelectItem key={m.value} value={m.value}>{m.label}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
 
-          {/* Pagination */}
-          {totalPages > 1 && (
-            <div className="flex items-center justify-between">
-              <span className="text-sm text-muted-foreground">
-                Page {currentPage} sur {totalPages}
-              </span>
-              <div className="flex gap-1">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  disabled={currentPage <= 1}
-                  onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
-                >
-                  <ChevronLeft className="h-4 w-4" />
-                </Button>
-                {[...Array(totalPages)].map((_, i) => (
-                  <Button
-                    key={i}
-                    variant={currentPage === i + 1 ? 'default' : 'outline'}
-                    size="sm"
-                    className="w-9"
-                    onClick={() => setCurrentPage(i + 1)}
-                  >
-                    {i + 1}
-                  </Button>
-                ))}
-                <Button
-                  variant="outline"
-                  size="sm"
-                  disabled={currentPage >= totalPages}
-                  onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
-                >
-                  <ChevronRight className="h-4 w-4" />
-                </Button>
+        {shiftError && (
+          <Card className="border-destructive/50 bg-destructive/5">
+            <CardContent className="py-3 flex items-center gap-3">
+              <AlertCircle className="h-4 w-4 text-destructive shrink-0" />
+              <p className="text-sm text-destructive">{shiftError}</p>
+              <Button variant="outline" size="sm" className="ml-auto" onClick={loadCashShifts}>
+                <RefreshCw className="h-3 w-3 mr-1" /> Réessayer
+              </Button>
+            </CardContent>
+          </Card>
+        )}
+
+        <Card>
+          <CardContent className="p-0">
+            {shiftLoading ? (
+              <div className="p-4">
+                <TableSkeleton rows={8} cols={7} />
               </div>
-            </div>
-          )}
-        </CardContent>
-      </Card>
-    </div>
-
-      {/* Transaction Detail Modal */}
-      {showDetailModal && selectedTransaction && (
-        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-white w-full max-w-2xl max-h-[90vh] overflow-y-auto rounded-2xl shadow-2xl animate-in zoom-in-95 duration-200">
-            {/* Modal Header */}
-            <div className="sticky top-0 bg-white z-10 px-6 py-5 border-b flex items-center justify-between rounded-t-2xl">
-              <div>
-                <h2 className="text-xl font-bold flex items-center gap-2">
-                  <Receipt className="h-5 w-5 text-blue-500" />
-                  {selectedTransaction.receiptNumber}
-                </h2>
-                <p className="text-sm text-muted-foreground mt-0.5">
-                  {selectedTransaction.date} à {selectedTransaction.time}
-                </p>
+            ) : shifts.length === 0 ? (
+              <div className="py-16">
+                <EmptyState icon={Receipt} title="Aucun shift de caisse" description="Les shifts apparaîtront une fois la caisse ouverte" />
               </div>
-              <button
-                onClick={() => setShowDetailModal(false)}
-                className="p-2 rounded-xl hover:bg-gray-100 transition-colors"
-              >
-                <X className="h-5 w-5 text-gray-400" />
-              </button>
-            </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <SortHead label="ID" field="id" sortBy={shiftSortBy} sortDir={shiftSortDir} onSort={handleShiftSort} />
+                      <SortHead label="Caissier" field="cashier_name" sortBy={shiftSortBy} sortDir={shiftSortDir} onSort={handleShiftSort} />
+                      <SortHead label="Ouverture" field="opened_at" sortBy={shiftSortBy} sortDir={shiftSortDir} onSort={handleShiftSort} />
+                      <SortHead label="Fermeture" field="closed_at" sortBy={shiftSortBy} sortDir={shiftSortDir} onSort={handleShiftSort} />
+                      <SortHead label="Ventes" field="total_sales" sortBy={shiftSortBy} sortDir={shiftSortDir} onSort={handleShiftSort} />
+                      <SortHead label="Statut" field="status" sortBy={shiftSortBy} sortDir={shiftSortDir} onSort={handleShiftSort} />
+                      <SortHead label="Différence" field="difference" sortBy={shiftSortBy} sortDir={shiftSortDir} onSort={handleShiftSort} />
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {shifts.map(shift => {
+                      const opening = shift.opening_amount || shift.opening_float || 0;
+                      const closing = shift.closing_amount || shift.closing_actual;
+                      const sales = shift.total_sales || 0;
+                      const expected = opening + sales;
+                      const diff = closing != null ? closing - expected : null;
+                      const isOpen = shift.status === 'open' || shift.status === 'Ouvert';
 
-            <div className="p-6 space-y-6">
-              {/* General Information */}
-              <div>
-                <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-3">Informations générales</h3>
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <span className="text-xs text-muted-foreground">Reçu</span>
-                    <p className="font-medium">{selectedTransaction.receiptNumber}</p>
+                      return (
+                        <>
+                          <TableRow
+                            className="cursor-pointer"
+                            onClick={() => setExpandedShift(prev => prev === shift.id ? null : shift.id)}
+                          >
+                            <TableCell className="font-medium text-xs">#{shift.id}</TableCell>
+                            <TableCell className="text-xs">{shift.cashier_name || shift.user_name || '—'}</TableCell>
+                            <TableCell className="text-xs">
+                              {shift.opened_at ? new Date(shift.opened_at).toLocaleString('fr-FR', { dateStyle: 'short', timeStyle: 'short' }) : '—'}
+                            </TableCell>
+                            <TableCell className="text-xs">
+                              {shift.closed_at
+                                ? new Date(shift.closed_at).toLocaleString('fr-FR', { dateStyle: 'short', timeStyle: 'short' })
+                                : <span className="text-amber-600">En cours</span>}
+                            </TableCell>
+                            <TableCell className="text-xs font-medium text-right">{formatPrice(sales)}</TableCell>
+                            <TableCell><StatusBadge status={shift.status} /></TableCell>
+                            <TableCell className={`text-xs font-medium text-right ${diff === null ? 'text-muted-foreground' : diff === 0 ? 'text-green-600' : 'text-red-600'}`}>
+                              {diff !== null ? formatPrice(diff) : '—'}
+                            </TableCell>
+                          </TableRow>
+                          {expandedShift === shift.id && (
+                            <TableRow>
+                              <TableCell colSpan={7} className="bg-muted/30 p-4">
+                                <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-xs">
+                                  <div>
+                                    <p className="text-muted-foreground">Fond de caisse</p>
+                                    <p className="font-medium">{formatPrice(opening)}</p>
+                                  </div>
+                                  <div>
+                                    <p className="text-muted-foreground">Total ventes</p>
+                                    <p className="font-medium text-blue-600">{formatPrice(sales)}</p>
+                                  </div>
+                                  <div>
+                                    <p className="text-muted-foreground">Attendu</p>
+                                    <p className="font-medium">{formatPrice(expected)}</p>
+                                  </div>
+                                  <div>
+                                    <p className="text-muted-foreground">Fermeture réelle</p>
+                                    <p className="font-medium">{closing != null ? formatPrice(closing) : '—'}</p>
+                                  </div>
+                                  <div>
+                                    <p className="text-muted-foreground">Nombre de ventes</p>
+                                    <p className="font-medium">{shift.sales_count || 0}</p>
+                                  </div>
+                                  {diff !== null && (
+                                    <div>
+                                      <p className="text-muted-foreground">Écart</p>
+                                      <p className={`font-bold ${diff === 0 ? 'text-green-600' : 'text-red-600'}`}>
+                                        {diff > 0 ? '+' : ''}{formatPrice(diff)}
+                                      </p>
+                                    </div>
+                                  )}
+                                </div>
+                              </TableCell>
+                            </TableRow>
+                          )}
+                        </>
+                      );
+                    })}
+                  </TableBody>
+                </Table>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        <Pagination page={shiftData.page} totalPages={shiftData.totalPages} total={shiftData.total} onPageChange={setShiftPage} />
+      </div>
+    );
+  }
+
+  /* ═══════════════════ X/Z REPORTS TAB ═══════════════════ */
+
+  function XZReportsTab() {
+    return (
+      <div className="space-y-6">
+        {/* X Report Section */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <FileSpreadsheet className="h-5 w-5 text-primary" />
+              Rapport X — Synthèse en cours de journée
+            </CardTitle>
+            <CardDescription>Résumé en lecture seule des ventes en cours (ne ferme rien)</CardDescription>
+          </CardHeader>
+          <CardContent>
+            {xReportLoading ? (
+              <div className="space-y-3"><Skeleton className="h-4 w-48" /><Skeleton className="h-4 w-64" /><Skeleton className="h-4 w-40" /></div>
+            ) : !xReportData ? (
+              <div className="text-center py-8 text-muted-foreground text-sm">
+                <FileSpreadsheet className="h-8 w-8 mx-auto mb-2 opacity-40" />
+                <p>Appuyez sur Actualiser pour charger le rapport X</p>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+                  <div className="p-3 bg-muted/50 rounded-xl">
+                    <p className="text-xs text-muted-foreground">Ventes</p>
+                    <p className="text-xl font-bold">{xReportData.totalSales || 0}</p>
                   </div>
-                  <div>
-                    <span className="text-xs text-muted-foreground">Date</span>
-                    <p className="font-medium">{selectedTransaction.date}</p>
+                  <div className="p-3 bg-muted/50 rounded-xl">
+                    <p className="text-xs text-muted-foreground">Chiffre d'affaires</p>
+                    <p className="text-xl font-bold text-green-600">{formatPrice(xReportData.totalRevenue || 0)}</p>
                   </div>
-                  <div>
-                    <span className="text-xs text-muted-foreground">Heure</span>
-                    <p className="font-medium">{selectedTransaction.time}</p>
+                  <div className="p-3 bg-muted/50 rounded-xl">
+                    <p className="text-xs text-muted-foreground">Espèces</p>
+                    <p className="text-xl font-bold">{formatPrice(xReportData.cashTotal || 0)}</p>
                   </div>
-                  <div>
-                    <span className="text-xs text-muted-foreground">Caissier</span>
-                    <p className="font-medium">{selectedTransaction.cashier}</p>
-                  </div>
-                  <div>
-                    <span className="text-xs text-muted-foreground">Client</span>
-                    <p className="font-medium">{selectedTransaction.customer}</p>
-                  </div>
-                  <div>
-                    <span className="text-xs text-muted-foreground">Table</span>
-                    <p className="font-medium">{selectedTransaction.table ? `Table ${selectedTransaction.table}` : 'N/A'}</p>
-                  </div>
-                  <div>
-                    <span className="text-xs text-muted-foreground">Type de commande</span>
-                    <p className="font-medium">{selectedTransaction.orderType}</p>
-                  </div>
-                  <div>
-                    <span className="text-xs text-muted-foreground">Statut</span>
-                    <p className="font-medium">
-                      <Badge variant={getStatusBadgeVariant(selectedTransaction.status)}>{selectedTransaction.status}</Badge>
-                    </p>
+                  <div className="p-3 bg-muted/50 rounded-xl">
+                    <p className="text-xs text-muted-foreground">Carte</p>
+                    <p className="text-xl font-bold">{formatPrice(xReportData.cardTotal || 0)}</p>
                   </div>
                 </div>
-              </div>
-
-              {/* Ordered Products */}
-              <div>
-                <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-3">Produits commandés</h3>
-                <div className="rounded-lg border overflow-hidden">
-                  <table className="w-full text-sm">
-                    <thead className="bg-muted/50">
-                      <tr>
-                        <th className="text-left p-3 font-medium">Produit</th>
-                        <th className="text-center p-3 font-medium">Qté</th>
-                        <th className="text-right p-3 font-medium">Prix unitaire</th>
-                        <th className="text-right p-3 font-medium">Total</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {[...Array(selectedTransaction.items)].map((_, i) => (
-                        <tr key={i} className="border-t">
-                          <td className="p-3">Produit #{i + 1}</td>
-                          <td className="text-center p-3">1</td>
-                          <td className="text-right p-3">{formatPrice(selectedTransaction.total / selectedTransaction.items)}</td>
-                          <td className="text-right p-3 font-medium">{formatPrice(selectedTransaction.total / selectedTransaction.items)}</td>
-                        </tr>
+                {xReportData.byPaymentMethod && xReportData.byPaymentMethod.length > 0 && (
+                  <div>
+                    <p className="text-xs font-semibold text-muted-foreground mb-2">Par mode de paiement</p>
+                    <div className="space-y-1.5">
+                      {xReportData.byPaymentMethod.map((pm, i) => (
+                        <div key={i} className="flex items-center justify-between text-sm py-1 border-b last:border-0">
+                          <span>{pm.method || pm.payment_method || 'Autre'}</span>
+                          <div className="flex items-center gap-3">
+                            <span className="text-muted-foreground">{pm.count || 0} vente(s)</span>
+                            <span className="font-medium">{formatPrice(pm.total || pm.amount || 0)}</span>
+                          </div>
+                        </div>
                       ))}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-
-              {/* Payment Breakdown */}
-              <div>
-                <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-3">Récapitulatif</h3>
-                <div className="bg-blue-50 rounded-xl p-4 space-y-2">
-                  <div className="flex justify-between text-sm">
-                    <span className="text-gray-600">Sous-total</span>
-                    <span className="font-medium">{formatPrice(selectedTransaction.total - selectedTransaction.tax + selectedTransaction.discount)}</span>
-                  </div>
-                  {selectedTransaction.discount > 0 && (
-                    <div className="flex justify-between text-sm text-amber-600">
-                      <span>Réduction</span>
-                      <span className="font-medium">-{formatPrice(selectedTransaction.discount)}</span>
                     </div>
-                  )}
-                  <div className="flex justify-between text-sm">
-                    <span className="text-gray-600">TVA</span>
-                    <span className="font-medium text-emerald-600">{formatPrice(selectedTransaction.tax)}</span>
                   </div>
-                  <div className="flex justify-between border-t-2 border-blue-200 pt-2">
-                    <span className="font-bold">Total TTC</span>
-                    <span className="font-bold text-lg text-blue-600">{formatPrice(selectedTransaction.total)}</span>
+                )}
+                {xReportData.byCashier && xReportData.byCashier.length > 0 && (
+                  <div>
+                    <p className="text-xs font-semibold text-muted-foreground mb-2">Par caissier</p>
+                    <div className="space-y-1.5">
+                      {xReportData.byCashier.map((c, i) => (
+                        <div key={i} className="flex items-center justify-between text-sm py-1 border-b last:border-0">
+                          <span>{c.name || c.cashier_name}</span>
+                          <div className="flex items-center gap-3">
+                            <span className="text-muted-foreground">{c.salesCount || c.count || 0} vente(s)</span>
+                            <span className="font-medium">{formatPrice(c.totalRevenue || c.total || 0)}</span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
                   </div>
-                  <div className="flex justify-between text-sm pt-1">
-                    <span className="text-gray-600">Paiement</span>
-                    <span className="font-medium">{selectedTransaction.paymentMethod}</span>
-                  </div>
-                </div>
+                )}
               </div>
-            </div>
-
-            <div className="px-6 py-4 border-t flex justify-end">
-              <Button variant="outline" onClick={() => setShowDetailModal(false)}>
-                Fermer
+            )}
+            <div className="mt-4 flex justify-end">
+              <Button variant="outline" size="sm" onClick={loadXReport} disabled={xReportLoading}>
+                <RefreshCw className={`h-3.5 w-3.5 mr-1.5 ${xReportLoading ? 'animate-spin' : ''}`} /> Actualiser
               </Button>
             </div>
+          </CardContent>
+        </Card>
+
+        {/* Z Report Section */}
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between">
+            <div>
+              <CardTitle className="flex items-center gap-2">
+                <Banknote className="h-5 w-5 text-amber-600" />
+                Rapport Z — Fermeture de journée
+              </CardTitle>
+              <CardDescription>Clôture la journée, archive le rapport et ferme la caisse</CardDescription>
+            </div>
+            <Button size="sm" className="bg-amber-600 hover:bg-amber-700" onClick={() => setZCloseDialogOpen(true)}>
+              <Banknote className="h-4 w-4 mr-1.5" /> Clôturer la journée
+            </Button>
+          </CardHeader>
+          <CardContent>
+            {zReportLoading ? (
+              <TableSkeleton rows={5} cols={5} />
+            ) : zReportHistory.length === 0 ? (
+              <div className="text-center py-8 text-muted-foreground text-sm">
+                <Banknote className="h-8 w-8 mx-auto mb-2 opacity-40" />
+                <p>Aucun rapport Z archivé</p>
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead className="text-xs">ID</TableHead>
+                      <TableHead className="text-xs">Date</TableHead>
+                      <TableHead className="text-xs">Ventes</TableHead>
+                      <TableHead className="text-xs">CA Total</TableHead>
+                      <TableHead className="text-xs">Espèces</TableHead>
+                      <TableHead className="text-xs">Carte</TableHead>
+                      <TableHead className="text-xs">Écart</TableHead>
+                      <TableHead className="w-10"></TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {zReportHistory.map((zr) => (
+                      <TableRow key={zr.id} className="cursor-pointer" onClick={() => { setSelectedZReport(zr); setZDetailOpen(true); }}>
+                        <TableCell className="text-xs font-medium">#{zr.id}</TableCell>
+                        <TableCell className="text-xs">{zr.period_end ? new Date(zr.period_end).toLocaleString('fr-FR', { dateStyle: 'short', timeStyle: 'short' }) : '—'}</TableCell>
+                        <TableCell className="text-xs">{zr.total_sales || 0}</TableCell>
+                        <TableCell className="text-xs font-medium">{formatPrice(zr.total_revenue || 0)}</TableCell>
+                        <TableCell className="text-xs">{formatPrice(zr.cash_total || 0)}</TableCell>
+                        <TableCell className="text-xs">{formatPrice(zr.card_total || 0)}</TableCell>
+                        <TableCell className={`text-xs font-medium ${(zr.cash_difference || 0) === 0 ? 'text-green-600' : 'text-red-600'}`}>
+                          {(zr.cash_difference || 0) === 0 ? '—' : formatPrice(zr.cash_difference)}
+                        </TableCell>
+                        <TableCell>
+                          <Button variant="ghost" size="icon" className="h-6 w-6" onClick={(e) => { e.stopPropagation(); setSelectedZReport(zr); setZDetailOpen(true); }}>
+                            <Eye className="h-3.5 w-3.5" />
+                          </Button>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* Z Close Dialog */}
+        <Dialog open={zCloseDialogOpen} onOpenChange={setZCloseDialogOpen}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <Banknote className="h-5 w-5 text-amber-600" /> Clôturer la journée
+              </DialogTitle>
+              <DialogDescription>
+                Cette action génère le rapport Z, archive les données et ferme la caisse. Êtes-vous sûr ?
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-3">
+              <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl text-sm text-amber-800">
+                Le rapport Z récapitule toutes les ventes de la journée et ferme le shift en cours.
+              </div>
+              <div className="grid gap-1.5">
+                <Label className="text-xs">Montant de fermeture (espèces réelles)</Label>
+                <Input type="number" step="0.01" value={zCloseClosingAmount} onChange={(e) => setZCloseClosingAmount(e.target.value)} placeholder="0.00" />
+              </div>
+            </div>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setZCloseDialogOpen(false)}>Annuler</Button>
+              <Button className="bg-amber-600 hover:bg-amber-700" onClick={handleZClose}>
+                <Banknote className="h-4 w-4 mr-1.5" /> Confirmer la clôture
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        {/* Z Report Detail Dialog */}
+        <Dialog open={zDetailOpen} onOpenChange={setZDetailOpen}>
+          <DialogContent className="sm:max-w-lg max-h-[85vh] overflow-y-auto">
+            {selectedZReport && (
+              <>
+                <DialogHeader>
+                  <DialogTitle className="flex items-center gap-2">
+                    <Banknote className="h-5 w-5 text-primary" /> Rapport Z #{selectedZReport.id}
+                  </DialogTitle>
+                  <DialogDescription>
+                    {selectedZReport.period_end ? new Date(selectedZReport.period_end).toLocaleString('fr-FR') : ''}
+                  </DialogDescription>
+                </DialogHeader>
+                <div className="space-y-3">
+                  <div className="grid grid-cols-2 gap-3">
+                    {[
+                      ['Ventes totales', selectedZReport.total_sales || 0],
+                      ['Chiffre d\'affaires', formatPrice(selectedZReport.total_revenue || 0)],
+                      ['Sous-total HT', formatPrice(selectedZReport.subtotal || 0)],
+                      ['TVA totale', formatPrice(selectedZReport.tax_total || 0)],
+                      ['Réductions', formatPrice(selectedZReport.discount_total || 0)],
+                      ['Espèces', formatPrice(selectedZReport.cash_total || 0)],
+                      ['Carte', formatPrice(selectedZReport.card_total || 0)],
+                      ['Mobile', formatPrice(selectedZReport.mobile_total || 0)],
+                      ['Crédit', formatPrice(selectedZReport.credit_total || 0)],
+                      ['Écart caisse', formatPrice(selectedZReport.cash_difference || 0)],
+                    ].map(([label, val]) => (
+                      <div key={label} className="flex justify-between text-sm py-1 border-b last:border-0">
+                        <span className="text-muted-foreground">{label}</span>
+                        <span className="font-medium">{val}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+                <DialogFooter>
+                  <Button variant="outline" onClick={() => setZDetailOpen(false)}>Fermer</Button>
+                </DialogFooter>
+              </>
+            )}
+          </DialogContent>
+        </Dialog>
+      </div>
+    );
+  }
+
+  /* ═══════════════════ TRANSACTION DETAIL DIALOG ═══════════════════ */
+
+  function TransactionDetailDialog() {
+    if (!selectedTx) return null;
+    const receiptNo = selectedTx.receiptNumber || `RCP-${String(selectedTx.id).padStart(6, '0')}`;
+
+    return (
+      <Dialog open={txDetailOpen} onOpenChange={setTxDetailOpen}>
+        <DialogContent className="sm:max-w-2xl max-h-[85vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Receipt className="h-5 w-5 text-primary" />
+              {receiptNo}
+            </DialogTitle>
+            <DialogDescription>
+              {selectedTx.date} {selectedTx.time && `à ${selectedTx.time}`}
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-5">
+            {/* General info */}
+            <div className="grid grid-cols-2 gap-3">
+              {[
+                ['Reçu', receiptNo],
+                ['Date', selectedTx.date],
+                selectedTx.time && ['Heure', selectedTx.time],
+                ['Caissier', selectedTx.cashier || '—'],
+                ['Client', selectedTx.customer || '—'],
+                ['Paiement', selectedTx.paymentMethod || '—'],
+                selectedTx.tableNumber && ['Table', `#${selectedTx.tableNumber}`],
+              ].filter(Boolean).map(([label, val]) => (
+                <div key={label}>
+                  <p className="text-xs text-muted-foreground">{label}</p>
+                  <p className="text-sm font-medium">{val}</p>
+                </div>
+              ))}
+            </div>
+
+            {/* Items */}
+            <div>
+              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">Produits commandés</p>
+              <div className="border rounded-lg overflow-hidden">
+                <table className="w-full text-sm">
+                  <thead className="bg-muted/50">
+                    <tr>
+                      <th className="text-left px-3 py-2 font-medium">Produit</th>
+                      <th className="text-center px-3 py-2 font-medium">Qté</th>
+                      <th className="text-right px-3 py-2 font-medium">Prix</th>
+                      <th className="text-right px-3 py-2 font-medium">Total</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {selectedTx.items && selectedTx.items.length > 0 ? (
+                      selectedTx.items.map((item, i) => (
+                        <tr key={i} className="border-t">
+                          <td className="px-3 py-2 font-medium">{item.product_name || 'Produit'}</td>
+                          <td className="text-center px-3 py-2">{item.quantity}</td>
+                          <td className="text-right px-3 py-2">{formatPrice(item.price)}</td>
+                          <td className="text-right px-3 py-2 font-medium">{formatPrice((item.price || 0) * (item.quantity || 0))}</td>
+                        </tr>
+                      ))
+                    ) : (
+                      <tr><td colSpan={4} className="px-3 py-4 text-center text-muted-foreground text-xs">Détails non disponibles</td></tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            {/* Summary */}
+            <div className="bg-muted/50 rounded-xl p-4 space-y-2">
+              {selectedTx.subtotal != null && (
+                <div className="flex justify-between text-sm">
+                  <span className="text-muted-foreground">Sous-total</span>
+                  <span>{formatPrice(selectedTx.subtotal)}</span>
+                </div>
+              )}
+              {selectedTx.discount > 0 && (
+                <div className="flex justify-between text-sm text-amber-600">
+                  <span>Réduction</span>
+                  <span>-{formatPrice(selectedTx.discount)}</span>
+                </div>
+              )}
+              {selectedTx.tax > 0 && (
+                <div className="flex justify-between text-sm">
+                  <span className="text-muted-foreground">TVA</span>
+                  <span className="text-green-600">{formatPrice(selectedTx.tax)}</span>
+                </div>
+              )}
+              <div className="flex justify-between border-t pt-2">
+                <span className="font-bold">Total TTC</span>
+                <span className="font-bold text-lg" style={{ color: config.primaryColor }}>{formatPrice(selectedTx.total)}</span>
+              </div>
+            </div>
           </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setTxDetailOpen(false)}>
+              Fermer
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    );
+  }
+
+  /* ═══════════════════ MAIN RENDER ═══════════════════ */
+
+  return (
+    <div className="space-y-6 print:space-y-4">
+      {/* Header */}
+      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+        <div>
+          <h1 className="text-3xl font-bold print:text-2xl">Rapports</h1>
+          <p className="text-muted-foreground text-sm">
+            Analysez les performances de votre activité
+          </p>
         </div>
-      )}
-    </>
+        <div className="flex flex-wrap items-center gap-2 print:hidden">
+          <Button variant="outline" size="sm" onClick={exportCSV}>
+            <FileSpreadsheet className="mr-1.5 h-4 w-4" />
+            CSV
+          </Button>
+          <Button variant="outline" size="sm" onClick={printView}>
+            <Printer className="mr-1.5 h-4 w-4" />
+            Imprimer
+          </Button>
+          <Button variant="outline" size="sm" onClick={() => setShowBiExport(true)}>
+            <Download className="mr-1.5 h-4 w-4" />
+            Export BI
+          </Button>
+          <Button variant="ghost" size="icon" className="h-8 w-8" onClick={refreshCurrent} title="Rafraîchir">
+            <RefreshCw className="h-4 w-4" />
+          </Button>
+        </div>
+      </div>
+
+      {/* Period Selector */}
+      <div className="print:hidden">
+        <PeriodSelector />
+      </div>
+
+      {/* Tabs */}
+      <Tabs value={activeTab} onValueChange={setActiveTab}>
+        <TabsList className="print:hidden">
+          <TabsTrigger value="dashboard">
+            <BarChart3 className="h-4 w-4 mr-1.5" />
+            Tableau de Bord
+          </TabsTrigger>
+          <TabsTrigger value="analytics">
+            <Activity className="h-4 w-4 mr-1.5" />
+            Analyses
+          </TabsTrigger>
+          <TabsTrigger value="transactions">
+            <Receipt className="h-4 w-4 mr-1.5" />
+            Transactions
+          </TabsTrigger>
+          <TabsTrigger value="cash_shifts">
+            <Banknote className="h-4 w-4 mr-1.5" />
+            Caisses
+          </TabsTrigger>
+          <TabsTrigger value="xz_reports">
+            <FileSpreadsheet className="h-4 w-4 mr-1.5" />
+            Rapports X/Z
+          </TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="dashboard">
+          <DashboardTab />
+        </TabsContent>
+
+        <TabsContent value="analytics">
+          <AnalyticsTab />
+        </TabsContent>
+
+        <TabsContent value="transactions">
+          <TransactionsTab />
+        </TabsContent>
+
+        <TabsContent value="cash_shifts">
+          <CashShiftsTab />
+        </TabsContent>
+
+        <TabsContent value="xz_reports">
+          <XZReportsTab />
+        </TabsContent>
+      </Tabs>
+
+      {/* Modals */}
+      <TransactionDetailDialog />
+      <BiExportModal open={showBiExport} onOpenChange={setShowBiExport} />
+    </div>
   );
 }
-

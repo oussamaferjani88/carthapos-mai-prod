@@ -1,9 +1,9 @@
 import React, { useState, useRef } from 'react';
 import { DragDropProvider } from '../../../contexts/DragDropContext';
 
-// Import refactored components
 import CustomizerHeader from '../../customizer/CustomizerHeader';
 import CustomizerNavigation from '../../customizer/CustomizerNavigation';
+import BrandPanel from '../../customizer/BrandPanel';
 import ThemeSelector from '../../customizer/ThemeSelector';
 import ColorPaletteEditor from '../../customizer/ColorPaletteEditor';
 import TypographyEditor from '../../customizer/TypographyEditor';
@@ -14,21 +14,19 @@ import AdvancedSettings from '../../customizer/AdvancedSettings';
 import POSRealtimePreview from '../preview/POSRealtimePreview';
 import { getSelectedModuleDisplayNames } from '../../../utils/posPreviewUtils';
 
-// Import UI components
 import { Badge } from '../../ui/badge';
 import { Button } from '../../ui/button';
 import { Monitor, Smartphone, Tablet, MousePointer, Layers } from 'lucide-react';
 
-const POSCustomizer = ({ 
-  formData, 
-  setFormData, 
-  onSave, 
-  onCancel, 
-  onBack, 
+const POSCustomizer = ({
+  formData,
+  setFormData,
+  onSave,
+  onCancel,
+  onBack,
   mode = 'inline',
   modulesByCategory = {}
 }) => {
-  // State management
   const [selectedTab, setSelectedTab] = useState('design');
   const [selectedSubTab, setSelectedSubTab] = useState('themes');
   const [showAdvanced, setShowAdvanced] = useState(false);
@@ -38,10 +36,9 @@ const POSCustomizer = ({
   const [previewKey, setPreviewKey] = useState(0);
   const [lastSaved, setLastSaved] = useState(null);
   const [sidebarVisible, setSidebarVisible] = useState(true);
-  
+
   const fileInputRef = useRef(null);
 
-  // Handlers
   const resetToDefaults = () => {
     setFormData({
       ...formData,
@@ -77,7 +74,7 @@ const POSCustomizer = ({
             configuration: { ...formData.configuration, ...config }
           });
         } catch (error) {
-          console.error('Error parsing configuration file:', error);
+          // silent
         }
       };
       reader.readAsText(file);
@@ -96,9 +93,11 @@ const POSCustomizer = ({
     setSelectedComponent(componentName);
   };
 
-  // Content renderer
   const renderContent = () => {
     if (selectedTab === 'design') {
+      if (selectedSubTab === 'brand') {
+        return <BrandPanel formData={formData} setFormData={setFormData} />;
+      }
       if (selectedSubTab === 'themes') {
         return <ThemeSelector formData={formData} setFormData={setFormData} />;
       }
@@ -126,15 +125,13 @@ const POSCustomizer = ({
       return <AdvancedSettings formData={formData} setFormData={setFormData} />;
     }
 
-    // Default content when no specific content is available
     return (
       <div className="text-center py-8">
         <div className="bg-card border border-border rounded-lg p-6 text-muted-foreground">
           <Layers className="w-12 h-12 mx-auto mb-4 opacity-40" />
           <h3 className="text-lg font-medium mb-2 text-foreground">Commencez la personnalisation</h3>
           <p className="text-sm">
-            Utilisez les onglets ci-dessus pour personnaliser votre POS.<br />
-            Commencez par le <strong>Design</strong> pour choisir votre thème.
+            Utilisez les onglets ci-dessus pour personnaliser votre POS.
           </p>
         </div>
       </div>
@@ -143,11 +140,9 @@ const POSCustomizer = ({
 
   return (
     <DragDropProvider>
-      {/* Interface adaptée au mode (fullscreen ou inline) */}
       <div className={mode === 'full' ? "fixed inset-0 bg-background z-50 flex overflow-hidden" : "h-full flex overflow-hidden"}>
-        {/* Sidebar de personnalisation */}
         {sidebarVisible && (
-          <div className={`${mode === 'full' ? 'w-[26%]' : 'w-full'} bg-gray-50 dark:bg-gray-900 ${mode === 'full' ? 'border-r border-gray-200 dark:border-gray-700' : ''} flex flex-col overflow-hidden ${mode === 'full' ? 'shadow-lg' : ''}`}>
+          <div className={`${mode === 'full' ? 'w-[26%]' : 'w-full'} bg-gray-50 flex flex-col overflow-hidden ${mode === 'full' ? 'border-r border-gray-200 shadow-lg' : ''}`}>
             <CustomizerHeader
               mode={mode}
               onBack={onBack}
@@ -164,34 +159,26 @@ const POSCustomizer = ({
               onToggleSidebar={() => setSidebarVisible(false)}
             />
 
-          <CustomizerNavigation
-            selectedTab={selectedTab}
-            setSelectedTab={setSelectedTab}
-            selectedSubTab={selectedSubTab}
-            setSelectedSubTab={setSelectedSubTab}
-            mode={mode}
-          />
+            <div className="flex-1 flex overflow-hidden">
+              <CustomizerNavigation
+                selectedTab={selectedTab}
+                setSelectedTab={setSelectedTab}
+                selectedSubTab={selectedSubTab}
+                setSelectedSubTab={setSelectedSubTab}
+                mode={mode}
+              />
 
-          {/* Contenu principal */}
-          <div className={`flex-1 overflow-y-auto ${mode === 'full' ? 'px-3' : 'px-2'} ${mode === 'full' ? 'pb-3' : 'pb-2'} bg-transparent`}>
-            <div className={mode === 'full' ? 'py-1.5' : 'py-1'}>
-              {renderContent() || (
-                <div className="flex items-center justify-center h-64 text-muted-foreground">
-                  <div className={`text-center bg-white dark:bg-gray-800 ${mode === 'full' ? 'p-6' : 'p-3'} rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm`}>
-                    <Layers className={`${mode === 'full' ? 'w-8 h-8' : 'w-6 h-6'} mx-auto mb-2 opacity-50`} />
-                    <p className={mode === 'full' ? 'text-sm' : 'text-xs'}>Sélectionnez une option pour commencer</p>
-                  </div>
+              <div className={`flex-1 overflow-y-auto ${mode === 'full' ? 'px-3' : 'px-2'} ${mode === 'full' ? 'pb-3' : 'pb-2'} bg-transparent`}>
+                <div className={mode === 'full' ? 'py-1.5' : 'py-1'}>
+                  {renderContent()}
                 </div>
-              )}
+              </div>
             </div>
           </div>
-        </div>
         )}
 
-        {/* POS Preview - Seulement en mode full */}
         {mode === 'full' && (
           <div className="flex-1 bg-muted/20 flex flex-col overflow-hidden">
-            {/* Toggle button when sidebar is hidden */}
             {!sidebarVisible && (
               <div className="absolute top-4 left-4 z-50">
                 <Button
@@ -204,13 +191,12 @@ const POSCustomizer = ({
                 </Button>
               </div>
             )}
-            
-            {/* Header du preview */}
+
             <div className="border-b border-border p-2.5 bg-background/95 backdrop-blur-sm flex-shrink-0">
               <div className="flex items-center justify-between mb-1.5">
                 <h2 className="text-lg font-semibold flex items-center">
                   <Monitor className="w-5 h-5 mr-2" />
-                  Aperçu en temps réel de votre POS
+                  Aperçu en temps réel
                   {selectedComponent && (
                     <Badge variant="default" className="ml-3 text-xs">
                       <Layers className="w-3 h-3 mr-1" />
@@ -218,10 +204,8 @@ const POSCustomizer = ({
                     </Badge>
                   )}
                 </h2>
-                
-                {/* Contrôles de prévisualisation */}
+
                 <div className="flex items-center space-x-2">
-                  {/* Sélecteur de device */}
                   <div className="flex items-center bg-muted rounded-lg p-1">
                     <Button
                       variant={previewDevice === 'mobile' ? 'default' : 'ghost'}
@@ -249,7 +233,6 @@ const POSCustomizer = ({
                     </Button>
                   </div>
 
-                  {/* Mode drag & drop */}
                   <Button
                     variant={isDragMode ? 'default' : 'outline'}
                     size="sm"
@@ -260,17 +243,15 @@ const POSCustomizer = ({
                   </Button>
                 </div>
               </div>
-              
+
               <p className="text-sm text-muted-foreground">
                 Vos modifications sont appliquées instantanément
-                {isDragMode && " • Cliquez et glissez pour réorganiser les éléments"}
               </p>
             </div>
-            
-            {/* Zone de preview avec padding adaptatif */}
-            <div className="flex-1 relative overflow-hidden"> 
+
+            <div className="flex-1 relative overflow-hidden">
               <div className="absolute inset-0 p-3">
-                <div 
+                <div
                   className={`
                     w-full h-full bg-background rounded-xl border shadow-xl overflow-hidden transition-all duration-300
                     ${previewDevice === 'mobile' ? 'max-w-sm mx-auto' : ''}
@@ -279,14 +260,13 @@ const POSCustomizer = ({
                     hover:shadow-2xl
                   `}
                 >
-                  <POSRealtimePreview 
+                  <POSRealtimePreview
                     key={previewKey}
                     config={{
                       ...formData?.configuration,
                       dragMode: isDragMode,
                       selectedComponent: selectedComponent,
                       previewDevice: previewDevice,
-                      // fallback config
                       businessName: formData?.configuration?.businessName || 'Demo POS',
                       primaryColor: formData?.configuration?.primaryColor || '#3B82F6',
                       backgroundColor: formData?.configuration?.backgroundColor || '#FFFFFF',
@@ -298,7 +278,6 @@ const POSCustomizer = ({
                     isDragMode={isDragMode}
                     previewDevice={previewDevice}
                   />
-                 
                 </div>
               </div>
             </div>

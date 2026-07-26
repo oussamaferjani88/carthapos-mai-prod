@@ -393,6 +393,7 @@ const POSWithAuth = ({ config, children }) => {
             )}
           </CardContent>
         </Card>
+        </div>
 
         {/* Business Info Footer */}
         {(config?.businessInfo?.address || config?.businessInfo?.phone || config?.businessInfo?.email) && (

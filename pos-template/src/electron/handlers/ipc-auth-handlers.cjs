@@ -1,167 +1,21 @@
 /**
- * IPC Authentication Handlers
- * Handles all authentication-related IPC communication
+ * IPC Authentication Handlers (Unified — hardened)
+ * Single source of truth for all auth/user/audit/security IPC channels.
+ *
+ * Security rules:
+ * - Unprotected channels: needs-first-time-setup, needs-admin-password-reset,
+ *   create-admin-user (first-time only), authenticate-user, authenticate-by-pin,
+ *   get-active-users-for-login, get-recent-logins, logout, validate-user-exists,
+ *   validate-password, auth-session-set/clear
+ * - Admin-only channels: add-user, delete-user, update-user (own profile allowed),
+ *   set-user-modules, update-security-settings, update-admin-password
+ * - Manager+ channels: admin-reset-password, change-password (own password allowed),
+ *   set-user-pin (own PIN allowed)
  */
 
 const { ipcMain } = require('electron');
+const { activeSessions } = require('./ipc-session-store.cjs');
 
-class IPCAuthHandlers {
-  constructor(logger, dbManager, authManager) {
-    this.logger = logger;
-    this.dbManager = dbManager;
-    this.authManager = authManager;
-  }
-
-  /**
-   * Initialize managers if not already initialized
-   */
-  async initializeManagers() {
-    try {
-      if (!this.dbManager || !this.authManager) {
-        throw new Error('Managers not initialized');
-      }
-    } catch (error) {
-      this.logger.error('❌ Failed to initialize managers:', error);
-      throw error;
-    }
-  }
-
-  /**
-   * Register all authentication IPC handlers
-   */
-  registerHandlers() {
-    this.logger.info('📝 Registering authentication IPC handlers...');
-
-    // First-time setup check
-    ipcMain.handle('needs-first-time-setup', async () => {
-      try {
-        await this.initializeManagers();
-        return await this.authManager.needsFirstTimeSetup();
-      } catch (error) {
-        this.logger.error('❌ Error checking first-time setup:', error);
-        throw error;
-      }
-    });
-
-    // Check if admin password needs reset (demo password detected)
-    ipcMain.handle('needs-admin-password-reset', async () => {
-      try {
-        await this.initializeManagers();
-        return await this.authManager.needsAdminPasswordReset();
-      } catch (error) {
-        this.logger.error('❌ Error checking admin password reset need:', error);
-        return false;
-      }
-    });
-
-    // Create admin user
-    ipcMain.handle('create-admin-user', async (event, userData) => {
-      try {
-        await this.initializeManagers();
-        return await this.authManager.createAdminUser(userData);
-      } catch (error) {
-        this.logger.error('❌ Error creating admin user:', error);
-        throw error;
-      }
-    });
-
-    // Authenticate user
-    ipcMain.handle('authenticate-user', async (event, username, password) => {
-      try {
-        await this.initializeManagers();
-        return await this.authManager.authenticateUser(username, password);
-      } catch (error) {
-        this.logger.error('❌ Error authenticating user:', error);
-        throw error;
-      }
-    });
-
-    // Change password
-    ipcMain.handle('change-password', async (event, userId, oldPassword, newPassword) => {
-      try {
-        await this.initializeManagers();
-        return await this.authManager.changePassword(userId, oldPassword, newPassword);
-      } catch (error) {
-        this.logger.error('❌ Error changing password:', error);
-        throw error;
-      }
-    });
-
-    // Update admin password directly (used when default demo password detected)
-    ipcMain.handle('update-admin-password', async (event, newPassword) => {
-      try {
-        await this.initializeManagers();
-        return await this.authManager.updateAdminPassword(newPassword);
-      } catch (error) {
-        this.logger.error('❌ Error updating admin password:', error);
-        throw error;
-      }
-    });
-
-    // Create user
-    ipcMain.handle('create-user', async (event, userData, createdBy) => {
-      try {
-        await this.initializeManagers();
-        return await this.authManager.createUser(userData, createdBy);
-      } catch (error) {
-        this.logger.error('❌ Error creating user:', error);
-        throw error;
-      }
-    });
-
-    // Update user
-    ipcMain.handle('update-user', async (event, userId, userData, updatedBy) => {
-      try {
-        await this.initializeManagers();
-        return await this.authManager.updateUser(userId, userData, updatedBy);
-      } catch (error) {
-        this.logger.error('❌ Error updating user:', error);
-        throw error;
-      }
-    });
-
-    // Delete user
-    ipcMain.handle('delete-user', async (event, userId) => {
-      try {
-        await this.initializeManagers();
-        const deletedBy = 1; // TODO: Get from session
-        return await this.authManager.deleteUser(userId, deletedBy);
-      } catch (error) {
-        this.logger.error('❌ Error deleting user:', error);
-        throw error;
-      }
-    });
-
-    // Get users
-    ipcMain.handle('get-users', async () => {
-      try {
-        await this.initializeManagers();
-        return await this.dbManager.getData(
-          'SELECT id, username, full_name, email, role, badge_id, is_active, last_login FROM users WHERE is_active = 1'
-        );
-      } catch (error) {
-        this.logger.error('❌ Error getting users:', error);
-        throw error;
-      }
-    });
-
-    // Validate user exists (for localStorage validation)
-    ipcMain.handle('validate-user-exists', async (event, userId) => {
-      try {
-        await this.initializeManagers();
-        return await this.authManager.validateUserExists(userId);
-      } catch (error) {
-        this.logger.error('❌ Error validating user existence:', error);
-        return false;
-      }
-    });
-
-    this.logger.info('✅ Auth IPC handlers registered');
-  }
-}
-
-// Functional export expected by public/electron-modular.cjs
-// Uses managers from electron-modular.cjs when provided, otherwise creates its own.
 function registerAuthHandlers(ipcMainInstance, externalAuthManager, externalDatabaseManager) {
   const { LoggerService } = require('../services/LoggerService.cjs');
   const ElectronDatabaseManager = require('../ElectronDatabaseManager.cjs');
@@ -181,10 +35,51 @@ function registerAuthHandlers(ipcMainInstance, externalAuthManager, externalData
     }
   }
 
-  logger.info('📝 Registering authentication IPC handlers (function export)...');
+  function getCurrentUserId(event) {
+    const wcId = event.sender.id;
+    const session = activeSessions.get(wcId);
+    return session ? session.userId : null;
+  }
 
-  // First-time setup check
-  ipcMain.handle('needs-first-time-setup', async () => {
+  function getCurrentUserRole(event) {
+    const wcId = event.sender.id;
+    const session = activeSessions.get(wcId);
+    return session?.userData?.role || null;
+  }
+
+  function requireAdmin(event) {
+    const role = getCurrentUserRole(event);
+    if (!role || (role !== 'admin' && role !== 'manager')) {
+      throw new Error('Accès refusé: droits administrateur requis');
+    }
+  }
+
+  // ══════════════════════════════════════════════════════════════
+  // Session tracking
+  // ══════════════════════════════════════════════════════════════
+  ipcMainInstance.handle('auth-session-set', async (event, userId, userData) => {
+    activeSessions.set(event.sender.id, { userId, userData, loginAt: Date.now(), lastActivity: Date.now() });
+    return { success: true };
+  });
+
+  ipcMainInstance.handle('auth-session-clear', async (event) => {
+    activeSessions.delete(event.sender.id);
+    return { success: true };
+  });
+
+  ipcMainInstance.handle('auth-session-ping', async (event) => {
+    const session = activeSessions.get(event.sender.id);
+    if (session) {
+      session.lastActivity = Date.now();
+      return { success: true, sessionTimeout: (await authManager?.getSecuritySettings())?.session_timeout_minutes || 480 };
+    }
+    return { success: false };
+  });
+
+  // ══════════════════════════════════════════════════════════════
+  // First-time setup (unprotected — no session exists yet)
+  // ══════════════════════════════════════════════════════════════
+  ipcMainInstance.handle('needs-first-time-setup', async () => {
     try {
       await ensureManagers();
       return await authManager.needsFirstTimeSetup();
@@ -194,19 +89,33 @@ function registerAuthHandlers(ipcMainInstance, externalAuthManager, externalData
     }
   });
 
-  // Check if admin password needs reset (demo password detected)
-  ipcMain.handle('needs-admin-password-reset', async () => {
+  ipcMainInstance.handle('needs-admin-password-reset', async () => {
     try {
       await ensureManagers();
       return await authManager.needsAdminPasswordReset();
     } catch (error) {
-      logger.error('❌ Error checking admin password reset need:', error);
+      logger.error('❌ Error checking admin password reset:', error);
       return false;
     }
   });
 
-  // Create admin user
-  ipcMain.handle('create-admin-user', async (event, userData) => {
+  ipcMainInstance.handle('update-admin-password', async (event, newPassword) => {
+    try {
+      await ensureManagers();
+      // Only allow during first-time setup (no session) or if admin is logged in
+      const userId = getCurrentUserId(event);
+      const role = getCurrentUserRole(event);
+      if (userId && role !== 'admin') {
+        throw new Error('Accès refusé: seuls les administrateurs peuvent modifier le mot de passe admin');
+      }
+      return await authManager.updateAdminPassword(newPassword);
+    } catch (error) {
+      logger.error('❌ Error updating admin password:', error);
+      throw error;
+    }
+  });
+
+  ipcMainInstance.handle('create-admin-user', async (event, userData) => {
     try {
       await ensureManagers();
       return await authManager.createAdminUser(userData);
@@ -216,45 +125,78 @@ function registerAuthHandlers(ipcMainInstance, externalAuthManager, externalData
     }
   });
 
-  // Authenticate user
-  ipcMain.handle('authenticate-user', async (event, username, password) => {
+  // ══════════════════════════════════════════════════════════════
+  // Login Screen — Active Users & Recent Logins (unprotected)
+  // ══════════════════════════════════════════════════════════════
+  ipcMainInstance.handle('get-active-users-for-login', async () => {
     try {
       await ensureManagers();
-      return await authManager.authenticateUser(username, password);
+      return await authManager.getActiveUsersForLogin();
+    } catch (error) {
+      logger.error('❌ Error getting active users for login:', error);
+      return [];
+    }
+  });
+
+  ipcMainInstance.handle('get-recent-logins', async (event, limit) => {
+    try {
+      await ensureManagers();
+      return await authManager.getRecentLogins(limit || 5);
+    } catch (error) {
+      logger.error('❌ Error getting recent logins:', error);
+      return [];
+    }
+  });
+
+  // ══════════════════════════════════════════════════════════════
+  // Authentication (unprotected — these are the login entry points)
+  // ══════════════════════════════════════════════════════════════
+  ipcMainInstance.handle('authenticate-user', async (event, username, password) => {
+    try {
+      await ensureManagers();
+      const user = await authManager.authenticateUser(username, password);
+      activeSessions.set(event.sender.id, { userId: user.id, userData: user, loginAt: Date.now(), lastActivity: Date.now() });
+      return user;
     } catch (error) {
       logger.error('❌ Error authenticating user:', error);
       throw error;
     }
   });
 
-  // Change password
-  ipcMain.handle('change-password', async (event, userId, oldPassword, newPassword) => {
+  ipcMainInstance.handle('authenticate-by-pin', async (event, userId, pin) => {
     try {
       await ensureManagers();
-      return await authManager.changePassword(userId, oldPassword, newPassword);
+      const user = await authManager.authenticateByPin(userId, pin);
+      activeSessions.set(event.sender.id, { userId: user.id, userData: user, loginAt: Date.now(), lastActivity: Date.now() });
+      return user;
     } catch (error) {
-      logger.error('❌ Error changing password:', error);
+      logger.error('❌ Error authenticating by PIN:', error);
       throw error;
     }
   });
 
-  // Update admin password directly (used when default demo password detected)
-  ipcMain.handle('update-admin-password', async (event, newPassword) => {
+  ipcMainInstance.handle('logout', async (event, userId) => {
     try {
       await ensureManagers();
-      return await authManager.updateAdminPassword(newPassword);
+      await authManager.logout(userId);
+      activeSessions.delete(event.sender.id);
+      return { success: true };
     } catch (error) {
-      logger.error('❌ Error updating admin password:', error);
-      throw error;
+      logger.error('❌ Error logging out user:', error);
+      activeSessions.delete(event.sender.id);
+      return { success: false, error: error?.message || 'Logout failed' };
     }
   });
 
-  // Get users (basic list)
-  ipcMain.handle('get-users', async () => {
+  // ══════════════════════════════════════════════════════════════
+  // User CRUD (protected — admin/manager required)
+  // ══════════════════════════════════════════════════════════════
+  ipcMainInstance.handle('get-users', async (event) => {
     try {
       await ensureManagers();
       return await dbManager.getData(
-        'SELECT id, username, full_name, email, phone, role, badge_id, is_active, last_login FROM users WHERE is_active = 1'
+        `SELECT id, username, full_name, email, phone, role, badge_id, is_active, is_server, avatar_url, use_pin, last_login, created_at, updated_at
+         FROM users WHERE is_active = 1 ORDER BY created_at DESC`
       );
     } catch (error) {
       logger.error('❌ Error getting users:', error);
@@ -262,50 +204,33 @@ function registerAuthHandlers(ipcMainInstance, externalAuthManager, externalData
     }
   });
 
-  // Validate user exists (for localStorage validation)
-  ipcMain.handle('validate-user-exists', async (event, userId) => {
+  ipcMainInstance.handle('get-all-users', async (event) => {
     try {
       await ensureManagers();
-      return await authManager.validateUserExists(userId);
+      requireAdmin(event);
+      return await dbManager.getData(
+        `SELECT id, username, full_name, email, phone, role, badge_id, is_active, is_server, avatar_url, use_pin, last_login, created_at, updated_at
+         FROM users ORDER BY created_at DESC`
+      );
     } catch (error) {
-      logger.error('❌ Error validating user existence:', error);
-      return false;
+      logger.error('❌ Error getting all users:', error);
+      throw error;
     }
   });
 
-  // Logout handler
-  ipcMain.handle('logout', async (event, userId) => {
+  ipcMainInstance.handle('add-user', async (event, userData) => {
     try {
       await ensureManagers();
-      await authManager.logout(userId);
-      return { success: true };
+      requireAdmin(event);
+      const createdBy = getCurrentUserId(event) || 1;
+      return await authManager.createUser(userData, createdBy);
     } catch (error) {
-      logger.error('❌ Error logging out user:', error);
-      return { success: false, error: error?.message || 'Logout failed' };
-    }
-  });
-
-  // Add user (called from renderer via electronAPI.addUser)
-  ipcMain.handle('add-user', async (event, userData) => {
-    try {
-      await ensureManagers();
-      logger.info('📝 IPC add-user called with:', JSON.stringify(userData));
-      const createdBy = 1; // Default admin
-      const result = await authManager.createUser(userData, createdBy);
-      logger.info('✅ IPC add-user success:', JSON.stringify(result));
-      return result;
-    } catch (error) {
-      // If UNIQUE constraint failed on username, try reactivating a soft-deleted user
       if (error.message && error.message.includes('UNIQUE constraint failed: users.username')) {
-        logger.warn('⚠️ Username already exists, trying to reactivate soft-deleted user:', userData.username);
+        logger.warn('⚠️ Username exists, attempting reactivation:', userData.username);
         try {
-          const result = await authManager.reactivateUser(userData);
-          if (result) {
-            logger.info('✅ Reactivated soft-deleted user:', userData.username);
-            return result;
-          }
+          return await authManager.reactivateUser(userData);
         } catch (reactivateError) {
-          logger.error('❌ Also failed to reactivate user:', reactivateError);
+          logger.error('❌ Reactivation also failed:', reactivateError);
         }
       }
       logger.error('❌ IPC add-user error:', error);
@@ -313,20 +238,17 @@ function registerAuthHandlers(ipcMainInstance, externalAuthManager, externalData
     }
   });
 
-  // Update user (called from renderer via electronAPI.updateUser)
-  ipcMain.handle('update-user', async (event, userId, userData) => {
+  ipcMainInstance.handle('update-user', async (event, userId, userData) => {
     try {
       await ensureManagers();
-      logger.info('📝 IPC update-user called for id:', userId, 'data:', JSON.stringify(userData));
-      const updatedBy = 1; // Default admin
-      await authManager.updateUser(userId, {
-        full_name: userData.username,
-        email: userData.email,
-        phone: userData.phone,
-        role: userData.role,
-        is_active: userData.status === 'active' ? 1 : 0
-      }, updatedBy);
-      logger.info('✅ IPC update-user success for id:', userId);
+      const currentUserId = getCurrentUserId(event);
+      const role = getCurrentUserRole(event);
+      // Users can update their own profile; admin/manager can update anyone
+      if (currentUserId !== userId && role !== 'admin' && role !== 'manager') {
+        throw new Error('Accès refusé: vous ne pouvez modifier que votre propre profil');
+      }
+      const updatedBy = currentUserId || 1;
+      await authManager.updateUser(userId, userData, updatedBy);
       return { success: true };
     } catch (error) {
       logger.error('❌ IPC update-user error:', error);
@@ -334,14 +256,12 @@ function registerAuthHandlers(ipcMainInstance, externalAuthManager, externalData
     }
   });
 
-  // Delete user (called from renderer via electronAPI.deleteUser)
-  ipcMain.handle('delete-user', async (event, userId) => {
+  ipcMainInstance.handle('delete-user', async (event, userId) => {
     try {
       await ensureManagers();
-      logger.info('📝 IPC delete-user called for id:', userId);
-      const deletedBy = 1; // Default admin
+      requireAdmin(event);
+      const deletedBy = getCurrentUserId(event) || 1;
       await authManager.deleteUser(userId, deletedBy);
-      logger.info('✅ IPC delete-user success for id:', userId);
       return { success: true };
     } catch (error) {
       logger.error('❌ IPC delete-user error:', error);
@@ -349,11 +269,213 @@ function registerAuthHandlers(ipcMainInstance, externalAuthManager, externalData
     }
   });
 
-  // Cash drawer: log event
-  ipcMain.handle('log-cash-drawer-event', async (event, drawerEvent) => {
+  ipcMainInstance.handle('validate-user-exists', async (event, userId) => {
     try {
       await ensureManagers();
-      logger.info('💰 IPC log-cash-drawer-event:', drawerEvent?.action);
+      return await authManager.validateUserExists(userId);
+    } catch (error) {
+      return false;
+    }
+  });
+
+  // ══════════════════════════════════════════════════════════════
+  // Password Management (protected)
+  // ══════════════════════════════════════════════════════════════
+  ipcMainInstance.handle('change-password', async (event, userId, oldPassword, newPassword) => {
+    try {
+      await ensureManagers();
+      const currentUserId = getCurrentUserId(event);
+      const role = getCurrentUserRole(event);
+      // Users can change their own password; admin/manager can change anyone's
+      if (currentUserId !== userId && role !== 'admin' && role !== 'manager') {
+        throw new Error('Accès refusé: vous ne pouvez modifier que votre propre mot de passe');
+      }
+      return await authManager.changePassword(userId, oldPassword, newPassword);
+    } catch (error) {
+      logger.error('❌ Error changing password:', error);
+      throw error;
+    }
+  });
+
+  ipcMainInstance.handle('admin-reset-password', async (event, userId, newPassword) => {
+    try {
+      await ensureManagers();
+      requireAdmin(event);
+      return await authManager.adminResetPassword(userId, newPassword);
+    } catch (error) {
+      logger.error('❌ Error resetting password:', error);
+      throw error;
+    }
+  });
+
+  ipcMainInstance.handle('validate-password', async (event, password) => {
+    try {
+      await ensureManagers();
+      return await authManager.validatePassword(password);
+    } catch (error) {
+      return { valid: false, errors: [error.message] };
+    }
+  });
+
+  ipcMainInstance.handle('validate-password-detailed', async (event, password) => {
+    try {
+      await ensureManagers();
+      return await authManager.validatePasswordDetailed(password);
+    } catch (error) {
+      return { valid: false, errors: [error.message], checks: {} };
+    }
+  });
+
+  // ══════════════════════════════════════════════════════════════
+  // PIN Management (protected)
+  // ══════════════════════════════════════════════════════════════
+  ipcMainInstance.handle('set-user-pin', async (event, userId, pin, usePin) => {
+    try {
+      await ensureManagers();
+      const currentUserId = getCurrentUserId(event);
+      const role = getCurrentUserRole(event);
+      // Users can set their own PIN; admin/manager can set anyone's
+      if (currentUserId !== userId && role !== 'admin' && role !== 'manager') {
+        throw new Error('Accès refusé: vous ne pouvez modifier que votre propre PIN');
+      }
+      return await authManager.setUserPin(userId, pin, usePin);
+    } catch (error) {
+      logger.error('❌ Error setting user PIN:', error);
+      throw error;
+    }
+  });
+
+  // ══════════════════════════════════════════════════════════════
+  // Avatar Management
+  // ══════════════════════════════════════════════════════════════
+  ipcMainInstance.handle('update-user-avatar', async (event, userId, avatarUrl) => {
+    try {
+      await ensureManagers();
+      const currentUserId = getCurrentUserId(event);
+      const role = getCurrentUserRole(event);
+      if (currentUserId !== userId && role !== 'admin' && role !== 'manager') {
+        throw new Error('Accès refusé');
+      }
+      return await authManager.updateUserAvatar(userId, avatarUrl);
+    } catch (error) {
+      logger.error('❌ Error updating user avatar:', error);
+      throw error;
+    }
+  });
+
+  // ══════════════════════════════════════════════════════════════
+  // Module permissions (protected)
+  // ══════════════════════════════════════════════════════════════
+  ipcMainInstance.handle('get-user-modules', async (event, userId) => {
+    try {
+      await ensureManagers();
+      return await authManager.getUserModules(userId);
+    } catch (error) {
+      logger.error('❌ IPC get-user-modules error:', error);
+      return [];
+    }
+  });
+
+  ipcMainInstance.handle('set-user-modules', async (event, userId, modules) => {
+    try {
+      await ensureManagers();
+      requireAdmin(event);
+      const grantedBy = getCurrentUserId(event) || 1;
+      await authManager.setUserModules(userId, modules, grantedBy);
+      return { success: true };
+    } catch (error) {
+      logger.error('❌ IPC set-user-modules error:', error);
+      throw error;
+    }
+  });
+
+  ipcMainInstance.handle('check-user-permission', async (event, userId, moduleName, action) => {
+    try {
+      await ensureManagers();
+      return await authManager.checkUserPermission(userId, moduleName, action);
+    } catch (error) {
+      return false;
+    }
+  });
+
+  // ══════════════════════════════════════════════════════════════
+  // Security settings (admin/manager only)
+  // ══════════════════════════════════════════════════════════════
+  ipcMainInstance.handle('get-security-settings', async () => {
+    try {
+      await ensureManagers();
+      return await authManager.getSecuritySettings();
+    } catch (error) {
+      logger.error('❌ IPC get-security-settings error:', error);
+      return { max_login_attempts: 5, lockout_duration_minutes: 15, session_timeout_minutes: 480, password_min_length: 6, password_require_uppercase: 0, password_require_numbers: 0, password_require_special: 0 };
+    }
+  });
+
+  ipcMainInstance.handle('update-security-settings', async (event, settings) => {
+    try {
+      await ensureManagers();
+      requireAdmin(event);
+
+      const allowed = ['max_login_attempts', 'lockout_duration_minutes', 'session_timeout_minutes',
+        'password_min_length', 'password_require_uppercase', 'password_require_numbers', 'password_require_special'];
+      const sanitized = {};
+      for (const k of allowed) {
+        if (settings[k] !== undefined) sanitized[k] = settings[k];
+      }
+
+      await authManager.updateSecuritySettings(sanitized);
+      return { success: true };
+    } catch (error) {
+      logger.error('❌ IPC update-security-settings error:', error);
+      throw error;
+    }
+  });
+
+  // ══════════════════════════════════════════════════════════════
+  // Audit logs (admin/manager only for viewing)
+  // ══════════════════════════════════════════════════════════════
+  ipcMainInstance.handle('get-audit-logs', async (event, filters) => {
+    try {
+      await ensureManagers();
+      requireAdmin(event);
+      return await authManager.getAuditLogs(filters || {});
+    } catch (error) {
+      logger.error('❌ IPC get-audit-logs error:', error);
+      return [];
+    }
+  });
+
+  // ══════════════════════════════════════════════════════════════
+  // Log audit event (any authenticated user can log)
+  // ══════════════════════════════════════════════════════════════
+  ipcMainInstance.handle('log-audit-event', async (event, auditEvent) => {
+    try {
+      const userId = getCurrentUserId(event);
+      if (!userId) throw new Error('Non authentifié');
+      await ensureManagers();
+      await authManager.logAuditEvent({
+        user_id: auditEvent.user_id || userId,
+        user_name: auditEvent.user_name || 'Unknown',
+        action_type: auditEvent.action_type,
+        entity_type: auditEvent.entity_type || null,
+        entity_id: auditEvent.entity_id || null,
+        old_value: auditEvent.old_value || null,
+        new_value: auditEvent.new_value || null,
+        notes: auditEvent.notes || null,
+      });
+      return { success: true };
+    } catch (error) {
+      logger.error('❌ IPC log-audit-event error:', error);
+      return { success: false, error: error.message };
+    }
+  });
+
+  // ══════════════════════════════════════════════════════════════
+  // Cash drawer (any authenticated user)
+  // ══════════════════════════════════════════════════════════════
+  ipcMainInstance.handle('log-cash-drawer-event', async (event, drawerEvent) => {
+    try {
+      await ensureManagers();
       await authManager.logCashDrawerEvent(drawerEvent);
       return { success: true };
     } catch (error) {
@@ -362,8 +484,7 @@ function registerAuthHandlers(ipcMainInstance, externalAuthManager, externalData
     }
   });
 
-  // Cash drawer: get history
-  ipcMain.handle('get-cash-drawer-history', async (event, filters) => {
+  ipcMainInstance.handle('get-cash-drawer-history', async (event, filters) => {
     try {
       await ensureManagers();
       return await authManager.getCashDrawerHistory(filters || {});
@@ -373,12 +494,25 @@ function registerAuthHandlers(ipcMainInstance, externalAuthManager, externalData
     }
   });
 
-  logger.info('✅ Auth IPC handlers registered (function export)');
+  // ══════════════════════════════════════════════════════════════
+  // User sessions (admin/manager, or own sessions)
+  // ══════════════════════════════════════════════════════════════
+  ipcMainInstance.handle('get-user-sessions', async (event, userId) => {
+    try {
+      await ensureManagers();
+      const currentUserId = getCurrentUserId(event);
+      const role = getCurrentUserRole(event);
+      if (currentUserId !== userId && role !== 'admin' && role !== 'manager') {
+        throw new Error('Accès refusé');
+      }
+      return await authManager.getUserSessions(userId);
+    } catch (error) {
+      logger.error('❌ IPC get-user-sessions error:', error);
+      return [];
+    }
+  });
+
+  logger.info('✅ Auth IPC handlers registered (unified, hardened)');
 }
 
-module.exports = {
-  // Class export (legacy/internals)
-  default: IPCAuthHandlers,
-  // Named function export used by electron-modular.cjs
-  registerAuthHandlers
-};
+module.exports = { registerAuthHandlers };

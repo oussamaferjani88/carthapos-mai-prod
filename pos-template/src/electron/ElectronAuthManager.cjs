@@ -166,7 +166,7 @@ class ElectronAuthManager {
         [
           userData.username || 'admin',
           passwordHash,
-          userData.full_name || 'Administrateur',
+          userData.fullName || userData.full_name || 'Administrateur',
           'admin',
           1,
           new Date().toISOString(),
@@ -177,7 +177,7 @@ class ElectronAuthManager {
       const user = {
         id: result.lastID,
         username: userData.username || 'admin',
-        full_name: userData.full_name || 'Administrateur',
+        full_name: userData.fullName || userData.full_name || 'Administrateur',
         role: 'admin',
         permissions: ['all']
       };
@@ -191,58 +191,243 @@ class ElectronAuthManager {
   }
 
   /**
-   * Authenticate user with username and password
-   * @param {string} username - Username
-   * @param {string} password - Plain text password
-   * @returns {Promise<Object>} Authenticated user data
+   * Get security settings
+   * @returns {Promise<Object>}
+   */
+  async getSecuritySettings() {
+    try {
+      const settings = await this.db.getRow('SELECT * FROM security_settings WHERE id = 1');
+      return settings || { max_login_attempts: 5, lockout_duration_minutes: 15, session_timeout_minutes: 480, password_min_length: 6, password_require_uppercase: 0, password_require_numbers: 0, password_require_special: 0 };
+    } catch (error) {
+      return { max_login_attempts: 5, lockout_duration_minutes: 15, session_timeout_minutes: 480, password_min_length: 6, password_require_uppercase: 0, password_require_numbers: 0, password_require_special: 0 };
+    }
+  }
+
+  /**
+   * Update security settings
+   * @param {Object} settings
+   */
+  async updateSecuritySettings(settings) {
+    try {
+      await this.db.runQuery(
+        `UPDATE security_settings SET max_login_attempts = ?, lockout_duration_minutes = ?,
+         session_timeout_minutes = ?, password_min_length = ?, password_require_uppercase = ?,
+         password_require_numbers = ?, password_require_special = ?, updated_at = ? WHERE id = 1`,
+        [settings.max_login_attempts || 5, settings.lockout_duration_minutes || 15,
+         settings.session_timeout_minutes || 480, settings.password_min_length || 6,
+         settings.password_require_uppercase ? 1 : 0, settings.password_require_numbers ? 1 : 0,
+         settings.password_require_special ? 1 : 0, new Date().toISOString()]
+      );
+      return true;
+    } catch (error) {
+      console.error('❌ Error updating security settings:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Validate password against security settings
+   * @param {string} password
+   * @returns {Promise<{valid: boolean, errors: string[]}>}
+   */
+  async validatePassword(password) {
+    const settings = await this.getSecuritySettings();
+    const errors = [];
+    if (!password || password.length < (settings.password_min_length || 6)) {
+      errors.push(`Le mot de passe doit contenir au moins ${settings.password_min_length || 6} caractères`);
+    }
+    if (settings.password_require_uppercase && !/[A-Z]/.test(password)) {
+      errors.push('Le mot de passe doit contenir au moins une majuscule');
+    }
+    if (settings.password_require_numbers && !/[0-9]/.test(password)) {
+      errors.push('Le mot de passe doit contenir au moins un chiffre');
+    }
+    if (settings.password_require_special && !/[!@#$%^&*(),.?":{}|<>]/.test(password)) {
+      errors.push('Le mot de passe doit contenir au moins un caractère spécial');
+    }
+    return { valid: errors.length === 0, errors };
+  }
+
+  /**
+   * Validate user input fields
+   * @param {Object} userData
+   * @param {boolean} isEdit
+   * @returns {{valid: boolean, errors: string[]}}
+   */
+  validateUserInput(userData, isEdit = false) {
+    const errors = [];
+    if (!isEdit) {
+      if (!userData.username || userData.username.trim().length < 2) {
+        errors.push("Le nom d'utilisateur doit contenir au moins 2 caractères");
+      }
+      if (userData.username && /[^a-zA-Z0-9._\-]/.test(userData.username)) {
+        errors.push("Le nom d'utilisateur ne peut contenir que des lettres, chiffres, points, tirets");
+      }
+      if (!userData.password || userData.password.length < 6) {
+        errors.push('Le mot de passe doit contenir au moins 6 caractères');
+      }
+    }
+    if (userData.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(userData.email)) {
+      errors.push("Format d'email invalide");
+    }
+    if (userData.phone && !/^[\d\s\+\-\(\)]{6,}$/.test(userData.phone)) {
+      errors.push("Format de téléphone invalide");
+    }
+    if (userData.role && !['admin', 'cashier', 'manager', 'server'].includes(userData.role)) {
+      errors.push('Rôle invalide');
+    }
+    return { valid: errors.length === 0, errors };
+  }
+
+  /**
+   * Count active admin users
+   * @returns {Promise<number>}
+   */
+  async countActiveAdmins() {
+    const result = await this.db.getRow('SELECT COUNT(*) as count FROM users WHERE role = ? AND is_active = 1', ['admin']);
+    return result ? result.count : 0;
+  }
+
+  /**
+   * Authenticate user with brute-force protection
+   * @param {string} username
+   * @param {string} password
+   * @returns {Promise<Object>}
    */
   async authenticateUser(username, password) {
     try {
-      console.log('🔐 Authenticating user:', username);
+      const user = await this.db.getRow('SELECT * FROM users WHERE username = ?', [username]);
 
-      // Get user from database
-      const user = await this.db.getRow(
-        'SELECT * FROM users WHERE username = ? AND is_active = 1',
-        [username]
-      );
+      // Generic error — never reveal whether username exists or password is wrong
+      const AUTH_ERROR = 'Échec de l\'authentification. Vérifiez vos identifiants.';
 
       if (!user) {
-        throw new Error('Utilisateur non trouvé ou inactif');
+        // Still run bcrypt to prevent timing attacks
+        await bcrypt.hash('dummy', SALT_ROUNDS);
+        throw new Error(AUTH_ERROR);
       }
 
-      // Verify password
+      if (!user.is_active) {
+        throw new Error('Compte désactivé. Contactez un administrateur.');
+      }
+
+      const settings = await this.getSecuritySettings();
+      const maxAttempts = settings.max_login_attempts || 5;
+      const lockoutMinutes = settings.lockout_duration_minutes || 15;
+
+      // Check lockout
+      if (user.locked_until) {
+        const lockExpiry = new Date(user.locked_until);
+        if (lockExpiry > new Date()) {
+          const remaining = Math.ceil((lockExpiry - new Date()) / 60000);
+          throw new Error(`Compte verrouillé. Réessayez dans ${remaining} minute(s).`);
+        }
+        // Lock expired, reset (atomic)
+        await this.db.runQuery('UPDATE users SET login_attempts = 0, locked_until = NULL WHERE id = ?', [user.id]);
+        user.login_attempts = 0;
+      }
+
       const isValid = await bcrypt.compare(password, user.password_hash);
       if (!isValid) {
-        throw new Error('Mot de passe incorrect');
+        // Atomic increment of login attempts
+        const newAttempts = (user.login_attempts || 0) + 1;
+        if (newAttempts >= maxAttempts) {
+          const lockUntil = new Date(Date.now() + lockoutMinutes * 60000).toISOString();
+          await this.db.runQuery(
+            'UPDATE users SET login_attempts = ?, locked_until = ? WHERE id = ?',
+            [newAttempts, lockUntil, user.id]
+          );
+          await this.logAuditEvent({ user_id: user.id, user_name: username, action_type: 'ACCOUNT_LOCKED', entity_type: 'user', entity_id: user.id, notes: `Compte verrouillé après ${newAttempts} tentatives échouées` });
+          throw new Error(`Compte verrouillé après ${maxAttempts} tentatives. Réessayez dans ${lockoutMinutes} minutes.`);
+        }
+        await this.db.runQuery('UPDATE users SET login_attempts = ? WHERE id = ?', [newAttempts, user.id]);
+        await this.logAuditEvent({ user_id: user.id, user_name: username, action_type: 'LOGIN_FAILED', entity_type: 'user', entity_id: user.id, notes: `Tentative de connexion échouée (${newAttempts}/${maxAttempts})` });
+        throw new Error(AUTH_ERROR);
       }
 
-      // Update last login
+      // Success — reset attempts
       await this.db.runQuery(
-        'UPDATE users SET last_login = ?, updated_at = ? WHERE id = ?',
+        'UPDATE users SET login_attempts = 0, locked_until = NULL, last_login = ?, updated_at = ? WHERE id = ?',
         [new Date().toISOString(), new Date().toISOString(), user.id]
       );
 
-      // Create session
-      await this.db.runQuery(
-        'INSERT INTO user_sessions (user_id, login_time) VALUES (?, ?)',
-        [user.id, new Date().toISOString()]
-      );
+      await this.db.runQuery('INSERT INTO user_sessions (user_id, login_time) VALUES (?, ?)', [user.id, new Date().toISOString()]);
 
-      // Get user permissions
+      // Track recent login
+      try {
+        await this.db.runQuery('INSERT INTO recent_logins (user_id, login_at) VALUES (?, ?)', [user.id, new Date().toISOString()]);
+        // Keep only last 10 per user
+        await this.db.runQuery(
+          'DELETE FROM recent_logins WHERE user_id = ? AND id NOT IN (SELECT id FROM recent_logins WHERE user_id = ? ORDER BY login_at DESC LIMIT 10)',
+          [user.id, user.id]
+        );
+      } catch (e) { /* non-critical */ }
+
       const permissions = await this.getUserPermissions(user.id, user.role);
 
-      console.log('✅ User authenticated successfully');
+      await this.logAuditEvent({ user_id: user.id, user_name: username, action_type: 'LOGIN_SUCCESS', entity_type: 'user', entity_id: user.id, notes: 'Connexion réussie' });
+
       return {
-        id: user.id,
-        username: user.username,
-        full_name: user.full_name,
-        email: user.email,
-        role: user.role,
-        badge_id: user.badge_id,
-        permissions: permissions
+        id: user.id, username: user.username, full_name: user.full_name, email: user.email,
+        phone: user.phone, role: user.role, badge_id: user.badge_id, is_server: !!user.is_server,
+        avatar_url: user.avatar_url || null, use_pin: !!user.use_pin, permissions
       };
     } catch (error) {
-      console.error('❌ Authentication error:', error);
+      console.error('❌ Authentication error:', error.message);
+      throw error;
+    }
+  }
+
+  /**
+   * Change user password (requires old password)
+   * @param {number} userId
+   * @param {string} oldPassword
+   * @param {string} newPassword
+   */
+  async changePassword(userId, oldPassword, newPassword) {
+    try {
+      const user = await this.db.getRow('SELECT * FROM users WHERE id = ?', [userId]);
+      if (!user) throw new Error('Utilisateur non trouvé');
+
+      const isValid = await bcrypt.compare(oldPassword, user.password_hash);
+      if (!isValid) throw new Error('Mot de passe actuel incorrect');
+
+      const pwValidation = await this.validatePassword(newPassword);
+      if (!pwValidation.valid) throw new Error(pwValidation.errors[0]);
+
+      const passwordHash = await bcrypt.hash(newPassword, SALT_ROUNDS);
+      await this.db.runQuery('UPDATE users SET password_hash = ?, updated_at = ? WHERE id = ?', [passwordHash, new Date().toISOString(), userId]);
+
+      await this.logAuditEvent({ user_id: userId, user_name: user.username, action_type: 'PASSWORD_CHANGE', entity_type: 'user', entity_id: userId, notes: 'Mot de passe modifié' });
+
+      return true;
+    } catch (error) {
+      console.error('❌ Error changing password:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Admin reset user password (no old password required)
+   * @param {number} userId
+   * @param {string} newPassword
+   */
+  async adminResetPassword(userId, newPassword) {
+    try {
+      const user = await this.db.getRow('SELECT * FROM users WHERE id = ?', [userId]);
+      if (!user) throw new Error('Utilisateur non trouvé');
+
+      const pwValidation = await this.validatePassword(newPassword);
+      if (!pwValidation.valid) throw new Error(pwValidation.errors[0]);
+
+      const passwordHash = await bcrypt.hash(newPassword, SALT_ROUNDS);
+      await this.db.runQuery('UPDATE users SET password_hash = ?, login_attempts = 0, locked_until = NULL, updated_at = ? WHERE id = ?', [passwordHash, new Date().toISOString(), userId]);
+
+      await this.logAuditEvent({ user_id: userId, user_name: user.username, action_type: 'PASSWORD_RESET', entity_type: 'user', entity_id: userId, notes: 'Mot de passe réinitialisé par admin' });
+
+      return true;
+    } catch (error) {
+      console.error('❌ Error resetting password:', error);
       throw error;
     }
   }
@@ -576,47 +761,50 @@ class ElectronAuthManager {
    */
   async createUser(userData, createdBy) {
     try {
-      // Hash password
+      // Input validation
+      const validation = this.validateUserInput(userData, false);
+      if (!validation.valid) throw new Error(validation.errors[0]);
+
+      if (userData.password) {
+        const pwCheck = await this.validatePassword(userData.password);
+        if (!pwCheck.valid) throw new Error(pwCheck.errors[0]);
+      }
+
+      // Check username uniqueness
+      const existingUsername = await this.db.getRow('SELECT id FROM users WHERE username = ?', [userData.username]);
+      if (existingUsername) throw new Error("Ce nom d'utilisateur existe déjà");
+
+      // Check email uniqueness
+      if (userData.email) {
+        const existingEmail = await this.db.getRow('SELECT id FROM users WHERE email = ?', [userData.email]);
+        if (existingEmail) throw new Error("Cet email est déjà utilisé");
+      }
+
+      // Check badge_id uniqueness
+      if (userData.badge_id) {
+        const existingBadge = await this.db.getRow('SELECT id FROM users WHERE badge_id = ?', [userData.badge_id]);
+        if (existingBadge) throw new Error("Ce numéro de badge est déjà utilisé");
+      }
+
+      // Get creator username for audit
+      const creator = await this.db.getRow('SELECT username FROM users WHERE id = ?', [createdBy]);
+      const creatorName = creator ? creator.username : 'system';
+
       const passwordHash = await bcrypt.hash(userData.password, SALT_ROUNDS);
 
-      // Insert user
       const result = await this.db.runQuery(
-        `INSERT INTO users 
-         (username, password_hash, full_name, email, phone, role, badge_id, pin, is_active, created_by, created_at, updated_at) 
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [
-          userData.username,
-          passwordHash,
-          userData.full_name || null,
-          userData.email || null,
-          userData.phone || null,
-          userData.role || 'cashier',
-          userData.badge_id || null,
-          userData.pin || null,
-          userData.is_active !== undefined ? userData.is_active : 1,
-          createdBy,
-          new Date().toISOString(),
-          new Date().toISOString()
-        ]
+        `INSERT INTO users (username, password_hash, full_name, email, phone, role, badge_id, pin, is_active, is_server, created_by, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [userData.username, passwordHash, userData.full_name || null, userData.email || null, userData.phone || null, userData.role || 'cashier', userData.badge_id || null, userData.pin || null, userData.is_active !== undefined ? (userData.is_active ? 1 : 0) : 1, userData.is_server ? 1 : 0, createdBy, new Date().toISOString(), new Date().toISOString()]
       );
 
-      // Log audit event
       await this.logAuditEvent({
-        user_id: createdBy,
-        user_name: 'admin',
-        action_type: 'USER_CREATE',
-        entity_type: 'user',
-        entity_id: result.lastID,
-        new_value: { username: userData.username, role: userData.role },
-        notes: `User ${userData.username} created`
+        user_id: createdBy, user_name: creatorName, action_type: 'USER_CREATE',
+        entity_type: 'user', entity_id: result.lastID,
+        new_value: { username: userData.username, role: userData.role, full_name: userData.full_name },
+        notes: `Utilisateur ${userData.username} créé`
       });
 
-      console.log('✅ User created successfully');
-      return {
-        id: result.lastID,
-        username: userData.username,
-        role: userData.role
-      };
+      return { id: result.lastID, username: userData.username, role: userData.role };
     } catch (error) {
       console.error('❌ Error creating user:', error);
       throw error;
@@ -631,76 +819,71 @@ class ElectronAuthManager {
    */
   async updateUser(userId, userData, updatedBy) {
     try {
-      // Get old user data for audit
       const oldUser = await this.db.getRow('SELECT * FROM users WHERE id = ?', [userId]);
+      if (!oldUser) throw new Error('Utilisateur non trouvé');
+
+      // Input validation (skip username/password for edits)
+      const validation = this.validateUserInput(userData, true);
+      if (!validation.valid) throw new Error(validation.errors[0]);
+
+      // Prevent deactivating last admin
+      if (userData.is_active === false && oldUser.role === 'admin') {
+        const adminCount = await this.countActiveAdmins();
+        if (adminCount <= 1) throw new Error("Impossible de désactiver le dernier administrateur");
+      }
+
+      // Check email uniqueness (excluding self)
+      if (userData.email && userData.email !== oldUser.email) {
+        const existingEmail = await this.db.getRow('SELECT id FROM users WHERE email = ? AND id != ?', [userData.email, userId]);
+        if (existingEmail) throw new Error("Cet email est déjà utilisé");
+      }
+
+      // Check badge_id uniqueness (excluding self)
+      if (userData.badge_id && userData.badge_id !== oldUser.badge_id) {
+        const existingBadge = await this.db.getRow('SELECT id FROM users WHERE badge_id = ? AND id != ?', [userData.badge_id, userId]);
+        if (existingBadge) throw new Error("Ce numéro de badge est déjà utilisé");
+      }
+
+      const creator = await this.db.getRow('SELECT username FROM users WHERE id = ?', [updatedBy]);
+      const creatorName = creator ? creator.username : 'system';
 
       const updates = [];
       const params = [];
 
-      if (userData.full_name !== undefined) {
-        updates.push('full_name = ?');
-        params.push(userData.full_name);
+      const fields = ['full_name', 'email', 'phone', 'role', 'badge_id', 'pin'];
+      for (const field of fields) {
+        if (userData[field] !== undefined) {
+          updates.push(`${field} = ?`);
+          params.push(userData[field] || null);
+        }
       }
-
-      if (userData.email !== undefined) {
-        updates.push('email = ?');
-        params.push(userData.email || null);
-      }
-
-      if (userData.phone !== undefined) {
-        updates.push('phone = ?');
-        params.push(userData.phone || null);
-      }
-
-      if (userData.role !== undefined) {
-        updates.push('role = ?');
-        params.push(userData.role);
-      }
-
-      if (userData.badge_id !== undefined) {
-        updates.push('badge_id = ?');
-        params.push(userData.badge_id);
-      }
-
-      if (userData.pin !== undefined) {
-        updates.push('pin = ?');
-        params.push(userData.pin);
-      }
-
-      if (userData.is_active !== undefined) {
-        updates.push('is_active = ?');
-        params.push(userData.is_active ? 1 : 0);
-      }
-
+      if (userData.is_active !== undefined) { updates.push('is_active = ?'); params.push(userData.is_active ? 1 : 0); }
+      if (userData.is_server !== undefined) { updates.push('is_server = ?'); params.push(userData.is_server ? 1 : 0); }
       if (userData.password) {
+        const pwCheck = await this.validatePassword(userData.password);
+        if (!pwCheck.valid) throw new Error(pwCheck.errors[0]);
         const passwordHash = await bcrypt.hash(userData.password, SALT_ROUNDS);
         updates.push('password_hash = ?');
         params.push(passwordHash);
+        updates.push('login_attempts = ?');
+        params.push(0);
+        updates.push('locked_until = ?');
+        params.push(null);
       }
 
       updates.push('updated_at = ?');
       params.push(new Date().toISOString());
-
       params.push(userId);
 
-      await this.db.runQuery(
-        `UPDATE users SET ${updates.join(', ')} WHERE id = ?`,
-        params
-      );
+      await this.db.runQuery(`UPDATE users SET ${updates.join(', ')} WHERE id = ?`, params);
 
-      // Log audit event
       await this.logAuditEvent({
-        user_id: updatedBy,
-        user_name: 'admin',
-        action_type: 'USER_UPDATE',
-        entity_type: 'user',
-        entity_id: userId,
-        old_value: oldUser,
-        new_value: userData,
-        notes: `User ${oldUser.username} updated`
+        user_id: updatedBy, user_name: creatorName, action_type: 'USER_UPDATE',
+        entity_type: 'user', entity_id: userId,
+        old_value: { username: oldUser.username, role: oldUser.role, full_name: oldUser.full_name, is_active: oldUser.is_active },
+        new_value: { username: oldUser.username, ...userData },
+        notes: `Utilisateur ${oldUser.username} mis à jour`
       });
-
-      console.log('✅ User updated successfully');
     } catch (error) {
       console.error('❌ Error updating user:', error);
       throw error;
@@ -708,33 +891,40 @@ class ElectronAuthManager {
   }
 
   /**
-   * Delete user (soft delete - admin only)
+   * Delete user (soft delete - admin only, prevents last admin)
    * @param {number} userId - User ID to delete
    * @param {number} deletedBy - Admin user ID performing deletion
    */
   async deleteUser(userId, deletedBy) {
     try {
-      // Get user data for audit
       const user = await this.db.getRow('SELECT * FROM users WHERE id = ?', [userId]);
+      if (!user) throw new Error('Utilisateur non trouvé');
 
-      // Soft delete - set is_active to 0
+      // Prevent deleting last admin
+      if (user.role === 'admin') {
+        const adminCount = await this.countActiveAdmins();
+        if (adminCount <= 1) throw new Error("Impossible de supprimer le dernier administrateur");
+      }
+
+      // Prevent self-deletion
+      if (userId === deletedBy) throw new Error("Vous ne pouvez pas supprimer votre propre compte");
+
+      const deleter = await this.db.getRow('SELECT username FROM users WHERE id = ?', [deletedBy]);
+      const deleterName = deleter ? deleter.username : 'system';
+
+      await this.db.runQuery('UPDATE users SET is_active = 0, updated_at = ? WHERE id = ?', [new Date().toISOString(), userId]);
+
       await this.db.runQuery(
-        'UPDATE users SET is_active = 0, updated_at = ? WHERE id = ?',
-        [new Date().toISOString(), userId]
+        "UPDATE user_sessions SET logout_time = ?, session_duration = (strftime('%s', ?) - strftime('%s', login_time)) / 60 WHERE user_id = ? AND logout_time IS NULL",
+        [new Date().toISOString(), new Date().toISOString(), userId]
       );
 
-      // Log audit event
       await this.logAuditEvent({
-        user_id: deletedBy,
-        user_name: 'admin',
-        action_type: 'USER_DELETE',
-        entity_type: 'user',
-        entity_id: userId,
-        old_value: user,
-        notes: `User ${user.username} deleted (deactivated)`
+        user_id: deletedBy, user_name: deleterName, action_type: 'USER_DELETE',
+        entity_type: 'user', entity_id: userId,
+        old_value: { username: user.username, role: user.role },
+        notes: `Utilisateur ${user.username} désactivé`
       });
-
-      console.log('✅ User deleted successfully');
     } catch (error) {
       console.error('❌ Error deleting user:', error);
       throw error;
@@ -781,6 +971,211 @@ class ElectronAuthManager {
       console.error('❌ Error reactivating user:', error);
       throw error;
     }
+  }
+
+  // ══════════════════════════════════════════════════════════════
+  // Login Screen Methods
+  // ══════════════════════════════════════════════════════════════
+
+  /**
+   * Get all active users for the visual login screen
+   * @returns {Promise<Array>}
+   */
+  async getActiveUsersForLogin() {
+    try {
+      return await this.db.getData(
+        `SELECT id, username, full_name, role, avatar_url, use_pin, is_active, is_server, locked_until, last_login
+         FROM users WHERE is_active = 1 ORDER BY full_name ASC, username ASC`
+      );
+    } catch (error) {
+      console.error('❌ Error getting active users for login:', error);
+      return [];
+    }
+  }
+
+  /**
+   * Authenticate user by PIN (4-6 digits)
+   * @param {number} userId
+   * @param {string} pin
+   * @returns {Promise<Object>}
+   */
+  async authenticateByPin(userId, pin) {
+    try {
+      const user = await this.db.getRow('SELECT * FROM users WHERE id = ? AND is_active = 1', [userId]);
+      const AUTH_ERROR = 'Échec de l\'authentification. PIN incorrect.';
+
+      if (!user) {
+        await bcrypt.hash('dummy', SALT_ROUNDS);
+        throw new Error(AUTH_ERROR);
+      }
+
+      if (!user.is_active) {
+        throw new Error('Compte désactivé. Contactez un administrateur.');
+      }
+
+      if (!user.pin_hash || !user.use_pin) {
+        throw new Error('PIN non configuré pour cet utilisateur.');
+      }
+
+      // Check lockout
+      const settings = await this.getSecuritySettings();
+      const maxAttempts = settings.max_login_attempts || 5;
+      const lockoutMinutes = settings.lockout_duration_minutes || 15;
+
+      if (user.locked_until) {
+        const lockExpiry = new Date(user.locked_until);
+        if (lockExpiry > new Date()) {
+          const remaining = Math.ceil((lockExpiry - new Date()) / 60000);
+          throw new Error(`Compte verrouillé. Réessayez dans ${remaining} minute(s).`);
+        }
+        await this.db.runQuery('UPDATE users SET login_attempts = 0, locked_until = NULL WHERE id = ?', [user.id]);
+        user.login_attempts = 0;
+      }
+
+      const isValid = await bcrypt.compare(pin, user.pin_hash);
+      if (!isValid) {
+        const newAttempts = (user.login_attempts || 0) + 1;
+        if (newAttempts >= maxAttempts) {
+          const lockUntil = new Date(Date.now() + lockoutMinutes * 60000).toISOString();
+          await this.db.runQuery('UPDATE users SET login_attempts = ?, locked_until = ? WHERE id = ?', [newAttempts, lockUntil, user.id]);
+          await this.logAuditEvent({ user_id: user.id, user_name: user.username, action_type: 'ACCOUNT_LOCKED', entity_type: 'user', entity_id: user.id, notes: `Compte verrouillé après ${newAttempts} tentatives PIN échouées` });
+          throw new Error(`Compte verrouillé après ${maxAttempts} tentatives. Réessayez dans ${lockoutMinutes} minutes.`);
+        }
+        await this.db.runQuery('UPDATE users SET login_attempts = ? WHERE id = ?', [newAttempts, user.id]);
+        await this.logAuditEvent({ user_id: user.id, user_name: user.username, action_type: 'LOGIN_FAILED', entity_type: 'user', entity_id: user.id, notes: `Tentative PIN échouée (${newAttempts}/${maxAttempts})` });
+        throw new Error(AUTH_ERROR);
+      }
+
+      // Success
+      await this.db.runQuery('UPDATE users SET login_attempts = 0, locked_until = NULL, last_login = ?, updated_at = ? WHERE id = ?', [new Date().toISOString(), new Date().toISOString(), user.id]);
+      await this.db.runQuery('INSERT INTO user_sessions (user_id, login_time) VALUES (?, ?)', [user.id, new Date().toISOString()]);
+
+      try {
+        await this.db.runQuery('INSERT INTO recent_logins (user_id, login_at) VALUES (?, ?)', [user.id, new Date().toISOString()]);
+        await this.db.runQuery('DELETE FROM recent_logins WHERE user_id = ? AND id NOT IN (SELECT id FROM recent_logins WHERE user_id = ? ORDER BY login_at DESC LIMIT 10)', [user.id, user.id]);
+      } catch (e) { /* non-critical */ }
+
+      const permissions = await this.getUserPermissions(user.id, user.role);
+      await this.logAuditEvent({ user_id: user.id, user_name: user.username, action_type: 'LOGIN_SUCCESS', entity_type: 'user', entity_id: user.id, notes: 'Connexion réussie (PIN)' });
+
+      return {
+        id: user.id, username: user.username, full_name: user.full_name, email: user.email,
+        phone: user.phone, role: user.role, badge_id: user.badge_id, is_server: !!user.is_server,
+        avatar_url: user.avatar_url || null, use_pin: true, permissions
+      };
+    } catch (error) {
+      console.error('❌ PIN Authentication error:', error.message);
+      throw error;
+    }
+  }
+
+  /**
+   * Get recent logins for the login screen
+   * @param {number} limit
+   * @returns {Promise<Array>}
+   */
+  async getRecentLogins(limit = 5) {
+    try {
+      return await this.db.getData(
+        `SELECT DISTINCT u.id, u.username, u.full_name, u.role, u.avatar_url,
+                MAX(rl.login_at) as last_login_at
+         FROM recent_logins rl
+         JOIN users u ON u.id = rl.user_id
+         WHERE u.is_active = 1
+         GROUP BY u.id
+         ORDER BY MAX(rl.login_at) DESC
+         LIMIT ?`,
+        [limit]
+      );
+    } catch (error) {
+      console.error('❌ Error getting recent logins:', error);
+      return [];
+    }
+  }
+
+  /**
+   * Update user avatar
+   * @param {number} userId
+   * @param {string} avatarUrl
+   */
+  async updateUserAvatar(userId, avatarUrl) {
+    try {
+      await this.db.runQuery('UPDATE users SET avatar_url = ?, updated_at = ? WHERE id = ?', [avatarUrl, new Date().toISOString(), userId]);
+      return { success: true };
+    } catch (error) {
+      console.error('❌ Error updating user avatar:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Set or clear user PIN
+   * @param {number} userId
+   * @param {string|null} pin - null to clear PIN
+   * @param {boolean} usePin
+   */
+  async setUserPin(userId, pin, usePin = true) {
+    try {
+      const user = await this.db.getRow('SELECT id FROM users WHERE id = ?', [userId]);
+      if (!user) throw new Error('Utilisateur non trouvé');
+
+      let pinHash = null;
+      if (pin && usePin) {
+        pinHash = await bcrypt.hash(pin, SALT_ROUNDS);
+      }
+
+      await this.db.runQuery(
+        'UPDATE users SET pin_hash = ?, use_pin = ?, updated_at = ? WHERE id = ?',
+        [pinHash, usePin ? 1 : 0, new Date().toISOString(), userId]
+      );
+
+      await this.logAuditEvent({
+        user_id: userId, user_name: user.username || 'unknown',
+        action_type: pinHash ? 'PIN_SET' : 'PIN_CLEARED',
+        entity_type: 'user', entity_id: userId,
+        notes: pinHash ? 'PIN configuré' : 'PIN supprimé'
+      });
+
+      return { success: true };
+    } catch (error) {
+      console.error('❌ Error setting user PIN:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Validate a password against security settings
+   * @param {string} password
+   * @returns {Promise<{valid: boolean, errors: string[], checks: Object}>}
+   */
+  async validatePasswordDetailed(password) {
+    const settings = await this.getSecuritySettings();
+    const errors = [];
+    const checks = {
+      minLength: { label: `${settings.password_min_length || 6} caractères minimum`, passed: false },
+      uppercase: { label: 'Majuscule', passed: false },
+      lowercase: { label: 'Minuscule', passed: false },
+      numbers: { label: 'Chiffre', passed: false },
+      special: { label: 'Caractère spécial', passed: false },
+    };
+
+    const minLen = settings.password_min_length || 6;
+    checks.minLength.passed = password && password.length >= minLen;
+    if (!checks.minLength.passed) errors.push(`Minimum ${minLen} caractères`);
+
+    checks.uppercase.passed = /[A-Z]/.test(password);
+    if (settings.password_require_uppercase && !checks.uppercase.passed) errors.push('Majuscule requise');
+
+    checks.lowercase.passed = /[a-z]/.test(password);
+    if (!checks.lowercase.passed) errors.push('Minuscule requise');
+
+    checks.numbers.passed = /[0-9]/.test(password);
+    if (settings.password_require_numbers && !checks.numbers.passed) errors.push('Chiffre requis');
+
+    checks.special.passed = /[!@#$%^&*(),.?":{}|<>]/.test(password);
+    if (settings.password_require_special && !checks.special.passed) errors.push('Caractère spécial requis');
+
+    return { valid: errors.length === 0, errors, checks };
   }
 }
 

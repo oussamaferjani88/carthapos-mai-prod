@@ -7,9 +7,10 @@ import { cn } from "../../lib/utils"
 import { buttonVariants } from "./button"
 
 function AlertDialog({
+  modal = false,
   ...props
 }) {
-  return <AlertDialogPrimitive.Root data-slot="alert-dialog" {...props} />;
+  return <AlertDialogPrimitive.Root data-slot="alert-dialog" modal={modal} {...props} />;
 }
 
 function AlertDialogTrigger({

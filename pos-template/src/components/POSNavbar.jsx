@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { 
   LayoutDashboard, 
@@ -70,6 +70,20 @@ export const POSNavbar = ({
   const { user } = useAuth();
   const { config, loading } = useAppConfig();
 
+  const [userModules, setUserModules] = useState(null);
+
+  useEffect(() => {
+    if (user?.id && window.electronAPI?.getUserModules) {
+      window.electronAPI.getUserModules(user.id).then(mods => {
+        if (Array.isArray(mods)) {
+          const map = {};
+          mods.forEach(m => { map[m.module_name] = m.can_read; });
+          setUserModules(map);
+        }
+      }).catch(() => setUserModules(null));
+    }
+  }, [user?.id]);
+
   // Extract theme configuration with fallbacks (même si loading)
   const theme = config?.theme || {};
   const primaryColor = theme.primaryColor || theme.colors?.primary || '#3b82f6';
@@ -129,8 +143,19 @@ export const POSNavbar = ({
       
       // Admin sees everything
       if (user.role === 'admin') return true;
-      
-      // Manager sees most things except user management
+
+      // Use DB-backed module permissions if available
+      if (userModules) {
+        // For items with a specific module requirement, check user access
+        const itemId = item.id;
+        const moduleKey = itemId === 'customers' ? 'customer-management' : itemId;
+        if (userModules[moduleKey] !== undefined) {
+          return !!userModules[moduleKey];
+        }
+        // If no explicit permission record, fall back to role defaults
+      }
+
+      // Role-based fallback when DB permissions not loaded
       if (user.role === 'manager') {
         return item.id !== 'user-management';
       }
@@ -142,7 +167,7 @@ export const POSNavbar = ({
       
       return true;
     });
-  }, [config, user]);
+  }, [config, user, userModules]);
 
   // Si config est en cours de chargement, ne rien afficher
   if (loading || !config) {

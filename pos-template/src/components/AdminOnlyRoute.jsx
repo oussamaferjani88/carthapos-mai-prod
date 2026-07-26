@@ -13,7 +13,8 @@ export default function AdminOnlyRoute({ children }) {
   }
 
   if (!isAuthenticated) {
-    return <Navigate to="/login" replace />;
+    // Return null — parent (AppContent) handles unauthenticated state
+    return null;
   }
 
   // Check if user is admin

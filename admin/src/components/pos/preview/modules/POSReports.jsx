@@ -12,6 +12,12 @@ import { POSConfiguration } from '../../../../config/POSConfiguration';
 export const POSReports = ({ config }) => {
   const styles = POSConfiguration.getStyles(config);
 
+  // ─── DEMO DATA — This is a preview component for the admin portal.
+  //     All data below is hardcoded mock data for UI demonstration purposes only.
+  //     The real Reports page (pos-template/src/pages/Reports.jsx) uses live data
+  //     from dedicated IPC handlers (report:dashboard, report:sales-by-period, etc.).
+  // ────────────────────────────────────────────────────────────────────────────
+
   const formatPrice = (price) => {
     const currency = config.currency || 'DT';
     const position = config.currencyPosition || 'after';

@@ -1,4 +1,4 @@
-import { useState, useEffect, lazy, Suspense } from 'react';
+import { useState, useEffect, useCallback, useMemo, lazy, Suspense } from 'react';
 import { HashRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import './App.css';
 import './styles/pos-animations.css';
@@ -10,9 +10,13 @@ import { POSConfiguration } from './lib/POSConfiguration';
 import LicenseCheck from './components/LicenseCheck';
 import POSWithAuth from './components/POSWithAuth';
 import SetupWizard from './components/SetupWizard';
+import UserSelectScreen from './components/UserSelectScreen';
+import AuthKeyboard from './components/AuthKeyboard';
+import LockScreen from './components/LockScreen';
 import Layout from './components/Layout';
 import ErrorBoundary from './components/ErrorBoundary';
 import { DebugPanel } from './components/DebugPanel';
+import VirtualKeyboard from './components/VirtualKeyboard';
 
 // Debug utilities
 import './utils/debug';
@@ -61,254 +65,11 @@ const PageLoadingFallback = () => (
   </div>
 );
 
-function App() {
+// MainPOSApp extracted outside AppContent to prevent infinite re-mount cycles.
+// Defining it inside the render body created a NEW component type on every render,
+// causing React to unmount/remount the entire Router tree (error #300).
+function MainPOSApp({ config, license }) {
   return (
-    <ErrorBoundary>
-      <AuthProvider>
-        <AppContent />
-      </AuthProvider>
-      <DebugPanel />
-    </ErrorBoundary>
-  );
-}
-
-function AppContent() {
-  const { config, loading: configLoading } = useAppConfig();
-  const { license, isValid: licenseValid, loading: licenseLoading } = useLicense();
-  const [isInitialized, setIsInitialized] = useState(false);
-  const [isFirstTime, setIsFirstTime] = useState(false);
-  // Removed dedicated state for needsAdminReset to avoid unused var; we derive isFirstTime directly
-  const [checkingSetup, setCheckingSetup] = useState(!isPreviewMode()); // Only check in production
-  const { user, loading: authLoading, setUserDirectly } = useAuth(); // Use setUserDirectly for auto-login
-
-  console.log('═══════════════════════════════════════════════════════════');
-  console.log('[APP DEBUG] AppContent Render State:');
-  console.log('  configLoading:', configLoading);
-  console.log('  licenseLoading:', licenseLoading);
-  console.log('  authLoading:', authLoading);
-  console.log('  checkingSetup:', checkingSetup);
-  console.log('  isInitialized:', isInitialized);
-  console.log('  user:', user?.username || 'none');
-  console.log('  config.modules:', config?.modules?.map(m => ({ name: m.name, enabled: m.isEnabled })));
-  console.log('═══════════════════════════════════════════════════════════');
-
-  // DEBUG: Log enabled modules
-  useEffect(() => {
-    if (config) {
-      console.log('═══════════════════════════════════════════════════════════');
-      console.log('📦 [DEBUG] AppContent - CONFIG LOADED');
-      console.log('Enabled Modules:', config.modules?.map((m) => m.name || m.module?.name).join(', ') || 'NONE');
-      console.log('Module Count:', config.modules?.length || 0);
-      console.log('Full Config:', JSON.stringify(config, null, 2));
-      console.log('═══════════════════════════════════════════════════════════');
-    }
-  }, [config]);
-
-  // Check if first-time setup is needed (production mode only)
-  useEffect(() => {
-    if (!isPreviewMode()) {
-      checkFirstTimeSetup();
-    } else {
-      setCheckingSetup(false);
-    }
-  }, []);
-
-  // Listen for database location message from main process (for debugging)
-  useEffect(() => {
-    try {
-      if (window.electronAPI && window.electronAPI.onDatabaseLocation) {
-        window.electronAPI.onDatabaseLocation((dbPath) => {
-          console.log('═══════════════════════════════════════════════════════════');
-          console.log('📊 DATABASE LOCATION INFORMATION (from main process)');
-          console.log('═══════════════════════════════════════════════════════════');
-          console.log('📁 Full Database Path:', dbPath);
-          
-          // Extract database name and folder from the full path
-          if (dbPath) {
-            const pathParts = dbPath.split('\\'); // Windows path separator
-            const dbFileName = pathParts[pathParts.length - 1]; // e.g., "slm.db"
-            const dbFolder = pathParts.slice(0, -1).join('\\'); // e.g., "D:\Apps\POS\data"
-            
-            console.log('📝 Database Name:', dbFileName);
-            console.log('📂 Database Folder:', dbFolder);
-            console.log('═══════════════════════════════════════════════════════════');
-          } else {
-            console.log('⚠️  Database path not available');
-            console.log('═══════════════════════════════════════════════════════════');
-          }
-        });
-      }
-    } catch (err) {
-      console.error('❌ Error setting up database location listener:', err);
-    }
-  }, []);
-
-  const checkFirstTimeSetup = async () => {
-    try {
-      console.log('🔍 [APP DEBUG] Checking first-time setup...');
-      if (window.electronAPI) {
-        console.log('🔍 Checking if first-time setup is needed...');
-        console.log('[DIAG] CALL TRACE: checkFirstTimeSetup invoked');
-        console.trace('[DIAG] Stack trace at checkFirstTimeSetup');
-        const needsSetup = await window.electronAPI.needsFirstTimeSetup();
-        console.log('🔍 First-time setup needed:', needsSetup);
-        console.log('[DIAG] needsFirstTimeSetup IPC result =', needsSetup, '(type:', typeof needsSetup, ')');
-
-        // Additionally detect if existing admin still uses default demo password
-  const needsReset = await window.electronAPI.needsAdminPasswordReset();
-  console.log('🔐 Admin default password detected (requires reset):', needsReset);
-  console.log('[DIAG] needsAdminPasswordReset IPC result =', needsReset, '(type:', typeof needsReset, ')');
-
-        // Show setup wizard either if no admin exists OR default password detected
-        console.log('[DIAG] setIsFirstTime being called with:', needsSetup || needsReset, '(needsSetup=', needsSetup, 'needsReset=', needsReset, ')');
-        setIsFirstTime(needsSetup || needsReset);
-      } else {
-        console.log('[DIAG] window.electronAPI NOT available, skipping setup check');
-      }
-    } catch (error) {
-      console.error('❌ Failed to check setup status:', error);
-      console.log('[DIAG] checkFirstTimeSetup CAUGHT error, setting isFirstTime=false');
-      setIsFirstTime(false);
-    } finally {
-      console.log('[DIAG] checkFirstTimeSetup finally: setting checkingSetup=false');
-      setCheckingSetup(false);
-    }
-  };
-
-  // Auto-login handler after first-time setup
-  const handleSetupComplete = async (adminUser) => {
-    console.log('✅ Setup completed, auto-logging in admin user...', adminUser);
-    console.log('[DIAG] handleSetupComplete CALLED with adminUser:', adminUser?.username, 'id:', adminUser?.id);
-    
-    // Auto-login: Set user in AuthContext directly (already saved to localStorage in SetupWizard)
-    if (adminUser && setUserDirectly) {
-      console.log('[DIAG] handleSetupComplete: calling setUserDirectly');
-      setUserDirectly(adminUser); // This will trigger AuthContext to update
-    } else {
-      console.log('[DIAG] handleSetupComplete: SKIPPING setUserDirectly (adminUser=', !!adminUser, 'setUserDirectly=', !!setUserDirectly, ')');
-    }
-    
-    // Close first-time setup
-    console.log('[DIAG] handleSetupComplete: setting setIsFirstTime(false)');
-    setIsFirstTime(false);
-    console.log('[DIAG] handleSetupComplete: DONE');
-  };
-
-  // Phase 4: Global CSS Variables - Apply POSConfiguration theme globally
-  useEffect(() => {
-    if (config) {
-      console.log('[POS DEBUG] [App] Applying global theme configuration:', config);
-      
-      const getThemeConfig = () => {
-        // Priority 1: Use Electron configuration if available
-        if (config.theme) {
-          return POSConfiguration.createConfig(config.theme);
-        }
-        
-        // Priority 2: Try to get theme from window (real-time preview)
-        if (typeof window !== 'undefined' && window.themeConfig) {
-          return POSConfiguration.createConfig(window.themeConfig);
-        }
-        
-        // Priority 3: Fallback to default configuration
-        return POSConfiguration.createConfig({
-          primaryColor: '#3b82f6',
-          secondaryColor: '#1e40af',
-          backgroundColor: '#ffffff',
-          textColor: '#1f2937',
-          textMutedColor: '#6b7280',
-          cardBorderColor: '#e5e7eb',
-          currency: 'DT',
-          currencyPosition: 'after'
-        });
-      };
-
-      const themeConfig = getThemeConfig();
-      const styleVars = POSConfiguration.getStyleVars(themeConfig);
-      
-      // Apply CSS variables to document root
-      const root = document.documentElement;
-      Object.entries(styleVars).forEach(([property, value]) => {
-        root.style.setProperty(property, value);
-      });
-
-      console.log('[POS DEBUG] [App] Applied CSS variables:', styleVars);
-    }
-  }, [config]);
-
-  useEffect(() => {
-    console.log('[DIAG] Initialization useEffect: configLoading=', configLoading, 'licenseLoading=', licenseLoading, 'authLoading=', authLoading, 'checkingSetup=', checkingSetup, 'isInitialized=', isInitialized);
-    if (!configLoading && !licenseLoading && !authLoading && !checkingSetup) {
-      console.log('[DIAG] Setting isInitialized = true');
-      setIsInitialized(true);
-    }
-  }, [configLoading, licenseLoading, authLoading, checkingSetup]);
-
-  // Show first-time setup wizard (production mode only)
-  console.log('[DIAG] RENDER CHECK: isPreviewMode=', !isPreviewMode(), 'isFirstTime=', isFirstTime, 'checkingSetup=', checkingSetup, 'user=', user?.username, 'isInitialized=', isInitialized);
-  if (!isPreviewMode() && isFirstTime && !checkingSetup) {
-    console.log('[DIAG] 🟢 RENDER DECISION: Showing SetupWizard (isFirstTime=', isFirstTime, 'checkingSetup=', checkingSetup, ')');
-    console.log('🆕 Showing first-time setup wizard');
-    return (
-      <SetupWizard 
-        onComplete={handleSetupComplete}
-      />
-    );
-  } else {
-    console.log('[DIAG] 🔴 RENDER DECISION: NOT showing SetupWizard (reason:', 
-      isPreviewMode() ? 'preview mode' : '', 
-      !isFirstTime ? 'isFirstTime=false' : '', 
-      checkingSetup ? 'still checking' : '', 
-      ')');
-  }
-
-  if (!isInitialized) {
-    return (
-      <div className="flex items-center justify-center min-h-screen bg-gradient-to-br from-primary/5 via-background to-accent/5">
-        <div className="text-center p-10 bg-card/80 backdrop-blur-md rounded-2xl shadow-2xl max-w-md border border-border/50">
-          <div className="relative mb-6">
-            <div className="animate-spin rounded-full h-16 w-16 border-4 border-primary/20 border-t-primary mx-auto"></div>
-            <div className="absolute inset-0 flex items-center justify-center">
-              <div className="w-8 h-8 bg-gradient-to-br from-primary to-accent rounded-full animate-pulse"></div>
-            </div>
-          </div>
-          <h2 className="text-2xl font-bold mb-3 bg-gradient-to-r from-primary to-accent bg-clip-text text-transparent">
-            Initialisation du POS
-          </h2>
-          <p className="text-muted-foreground mb-6 text-lg">
-            Chargement de la configuration...
-          </p>
-          <div className="space-y-2 text-sm text-muted-foreground bg-muted/30 rounded-lg p-4">
-            <div className="flex justify-between items-center">
-              <span>Configuration:</span>
-              <div className={`w-3 h-3 rounded-full ${configLoading ? 'bg-yellow-500 animate-pulse' : 'bg-green-500'}`}></div>
-            </div>
-            <div className="flex justify-between items-center">
-              <span>Licence:</span>
-              <div className={`w-3 h-3 rounded-full ${licenseLoading ? 'bg-yellow-500 animate-pulse' : 'bg-green-500'}`}></div>
-            </div>
-            <div className="flex justify-between items-center">
-              <span>Validation:</span>
-              <div className={`w-3 h-3 rounded-full ${licenseValid ? 'bg-green-500' : 'bg-red-500'}`}></div>
-            </div>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  // Check USB license if required
-  if (config?.security?.requireUSBLicense && !licenseValid) {
-    return <LicenseCheck />;
-  }
-
-  const MainPOSApp = () => {
-    console.log('═══════════════════════════════════════════════════════════');
-    console.log('🚀 [DEBUG] MainPOSApp - Rendering routes');
-    console.log('Config modules:', config?.modules?.map((m) => m.name || m.module?.name).join(', ') || 'NONE');
-    console.log('═══════════════════════════════════════════════════════════');
-    
-    return (
     <Router>
       <div className="pos-app pos-application min-h-screen bg-gradient-to-br from-background via-muted/20 to-background">
         <Layout config={config} license={license}>
@@ -351,12 +112,241 @@ function AppContent() {
       </div>
     </Router>
   );
+}
+
+function App() {
+  return (
+    <ErrorBoundary>
+      <AuthProvider>
+        <AppContent />
+      </AuthProvider>
+      <DebugPanel />
+    </ErrorBoundary>
+  );
+}
+
+function AppContent() {
+  const { config, loading: configLoading } = useAppConfig();
+  const { license, isValid: licenseValid, loading: licenseLoading } = useLicense();
+  const [isInitialized, setIsInitialized] = useState(false);
+  const [isFirstTime, setIsFirstTime] = useState(false);
+  const [checkingSetup, setCheckingSetup] = useState(!isPreviewMode());
+  const { user, loading: authLoading, setUserDirectly, isLocked, unlock, logout, loginByUserSelect } = useAuth();
+  const [selectedUser, setSelectedUser] = useState(null);
+  const [authError, setAuthError] = useState('');
+  const [authLoading2, setAuthLoading2] = useState(false);
+
+  // Clear selectedUser when user becomes null (e.g. after logout)
+  useEffect(() => {
+    if (!user) {
+      setSelectedUser(null);
+      setAuthError('');
+    }
+  }, [user]);
+
+  // Check if first-time setup is needed (production mode only)
+  useEffect(() => {
+    if (!isPreviewMode()) {
+      checkFirstTimeSetup();
+    } else {
+      setCheckingSetup(false);
+    }
+  }, []);
+
+  // Listen for database location message from main process
+  useEffect(() => {
+    try {
+      if (window.electronAPI && window.electronAPI.onDatabaseLocation) {
+        window.electronAPI.onDatabaseLocation((dbPath) => {
+          if (dbPath) {
+            const pathParts = dbPath.split('\\');
+            console.log('Database:', pathParts[pathParts.length - 1]);
+          }
+        });
+      }
+    } catch (err) { /* */ }
+  }, []);
+
+  const checkFirstTimeSetup = async () => {
+    try {
+      if (window.electronAPI) {
+        const needsSetup = await window.electronAPI.needsFirstTimeSetup();
+        const needsReset = await window.electronAPI.needsAdminPasswordReset();
+        setIsFirstTime(needsSetup || needsReset);
+      }
+    } catch (error) {
+      console.error('Failed to check setup status:', error);
+      setIsFirstTime(false);
+    } finally {
+      setCheckingSetup(false);
+    }
   };
 
-  return !user ? (
-    <POSWithAuth config={config} />
-  ) : (
-    <MainPOSApp />
+  // Auto-login handler after first-time setup
+  const handleSetupComplete = async (adminUser) => {
+    if (adminUser && setUserDirectly) {
+      setUserDirectly(adminUser);
+    }
+    setIsFirstTime(false);
+  };
+
+  // Phase 4: Global CSS Variables - Apply POSConfiguration theme globally
+  useEffect(() => {
+    if (config) {
+      const getThemeConfig = () => {
+        if (config.theme) return POSConfiguration.createConfig(config.theme);
+        if (typeof window !== 'undefined' && window.themeConfig) return POSConfiguration.createConfig(window.themeConfig);
+        return POSConfiguration.createConfig({
+          primaryColor: '#3b82f6',
+          secondaryColor: '#1e40af',
+          backgroundColor: '#ffffff',
+          textColor: '#1f2937',
+          textMutedColor: '#6b7280',
+          cardBorderColor: '#e5e7eb',
+          currency: 'DT',
+          currencyPosition: 'after'
+        });
+      };
+
+      const themeConfig = getThemeConfig();
+      const styleVars = POSConfiguration.getStyleVars(themeConfig);
+      const root = document.documentElement;
+      Object.entries(styleVars).forEach(([property, value]) => {
+        root.style.setProperty(property, value);
+      });
+    }
+  }, [config]);
+
+  useEffect(() => {
+    if (!configLoading && !licenseLoading && !authLoading && !checkingSetup) {
+      setIsInitialized(true);
+    }
+  }, [configLoading, licenseLoading, authLoading, checkingSetup]);
+
+  // Memoize callbacks BEFORE any early returns to satisfy Rules of Hooks
+  const handleUserSelected = useCallback(async (userObj, method, credential) => {
+    setAuthError('');
+    setAuthLoading2(true);
+    try {
+      if (isPreviewMode()) {
+        setUserDirectly({
+          id: userObj.id || 1,
+          username: userObj.username,
+          role: userObj.role,
+          fullName: userObj.fullName || userObj.full_name || userObj.username,
+          full_name: userObj.fullName || userObj.full_name || userObj.username,
+          email: `${userObj.username}@pos.com`,
+          permissions: userObj.role === 'admin' ? ['all'] : userObj.role === 'manager' ? ['sales', 'products', 'customers', 'reports', 'inventory'] : ['sales', 'customers'],
+        });
+        return;
+      }
+      await loginByUserSelect(userObj, method, credential);
+    } catch (err) {
+      setAuthError(err.message || 'Erreur de connexion');
+    } finally {
+      setAuthLoading2(false);
+    }
+  }, [loginByUserSelect, setUserDirectly]);
+
+  const handleUserCardClick = useCallback((userObj) => {
+    setSelectedUser(userObj);
+  }, []);
+
+  const handleAuthBack = useCallback(() => {
+    setSelectedUser(null);
+    setAuthError('');
+  }, []);
+
+  const handleAuthSubmit = useCallback((password) => {
+    if (selectedUser) {
+      handleUserSelected(selectedUser, 'password', password);
+    }
+  }, [selectedUser, handleUserSelected]);
+
+  const authUserName = useMemo(() => {
+    if (!selectedUser) return '';
+    return selectedUser.fullName || selectedUser.full_name || selectedUser.username;
+  }, [selectedUser]);
+
+  // Show first-time setup wizard (production mode only)
+  if (!isPreviewMode() && isFirstTime && !checkingSetup) {
+    return <SetupWizard onComplete={handleSetupComplete} />;
+  }
+
+  if (!isInitialized) {
+    return (
+      <div className="flex items-center justify-center min-h-screen bg-gradient-to-br from-primary/5 via-background to-accent/5">
+        <div className="text-center p-10 bg-card/80 backdrop-blur-md rounded-2xl shadow-2xl max-w-md border border-border/50">
+          <div className="relative mb-6">
+            <div className="animate-spin rounded-full h-16 w-16 border-4 border-primary/20 border-t-primary mx-auto"></div>
+            <div className="absolute inset-0 flex items-center justify-center">
+              <div className="w-8 h-8 bg-gradient-to-br from-primary to-accent rounded-full animate-pulse"></div>
+            </div>
+          </div>
+          <h2 className="text-2xl font-bold mb-3 bg-gradient-to-r from-primary to-accent bg-clip-text text-transparent">
+            Initialisation du POS
+          </h2>
+          <p className="text-muted-foreground mb-6 text-lg">
+            Chargement de la configuration...
+          </p>
+          <div className="space-y-2 text-sm text-muted-foreground bg-muted/30 rounded-lg p-4">
+            <div className="flex justify-between items-center">
+              <span>Configuration:</span>
+              <div className={`w-3 h-3 rounded-full ${configLoading ? 'bg-yellow-500 animate-pulse' : 'bg-green-500'}`}></div>
+            </div>
+            <div className="flex justify-between items-center">
+              <span>Licence:</span>
+              <div className={`w-3 h-3 rounded-full ${licenseLoading ? 'bg-yellow-500 animate-pulse' : 'bg-green-500'}`}></div>
+            </div>
+            <div className="flex justify-between items-center">
+              <span>Validation:</span>
+              <div className={`w-3 h-3 rounded-full ${licenseValid ? 'bg-green-500' : 'bg-red-500'}`}></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Check USB license if required
+  if (config?.security?.requireUSBLicense && !licenseValid) {
+    return <LicenseCheck />;
+  }
+
+  return (
+    <>
+      {isLocked && user && (
+        <LockScreen user={user} onUnlock={unlock} onLogout={logout} config={config} />
+      )}
+      {!user ? (
+        isPreviewMode() ? (
+          <POSWithAuth config={config} />
+        ) : selectedUser ? (
+          <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-primary/5 via-background to-accent/5 p-4">
+            <div className="w-full max-w-sm">
+              <div className="bg-card border border-border/50 rounded-3xl p-6 shadow-xl shadow-black/5">
+                <AuthKeyboard
+                  onSubmit={handleAuthSubmit}
+                  onBack={handleAuthBack}
+                  error={authError}
+                  loading={authLoading2}
+                  userName={authUserName}
+                />
+              </div>
+            </div>
+          </div>
+        ) : (
+          <UserSelectScreen
+            config={config}
+            onUserSelect={handleUserCardClick}
+            loading={false}
+          />
+        )
+      ) : (
+        <MainPOSApp config={config} license={license} />
+      )}
+      <VirtualKeyboard disabled={!user} />
+    </>
   );
 }
 

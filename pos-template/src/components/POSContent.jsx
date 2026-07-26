@@ -109,8 +109,6 @@ export const POSContent = ({
         style={{ 
           backgroundColor: backgroundColor,
           minHeight: '100%',
-          maxWidth: contentMaxWidth !== '100%' ? contentMaxWidth : '100%',
-          margin: '0 auto',
           width: '100%',
           fontFamily: fontFamily + ', system-ui, sans-serif',
           fontSize: fontSize,

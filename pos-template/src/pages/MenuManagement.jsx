@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { Plus, Edit, Trash2, Save, X, Package, DollarSign, Tag, Grid, List, Sliders } from 'lucide-react';
+import { ScrollArea } from '../components/ui/scroll-area';
 import { useThemeApplier } from '../hooks/useThemeApplier';
 import { POSConfiguration } from '../lib/POSConfiguration';
 import { useAppConfig } from '../hooks/useAppConfig';
@@ -183,28 +184,30 @@ const MenuManagement = () => {
               </div>
             </div>
           </div>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {categories.map((category) => (
-              <div key={category.id} className="bg-card border border-border rounded-lg p-4">
-                <div className="flex justify-between items-start mb-3">
-                  <div>
-                    <h4 className="font-semibold text-foreground">{category.name}</h4>
-                    <p className="text-sm text-muted-foreground">{category.description}</p>
+          <ScrollArea className="h-[500px]">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 pr-4">
+              {categories.map((category) => (
+                <div key={category.id} className="bg-card border border-border rounded-lg p-4">
+                  <div className="flex justify-between items-start mb-3">
+                    <div>
+                      <h4 className="font-semibold text-foreground">{category.name}</h4>
+                      <p className="text-sm text-muted-foreground">{category.description}</p>
+                    </div>
+                    <button onClick={() => handleDeleteCategory(category.id)}
+                      className="p-1 text-muted-foreground hover:text-destructive">
+                      <Trash2 className="w-4 h-4" />
+                    </button>
                   </div>
-                  <button onClick={() => handleDeleteCategory(category.id)}
-                    className="p-1 text-muted-foreground hover:text-destructive">
-                    <Trash2 className="w-4 h-4" />
-                  </button>
+                  <div className="flex justify-between items-center text-sm">
+                    <span className="text-muted-foreground">Ordre: {category.order}</span>
+                    <span className={`px-2 py-1 rounded-full text-xs ${category.active ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>
+                      {category.active ? 'Actif' : 'Inactif'}
+                    </span>
+                  </div>
                 </div>
-                <div className="flex justify-between items-center text-sm">
-                  <span className="text-muted-foreground">Ordre: {category.order}</span>
-                  <span className={`px-2 py-1 rounded-full text-xs ${category.active ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>
-                    {category.active ? 'Actif' : 'Inactif'}
-                  </span>
-                </div>
-              </div>
-            ))}
-          </div>
+              ))}
+            </div>
+          </ScrollArea>
         </div>
       )}
 

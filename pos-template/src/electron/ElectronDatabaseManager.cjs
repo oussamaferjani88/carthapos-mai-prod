@@ -764,7 +764,14 @@ class ElectronDatabaseManager {
           phone TEXT,
           address TEXT,
           loyalty_points INTEGER DEFAULT 0,
-          created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+          total_spent DECIMAL(10,2) DEFAULT 0,
+          visit_count INTEGER DEFAULT 0,
+          last_visit_date DATETIME DEFAULT NULL,
+          notes TEXT DEFAULT '',
+          tags TEXT DEFAULT '',
+          is_active INTEGER DEFAULT 1,
+          created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+          updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
         )`
       },
       {
@@ -773,12 +780,15 @@ class ElectronDatabaseManager {
           id INTEGER PRIMARY KEY AUTOINCREMENT,
           username TEXT NOT NULL UNIQUE,
           password_hash TEXT NOT NULL,
-          full_name TEXT,
+          full_name TEXT DEFAULT '',
           email TEXT UNIQUE,
-          role TEXT NOT NULL CHECK(role IN ('admin', 'cashier', 'manager')) DEFAULT 'cashier',
+          role TEXT NOT NULL CHECK(role IN ('admin', 'cashier', 'manager', 'server')) DEFAULT 'cashier',
           badge_id TEXT UNIQUE,
           pin TEXT,
           is_active BOOLEAN DEFAULT 1,
+          is_server BOOLEAN DEFAULT 0,
+          login_attempts INTEGER DEFAULT 0,
+          locked_until DATETIME DEFAULT NULL,
           created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
           updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
           last_login DATETIME,
@@ -840,10 +850,47 @@ class ElectronDatabaseManager {
         name: 'restaurant_tables',
         sql: `CREATE TABLE IF NOT EXISTS restaurant_tables (
           id INTEGER PRIMARY KEY AUTOINCREMENT,
-          table_number TEXT NOT NULL,
+          table_number TEXT NOT NULL UNIQUE,
           capacity INTEGER DEFAULT 2,
-          status TEXT DEFAULT 'available',
+          status TEXT DEFAULT 'available' CHECK(status IN ('available','occupied','reserved','cleaning','merged','out_of_service')),
           current_order_id INTEGER,
+          shape TEXT DEFAULT 'square',
+          zone TEXT DEFAULT '',
+          area_name TEXT DEFAULT '',
+          x INTEGER DEFAULT 50,
+          y INTEGER DEFAULT 50,
+          waiter TEXT DEFAULT '',
+          notes TEXT DEFAULT '',
+          merged_tables TEXT,
+          merged_into INTEGER,
+          created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        )`
+      },
+      {
+        name: 'table_reservations',
+        sql: `CREATE TABLE IF NOT EXISTS table_reservations (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          table_id INTEGER,
+          customer_name TEXT NOT NULL,
+          customer_phone TEXT DEFAULT '',
+          guests INTEGER DEFAULT 2,
+          reservation_date DATE NOT NULL,
+          reservation_time TIME NOT NULL,
+          duration_minutes INTEGER DEFAULT 120,
+          notes TEXT DEFAULT '',
+          status TEXT DEFAULT 'confirmed' CHECK(status IN ('confirmed','seated','completed','cancelled','no_show')),
+          created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+          FOREIGN KEY (table_id) REFERENCES restaurant_tables(id)
+        )`
+      },
+      {
+        name: 'table_zones',
+        sql: `CREATE TABLE IF NOT EXISTS table_zones (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          name TEXT NOT NULL UNIQUE,
+          color TEXT DEFAULT '#3B82F6',
+          description TEXT DEFAULT '',
+          sort_order INTEGER DEFAULT 0,
           created_at DATETIME DEFAULT CURRENT_TIMESTAMP
         )`
       },
@@ -976,6 +1023,51 @@ class ElectronDatabaseManager {
           created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
           updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
         )`
+      },
+      {
+        name: 'vat_rates',
+        sql: `CREATE TABLE IF NOT EXISTS vat_rates (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          name TEXT NOT NULL,
+          rate DECIMAL(5,2) NOT NULL DEFAULT 0,
+          is_active BOOLEAN DEFAULT 1,
+          created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        )`
+      },
+      {
+        name: 'printer_configs',
+        sql: `CREATE TABLE IF NOT EXISTS printer_configs (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          name TEXT NOT NULL,
+          printer_type TEXT NOT NULL DEFAULT 'receipt' CHECK(printer_type IN ('receipt','kitchen','bar','bakery','grill','dessert','customer','other')),
+          connection_type TEXT NOT NULL DEFAULT 'usb' CHECK(connection_type IN ('usb','ethernet','network_ip','windows')),
+          ip_address TEXT,
+          port TEXT DEFAULT '9100',
+          paper_width INTEGER DEFAULT 80 CHECK(paper_width IN (58,80)),
+          character_encoding TEXT DEFAULT 'PC437',
+          auto_cut BOOLEAN DEFAULT 1,
+          open_drawer_after_print BOOLEAN DEFAULT 0,
+          is_default BOOLEAN DEFAULT 0,
+          is_enabled BOOLEAN DEFAULT 1,
+          status TEXT DEFAULT 'unknown' CHECK(status IN ('connected','disconnected','error','unknown','testing')),
+          last_tested_at DATETIME,
+          created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+          updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        )`
+      },
+      {
+        name: 'department_printer_routes',
+        sql: `CREATE TABLE IF NOT EXISTS department_printer_routes (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          department TEXT NOT NULL UNIQUE,
+          printer_id INTEGER,
+          auto_print BOOLEAN DEFAULT 0,
+          copies INTEGER DEFAULT 1 CHECK(copies >= 1 AND copies <= 10),
+          print_delay_ms INTEGER DEFAULT 0 CHECK(print_delay_ms >= 0 AND print_delay_ms <= 30000),
+          group_orders BOOLEAN DEFAULT 0,
+          created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+          FOREIGN KEY (printer_id) REFERENCES printer_configs(id) ON DELETE SET NULL
+        )`
       }
     ];
 
@@ -1008,12 +1100,44 @@ class ElectronDatabaseManager {
       'CREATE INDEX IF NOT EXISTS idx_kitchen_status ON kitchen_orders(status)',
       'CREATE INDEX IF NOT EXISTS idx_kitchen_created ON kitchen_orders(created_at)',
       'CREATE INDEX IF NOT EXISTS idx_kitchen_priority ON kitchen_orders(priority)',
+      'CREATE INDEX IF NOT EXISTS idx_kitchen_department ON kitchen_orders(department)',
+      'CREATE INDEX IF NOT EXISTS idx_kitchen_server ON kitchen_orders(server_name)',
+      'CREATE INDEX IF NOT EXISTS idx_kitchen_sale ON kitchen_orders(sale_id)',
       'CREATE INDEX IF NOT EXISTS idx_appointments_date ON appointments(appointment_date)',
       'CREATE INDEX IF NOT EXISTS idx_appointments_status ON appointments(status)',
       'CREATE INDEX IF NOT EXISTS idx_appointments_service ON appointments(service_id)',
       'CREATE INDEX IF NOT EXISTS idx_suppliers_name ON suppliers(name)',
       'CREATE INDEX IF NOT EXISTS idx_services_name ON services(name)',
-      'CREATE INDEX IF NOT EXISTS idx_held_orders_created ON held_orders(created_at)'
+      'CREATE INDEX IF NOT EXISTS idx_held_orders_created ON held_orders(created_at)',
+      'CREATE INDEX IF NOT EXISTS idx_vat_rates_active ON vat_rates(is_active)',
+      'CREATE INDEX IF NOT EXISTS idx_stock_movements_product ON stock_movements(product_id)',
+      'CREATE INDEX IF NOT EXISTS idx_stock_movements_created ON stock_movements(created_at)',
+      'CREATE INDEX IF NOT EXISTS idx_stock_movements_type ON stock_movements(movement_type)',
+      'CREATE INDEX IF NOT EXISTS idx_products_family ON products(family)',
+      'CREATE INDEX IF NOT EXISTS idx_products_supplier ON products(supplier)',
+      'CREATE INDEX IF NOT EXISTS idx_products_barcode ON products(barcode)',
+      'CREATE INDEX IF NOT EXISTS idx_products_stock ON products(stock)',
+      'CREATE INDEX IF NOT EXISTS idx_products_category ON products(category)',
+      'CREATE INDEX IF NOT EXISTS idx_tables_status ON restaurant_tables(status)',
+      'CREATE INDEX IF NOT EXISTS idx_tables_zone ON restaurant_tables(zone)',
+      'CREATE INDEX IF NOT EXISTS idx_tables_number ON restaurant_tables(table_number)',
+      'CREATE INDEX IF NOT EXISTS idx_reservations_date ON table_reservations(reservation_date)',
+      'CREATE INDEX IF NOT EXISTS idx_reservations_status ON table_reservations(status)',
+      'CREATE INDEX IF NOT EXISTS idx_reservations_table ON table_reservations(table_id)',
+      'CREATE INDEX IF NOT EXISTS idx_reservations_date_time ON table_reservations(reservation_date, reservation_time)',
+      'CREATE INDEX IF NOT EXISTS idx_zones_name ON table_zones(name)',
+      'CREATE INDEX IF NOT EXISTS idx_customers_name ON customers(name)',
+      'CREATE INDEX IF NOT EXISTS idx_customers_email ON customers(email)',
+      'CREATE INDEX IF NOT EXISTS idx_customers_phone ON customers(phone)',
+      'CREATE INDEX IF NOT EXISTS idx_customers_is_active ON customers(is_active)',
+      'CREATE INDEX IF NOT EXISTS idx_customers_loyalty ON customers(loyalty_points)',
+      'CREATE INDEX IF NOT EXISTS idx_sales_customer ON sales(customer_id)',
+      'CREATE INDEX IF NOT EXISTS idx_appointments_customer ON appointments(customer_id)',
+      'CREATE INDEX IF NOT EXISTS idx_printer_configs_type ON printer_configs(printer_type)',
+      'CREATE INDEX IF NOT EXISTS idx_printer_configs_enabled ON printer_configs(is_enabled)',
+      'CREATE INDEX IF NOT EXISTS idx_printer_configs_default ON printer_configs(is_default)',
+      'CREATE INDEX IF NOT EXISTS idx_dept_printer_routes_dept ON department_printer_routes(department)',
+      'CREATE INDEX IF NOT EXISTS idx_dept_printer_routes_printer ON department_printer_routes(printer_id)'
     ];
 
     for (const indexSql of indexes) {
@@ -1106,6 +1230,46 @@ class ElectronDatabaseManager {
       }
     }
 
+    // Migration: Add notes to customers if not exists
+    try {
+      await this.runQuery("ALTER TABLE customers ADD COLUMN notes TEXT DEFAULT ''");
+      console.log('✅ Migration: Added notes to customers');
+    } catch (migrateError) {
+      if (!migrateError.message.includes('duplicate column')) {
+        console.warn(`⚠️ Migration note: ${migrateError.message}`);
+      }
+    }
+
+    // Migration: Add tags to customers if not exists
+    try {
+      await this.runQuery("ALTER TABLE customers ADD COLUMN tags TEXT DEFAULT ''");
+      console.log('✅ Migration: Added tags to customers');
+    } catch (migrateError) {
+      if (!migrateError.message.includes('duplicate column')) {
+        console.warn(`⚠️ Migration note: ${migrateError.message}`);
+      }
+    }
+
+    // Migration: Add is_active to customers if not exists
+    try {
+      await this.runQuery("ALTER TABLE customers ADD COLUMN is_active INTEGER DEFAULT 1");
+      console.log('✅ Migration: Added is_active to customers');
+    } catch (migrateError) {
+      if (!migrateError.message.includes('duplicate column')) {
+        console.warn(`⚠️ Migration note: ${migrateError.message}`);
+      }
+    }
+
+    // Migration: Add updated_at to customers if not exists
+    try {
+      await this.runQuery("ALTER TABLE customers ADD COLUMN updated_at DATETIME DEFAULT CURRENT_TIMESTAMP");
+      console.log('✅ Migration: Added updated_at to customers');
+    } catch (migrateError) {
+      if (!migrateError.message.includes('duplicate column')) {
+        console.warn(`⚠️ Migration note: ${migrateError.message}`);
+      }
+    }
+
     // Migration: Add sale_id to kitchen_orders if not exists
     try {
       await this.runQuery("ALTER TABLE kitchen_orders ADD COLUMN sale_id INTEGER DEFAULT NULL");
@@ -1140,6 +1304,66 @@ class ElectronDatabaseManager {
     try {
       await this.runQuery("ALTER TABLE kitchen_orders ADD COLUMN completed_at DATETIME DEFAULT NULL");
       console.log('✅ Migration: Added completed_at to kitchen_orders');
+    } catch (migrateError) {
+      if (!migrateError.message.includes('duplicate column')) {
+        console.warn(`⚠️ Migration note: ${migrateError.message}`);
+      }
+    }
+
+    // Migration: Add server_name to kitchen_orders if not exists
+    try {
+      await this.runQuery("ALTER TABLE kitchen_orders ADD COLUMN server_name TEXT DEFAULT ''");
+      console.log('✅ Migration: Added server_name to kitchen_orders');
+    } catch (migrateError) {
+      if (!migrateError.message.includes('duplicate column')) {
+        console.warn(`⚠️ Migration note: ${migrateError.message}`);
+      }
+    }
+
+    // Migration: Add customer_name to kitchen_orders if not exists
+    try {
+      await this.runQuery("ALTER TABLE kitchen_orders ADD COLUMN customer_name TEXT DEFAULT ''");
+      console.log('✅ Migration: Added customer_name to kitchen_orders');
+    } catch (migrateError) {
+      if (!migrateError.message.includes('duplicate column')) {
+        console.warn(`⚠️ Migration note: ${migrateError.message}`);
+      }
+    }
+
+    // Migration: Add department to kitchen_orders if not exists
+    try {
+      await this.runQuery("ALTER TABLE kitchen_orders ADD COLUMN department TEXT DEFAULT 'kitchen'");
+      console.log('✅ Migration: Added department to kitchen_orders');
+    } catch (migrateError) {
+      if (!migrateError.message.includes('duplicate column')) {
+        console.warn(`⚠️ Migration note: ${migrateError.message}`);
+      }
+    }
+
+    // Migration: Add estimated_minutes to kitchen_orders if not exists
+    try {
+      await this.runQuery("ALTER TABLE kitchen_orders ADD COLUMN estimated_minutes INTEGER DEFAULT NULL");
+      console.log('✅ Migration: Added estimated_minutes to kitchen_orders');
+    } catch (migrateError) {
+      if (!migrateError.message.includes('duplicate column')) {
+        console.warn(`⚠️ Migration note: ${migrateError.message}`);
+      }
+    }
+
+    // Migration: Add cancel_reason to kitchen_orders if not exists
+    try {
+      await this.runQuery("ALTER TABLE kitchen_orders ADD COLUMN cancel_reason TEXT DEFAULT ''");
+      console.log('✅ Migration: Added cancel_reason to kitchen_orders');
+    } catch (migrateError) {
+      if (!migrateError.message.includes('duplicate column')) {
+        console.warn(`⚠️ Migration note: ${migrateError.message}`);
+      }
+    }
+
+    // Migration: Add cancelled_by to kitchen_orders if not exists
+    try {
+      await this.runQuery("ALTER TABLE kitchen_orders ADD COLUMN cancelled_by TEXT DEFAULT ''");
+      console.log('✅ Migration: Added cancelled_by to kitchen_orders');
     } catch (migrateError) {
       if (!migrateError.message.includes('duplicate column')) {
         console.warn(`⚠️ Migration note: ${migrateError.message}`);
@@ -1304,8 +1528,334 @@ class ElectronDatabaseManager {
       }
     }
 
+    // Migration: Add is_server to users if not exists
+    try {
+      await this.runQuery("ALTER TABLE users ADD COLUMN is_server BOOLEAN DEFAULT 0");
+      console.log('✅ Migration: Added is_server to users');
+    } catch (migrateError) {
+      if (!migrateError.message.includes('duplicate column')) {
+        console.warn(`⚠️ Migration note: ${migrateError.message}`);
+      }
+    }
+
+    // Migration: Add full_name column to users if not exists
+    try {
+      await this.runQuery("ALTER TABLE users ADD COLUMN full_name TEXT DEFAULT ''");
+      console.log('✅ Migration: Added full_name to users');
+    } catch (migrateError) {
+      if (!migrateError.message.includes('duplicate column')) {
+        console.warn(`⚠️ Migration note: ${migrateError.message}`);
+      }
+    }
+
+    // Migration: Add login_attempts to users for brute-force protection
+    try {
+      await this.runQuery("ALTER TABLE users ADD COLUMN login_attempts INTEGER DEFAULT 0");
+      console.log('✅ Migration: Added login_attempts to users');
+    } catch (migrateError) {
+      if (!migrateError.message.includes('duplicate column')) {
+        console.warn(`⚠️ Migration note: ${migrateError.message}`);
+      }
+    }
+
+    // Migration: Add locked_until to users for brute-force lockout
+    try {
+      await this.runQuery("ALTER TABLE users ADD COLUMN locked_until DATETIME DEFAULT NULL");
+      console.log('✅ Migration: Added locked_until to users');
+    } catch (migrateError) {
+      if (!migrateError.message.includes('duplicate column')) {
+        console.warn(`⚠️ Migration note: ${migrateError.message}`);
+      }
+    }
+
+    // Migration: Add avatar_url to users for profile pictures
+    try {
+      await this.runQuery("ALTER TABLE users ADD COLUMN avatar_url TEXT DEFAULT NULL");
+      console.log('✅ Migration: Added avatar_url to users');
+    } catch (migrateError) {
+      if (!migrateError.message.includes('duplicate column')) {
+        console.warn(`⚠️ Migration note: ${migrateError.message}`);
+      }
+    }
+
+    // Migration: Add pin_hash to users for PIN authentication
+    try {
+      await this.runQuery("ALTER TABLE users ADD COLUMN pin_hash TEXT DEFAULT NULL");
+      console.log('✅ Migration: Added pin_hash to users');
+    } catch (migrateError) {
+      if (!migrateError.message.includes('duplicate column')) {
+        console.warn(`⚠️ Migration note: ${migrateError.message}`);
+      }
+    }
+
+    // Migration: Add use_pin to users for PIN authentication toggle
+    try {
+      await this.runQuery("ALTER TABLE users ADD COLUMN use_pin BOOLEAN DEFAULT 0");
+      console.log('✅ Migration: Added use_pin to users');
+    } catch (migrateError) {
+      if (!migrateError.message.includes('duplicate column')) {
+        console.warn(`⚠️ Migration note: ${migrateError.message}`);
+      }
+    }
+
+    // Migration: Create recent_logins table for tracking recent user logins
+    try {
+      await this.runQuery(`CREATE TABLE IF NOT EXISTS recent_logins (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER NOT NULL,
+        login_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+      )`);
+      console.log('✅ Migration: Created recent_logins table');
+    } catch (migrateError) {
+      console.warn(`⚠️ Migration note: ${migrateError.message}`);
+    }
+
+    // Migration: Add security settings table
+    try {
+      await this.runQuery(`CREATE TABLE IF NOT EXISTS security_settings (
+        id INTEGER PRIMARY KEY CHECK (id = 1),
+        max_login_attempts INTEGER DEFAULT 5,
+        lockout_duration_minutes INTEGER DEFAULT 15,
+        session_timeout_minutes INTEGER DEFAULT 480,
+        password_min_length INTEGER DEFAULT 6,
+        password_require_uppercase BOOLEAN DEFAULT 0,
+        password_require_numbers BOOLEAN DEFAULT 0,
+        password_require_special BOOLEAN DEFAULT 0,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      )`);
+      await this.runQuery(`INSERT OR IGNORE INTO security_settings (id) VALUES (1)`);
+      console.log('✅ Migration: Created security_settings table');
+    } catch (migrateError) {
+      console.warn(`⚠️ Migration note: ${migrateError.message}`);
+    }
+
+    // Migration: Add indexes on users table
+    const userIndexes = [
+      'CREATE INDEX IF NOT EXISTS idx_users_role ON users(role)',
+      'CREATE INDEX IF NOT EXISTS idx_users_is_active ON users(is_active)',
+      'CREATE INDEX IF NOT EXISTS idx_users_is_server ON users(is_server)',
+      'CREATE INDEX IF NOT EXISTS idx_users_email ON users(email)',
+    ];
+    for (const idx of userIndexes) {
+      try { await this.runQuery(idx); } catch (e) { /* already exists */ }
+    }
+    console.log('✅ Migration: Added user indexes');
+
+    // Migration: Add server_id to table_zones if not exists
+    try {
+      await this.runQuery("ALTER TABLE table_zones ADD COLUMN server_id INTEGER DEFAULT NULL");
+      console.log('✅ Migration: Added server_id to table_zones');
+    } catch (migrateError) {
+      if (!migrateError.message.includes('duplicate column')) {
+        console.warn(`⚠️ Migration note: ${migrateError.message}`);
+      }
+    }
+
     // Insert default data
     await this.insertDefaultData();
+
+    // VAT migrations
+    try {
+      await this.runQuery("ALTER TABLE products ADD COLUMN vat_rate_id INTEGER DEFAULT NULL");
+      console.log('✅ Migration: Added vat_rate_id to products');
+    } catch (e) {
+      if (!e.message.includes('duplicate column')) console.warn(`⚠️ Migration (products.vat_rate_id): ${e.message}`);
+    }
+    try {
+      await this.runQuery("ALTER TABLE sale_items ADD COLUMN vat_rate DECIMAL(5,2) DEFAULT 0");
+      console.log('✅ Migration: Added vat_rate to sale_items');
+    } catch (e) {
+      if (!e.message.includes('duplicate column')) console.warn(`⚠️ Migration (sale_items.vat_rate): ${e.message}`);
+    }
+    try {
+      await this.runQuery("ALTER TABLE sale_items ADD COLUMN vat_amount DECIMAL(10,2) DEFAULT 0");
+      console.log('✅ Migration: Added vat_amount to sale_items');
+    } catch (e) {
+      if (!e.message.includes('duplicate column')) console.warn(`⚠️ Migration (sale_items.vat_amount): ${e.message}`);
+    }
+    try {
+      await this.runQuery("ALTER TABLE products ADD COLUMN price_type TEXT DEFAULT 'ttc'");
+      console.log('✅ Migration: Added price_type to products');
+    } catch (e) {
+      if (!e.message.includes('duplicate column')) console.warn(`⚠️ Migration (products.price_type): ${e.message}`);
+    }
+
+    // Migration: Add status column to sales if not exists
+    try {
+      await this.runQuery("ALTER TABLE sales ADD COLUMN status TEXT DEFAULT 'paid'");
+      console.log('✅ Migration: Added status column to sales');
+    } catch (migrateError) {
+      if (!migrateError.message.includes('duplicate column')) {
+        console.warn(`⚠️ Migration note: ${migrateError.message}`);
+      }
+    }
+
+    // Migration: Add receipt_number column to sales if not exists
+    try {
+      await this.runQuery("ALTER TABLE sales ADD COLUMN receipt_number TEXT");
+      console.log('✅ Migration: Added receipt_number column to sales');
+    } catch (migrateError) {
+      if (!migrateError.message.includes('duplicate column')) {
+        console.warn(`⚠️ Migration note: ${migrateError.message}`);
+      }
+    }
+
+    // Migration: Populate receipt numbers for existing sales
+    try {
+      const existingSales = await this.getData('SELECT id FROM sales WHERE receipt_number IS NULL ORDER BY id');
+      if (existingSales && existingSales.length > 0) {
+        for (const sale of existingSales) {
+          await this.runQuery('UPDATE sales SET receipt_number = ? WHERE id = ?', [`R${String(sale.id).padStart(6, '0')}`, sale.id]);
+        }
+        console.log(`✅ Populated receipt numbers for ${existingSales.length} existing sales`);
+      }
+    } catch (e) {
+      console.warn('Could not populate receipt numbers:', e.message);
+    }
+
+    // ── Table Management migrations ──
+    for (const col of [
+      ["ALTER TABLE restaurant_tables ADD COLUMN locked INTEGER DEFAULT 0", 'locked'],
+      ["ALTER TABLE restaurant_tables ADD COLUMN customer_count INTEGER DEFAULT 0", 'customer_count'],
+      ["ALTER TABLE restaurant_tables ADD COLUMN dining_started_at DATETIME DEFAULT NULL", 'dining_started_at']
+    ]) {
+      try {
+        await this.runQuery(col[0]);
+        console.log(`✅ Migration: Added ${col[1]} to restaurant_tables`);
+      } catch (e) {
+        if (!e.message.includes('duplicate column')) console.warn(`⚠️ Migration (restaurant_tables.${col[1]}): ${e.message}`);
+      }
+    }
+
+    // ── Z Reports table ──
+    try {
+      await this.runQuery(`
+        CREATE TABLE IF NOT EXISTS z_reports (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          shift_id INTEGER,
+          user_id INTEGER,
+          user_name TEXT DEFAULT '',
+          report_number TEXT NOT NULL,
+          period_start DATETIME NOT NULL,
+          period_end DATETIME NOT NULL,
+          total_sales INTEGER DEFAULT 0,
+          total_revenue REAL DEFAULT 0,
+          total_tax REAL DEFAULT 0,
+          total_discounts REAL DEFAULT 0,
+          cash_sales REAL DEFAULT 0,
+          card_sales REAL DEFAULT 0,
+          other_sales REAL DEFAULT 0,
+          refund_count INTEGER DEFAULT 0,
+          refund_total REAL DEFAULT 0,
+          opening_float REAL DEFAULT 0,
+          closing_expected REAL DEFAULT 0,
+          closing_actual REAL DEFAULT 0,
+          difference REAL DEFAULT 0,
+          transaction_count INTEGER DEFAULT 0,
+          items_sold INTEGER DEFAULT 0,
+          payment_methods_json TEXT DEFAULT '[]',
+          products_json TEXT DEFAULT '[]',
+          notes TEXT DEFAULT '',
+          printed_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+          created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        )
+      `);
+      await this.runQuery('CREATE INDEX IF NOT EXISTS idx_z_reports_date ON z_reports(period_end)');
+      await this.runQuery('CREATE INDEX IF NOT EXISTS idx_z_reports_shift ON z_reports(shift_id)');
+      await this.runQuery('CREATE INDEX IF NOT EXISTS idx_z_reports_user ON z_reports(user_id)');
+      console.log('✅ Migration: z_reports table ready');
+    } catch (e) {
+      console.warn(`⚠️ Migration (z_reports): ${e.message}`);
+    }
+
+    // ── Kitchen Product Workflow migrations ──
+    try {
+      await this.runQuery(`
+        CREATE TABLE IF NOT EXISTS kitchen_departments (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          name TEXT NOT NULL UNIQUE,
+          icon TEXT DEFAULT '',
+          color TEXT DEFAULT '#3B82F6',
+          is_active BOOLEAN DEFAULT 1,
+          sort_order INTEGER DEFAULT 0,
+          sla_target_minutes INTEGER DEFAULT 10,
+          created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        )
+      `);
+      console.log('✅ Migration: kitchen_departments table ready');
+    } catch (e) {
+      console.warn(`⚠️ Migration (kitchen_departments): ${e.message}`);
+    }
+
+    // Migration: Add sla_target_minutes to kitchen_departments
+    try {
+      await this.runQuery('ALTER TABLE kitchen_departments ADD COLUMN sla_target_minutes INTEGER DEFAULT 10');
+      console.log('✅ Migration: Added sla_target_minutes to kitchen_departments');
+    } catch (e) {
+      if (!e.message?.includes('duplicate column')) console.warn(`⚠️ Migration (kitchen_departments.sla_target): ${e.message}`);
+    }
+
+    // Migration: Add ready_at and served_at to kitchen_orders for full timeline
+    try {
+      await this.runQuery("ALTER TABLE kitchen_orders ADD COLUMN ready_at DATETIME DEFAULT NULL");
+      console.log('✅ Migration: Added ready_at to kitchen_orders');
+    } catch (e) {
+      if (!e.message?.includes('duplicate column')) console.warn(`⚠️ Migration (kitchen_orders.ready_at): ${e.message}`);
+    }
+
+    try {
+      await this.runQuery("ALTER TABLE kitchen_orders ADD COLUMN served_at DATETIME DEFAULT NULL");
+      console.log('✅ Migration: Added served_at to kitchen_orders');
+    } catch (e) {
+      if (!e.message?.includes('duplicate column')) console.warn(`⚠️ Migration (kitchen_orders.served_at): ${e.message}`);
+    }
+
+    try {
+      await this.runQuery('ALTER TABLE products ADD COLUMN requires_kitchen BOOLEAN DEFAULT 0');
+      console.log('✅ Migration: products.requires_kitchen added');
+    } catch (e) {
+      if (!e.message?.includes('duplicate column')) console.warn(`⚠️ Migration (products.requires_kitchen): ${e.message}`);
+    }
+
+    try {
+      await this.runQuery('ALTER TABLE products ADD COLUMN preparation_department TEXT DEFAULT NULL');
+      console.log('✅ Migration: products.preparation_department added');
+    } catch (e) {
+      if (!e.message?.includes('duplicate column')) console.warn(`⚠️ Migration (products.preparation_department): ${e.message}`);
+    }
+
+    try {
+      await this.runQuery('ALTER TABLE products ADD COLUMN preparation_time INTEGER DEFAULT NULL');
+      console.log('✅ Migration: products.preparation_time added');
+    } catch (e) {
+      if (!e.message?.includes('duplicate column')) console.warn(`⚠️ Migration (products.preparation_time): ${e.message}`);
+    }
+
+    // ── Kitchen departments indexes ──
+    try {
+      await this.runQuery('CREATE INDEX IF NOT EXISTS idx_kitchen_dept_name ON kitchen_departments(name)');
+      await this.runQuery('CREATE INDEX IF NOT EXISTS idx_products_requires_kitchen ON products(requires_kitchen)');
+      await this.runQuery('CREATE INDEX IF NOT EXISTS idx_products_prep_dept ON products(preparation_department)');
+      console.log('✅ Migration: kitchen workflow indexes ready');
+    } catch (e) {
+      console.warn(`⚠️ Migration (kitchen workflow indexes): ${e.message}`);
+    }
+
+    // ── Kitchen ↔ Sales bidirectional sync: kitchen_status column on sales ──
+    try {
+      await this.runQuery("ALTER TABLE sales ADD COLUMN kitchen_status TEXT DEFAULT NULL");
+      console.log('✅ Migration: Added kitchen_status to sales');
+    } catch (migrateError) {
+      if (!migrateError.message.includes('duplicate column')) {
+        console.warn(`⚠️ Migration note: ${migrateError.message}`);
+      }
+    }
+    try {
+      await this.runQuery('CREATE INDEX IF NOT EXISTS idx_sales_kitchen_status ON sales(kitchen_status)');
+      console.log('✅ Migration: Added index on sales.kitchen_status');
+    } catch (e) { /* already exists */ }
+
     console.log('✅ Database tables and indexes created successfully');
     } catch (error) {
       console.error('❌ Critical error during table creation:', error);
@@ -1321,8 +1871,40 @@ class ElectronDatabaseManager {
   async insertDefaultData() {
     console.log('📊 Skipping default data insertion - POS starts empty for client customization');
     
-    // POS database is now empty by default
-    // Clients can add their own products, categories, and data
+    // Insert default department routes for printer routing
+    const defaultDepartments = ['Kitchen', 'Bar', 'Bakery', 'Grill', 'Desserts', 'Reception'];
+    for (const dept of defaultDepartments) {
+      try {
+        await this.runQuery(
+          'INSERT OR IGNORE INTO department_printer_routes (department) VALUES (?)',
+          [dept]
+        );
+      } catch (e) {
+        // Ignore if already exists
+      }
+    }
+
+    // Insert default kitchen preparation departments
+    const defaultKitchenDepts = [
+      { name: 'Cuisine', icon: '🍳', color: '#EF4444', sort_order: 0 },
+      { name: 'Bar', icon: '🍸', color: '#8B5CF6', sort_order: 1 },
+      { name: 'Caféteria', icon: '☕', color: '#F59E0B', sort_order: 2 },
+      { name: 'Pâtisserie', icon: '🍰', color: '#EC4899', sort_order: 3 },
+      { name: 'Boulangerie', icon: '🍞', color: '#D97706', sort_order: 4 },
+      { name: 'Grill', icon: '🔥', color: '#F97316', sort_order: 5 },
+      { name: 'Pizza', icon: '🍕', color: '#DC2626', sort_order: 6 },
+      { name: 'Salades', icon: '🥗', color: '#16A34A', sort_order: 7 },
+    ];
+    for (const dept of defaultKitchenDepts) {
+      try {
+        await this.runQuery(
+          'INSERT OR IGNORE INTO kitchen_departments (name, icon, color, sort_order) VALUES (?, ?, ?, ?)',
+          [dept.name, dept.icon, dept.color, dept.sort_order]
+        );
+      } catch (e) {
+        // Ignore if already exists
+      }
+    }
     
     console.log('✅ Database ready (empty)');
   }

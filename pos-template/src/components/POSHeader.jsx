@@ -1,5 +1,5 @@
-import React from 'react';
-import { Menu, LogOut } from 'lucide-react';
+import React, { useState, useRef, useEffect } from 'react';
+import { Menu, LogOut, ChevronDown, UserCheck, Lock } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { useAppConfig } from '../hooks/useAppConfig';
 
@@ -9,6 +9,28 @@ export const POSHeader = ({
 }) => {
   const { user, logout } = useAuth();
   const { config, loading } = useAppConfig();
+  const [showMenu, setShowMenu] = useState(false);
+  const menuRef = useRef(null);
+
+  useEffect(() => {
+    const handler = (e) => {
+      if (menuRef.current && !menuRef.current.contains(e.target)) setShowMenu(false);
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, []);
+
+  const getInitials = (name) => {
+    if (!name) return '?';
+    return name.split(' ').map(w => w[0]).join('').toUpperCase().slice(0, 2);
+  };
+
+  const ROLE_BADGE = {
+    admin: 'bg-red-500/10 text-red-600',
+    manager: 'bg-orange-500/10 text-orange-600',
+    cashier: 'bg-emerald-500/10 text-emerald-600',
+    server: 'bg-teal-500/10 text-teal-600',
+  };
 
   // Extract theme configuration (même si loading)
   const theme = config?.theme || {};
@@ -108,35 +130,56 @@ export const POSHeader = ({
           </div>
         </div>
 
-        {/* Section droite - User info et logout */}
+        {/* Section droite - User info et menu */}
         {user && (
-          <div className="flex items-center space-x-4">
-            {/* Avatar et infos user */}
-            <div className="flex items-center space-x-3">
-              <div 
-                className="w-8 h-8 rounded-full flex items-center justify-center text-white text-sm font-medium"
-                style={{ backgroundColor: primaryColor }}
-              >
-                {user.fullName?.charAt(0) || user.username?.charAt(0) || 'U'}
-              </div>
-              <div className="hidden md:block">
-                <p className="text-sm font-medium" style={{ color: textColor }}>
-                  {user.fullName || user.username}
-                </p>
-                <p className="text-xs" style={{ color: textMutedColor }}>
-                  {user.role || 'Utilisateur'}
-                </p>
-              </div>
-            </div>
-
-            {/* Bouton logout */}
+          <div className="relative" ref={menuRef}>
             <button
-              onClick={logout}
-              className="p-2 rounded-lg hover:bg-red-50 text-gray-500 hover:text-red-600 transition-colors"
-              title="Se déconnecter"
+              onClick={() => setShowMenu(!showMenu)}
+              className="flex items-center space-x-3 p-1.5 rounded-xl hover:bg-muted/40 transition-all"
             >
-              <LogOut className="w-5 h-5" />
+              {user.avatar_url ? (
+                <img src={user.avatar_url} alt="" className="w-8 h-8 rounded-full object-cover" />
+              ) : (
+                <div 
+                  className="w-8 h-8 rounded-full flex items-center justify-center text-white text-sm font-bold"
+                  style={{ backgroundColor: primaryColor }}
+                >
+                  {getInitials(user.fullName || user.full_name)}
+                </div>
+              )}
+              <div className="hidden md:block text-left">
+                <p className="text-sm font-medium" style={{ color: textColor }}>
+                  {user.fullName || user.full_name || user.username}
+                </p>
+                <p className={`text-[10px] font-medium px-1.5 py-0.5 rounded-full inline-block ${ROLE_BADGE[user.role] || 'bg-muted text-muted-foreground'}`}>
+                  {user.role}
+                </p>
+              </div>
+              <ChevronDown size={14} className={`text-muted-foreground transition-transform ${showMenu ? 'rotate-180' : ''}`} />
             </button>
+
+            {showMenu && (
+              <div className="absolute right-0 top-full mt-2 w-56 bg-card border border-border/50 rounded-xl shadow-xl shadow-black/5 py-1.5 z-50 animate-in fade-in slide-in-from-top-2 duration-150">
+                <div className="px-3 py-2 border-b border-border/30">
+                  <p className="text-sm font-semibold">{user.fullName || user.full_name || user.username}</p>
+                  <p className="text-[11px] text-muted-foreground">{user.email || user.username}</p>
+                </div>
+                <button
+                  onClick={() => { setShowMenu(false); logout(); }}
+                  className="w-full flex items-center gap-2.5 px-3 py-2.5 text-sm text-muted-foreground hover:bg-muted/50 hover:text-foreground transition-colors"
+                >
+                  <UserCheck size={15} />
+                  Changer d'utilisateur
+                </button>
+                <button
+                  onClick={() => { setShowMenu(false); logout(); }}
+                  className="w-full flex items-center gap-2.5 px-3 py-2.5 text-sm text-destructive hover:bg-destructive/5 transition-colors"
+                >
+                  <LogOut size={15} />
+                  Se déconnecter
+                </button>
+              </div>
+            )}
           </div>
         )}
       </div>

@@ -137,14 +137,26 @@ function mapTableRows(rows) {
  */
 function mapKitchenOrderRow(row) {
   return {
-    order_id:     row.id ?? null,
-    table_number: row.table_number ?? null,
-    items:        row.items ?? null,
-    notes:        row.notes ?? null,
-    priority:     row.priority ?? 'normal',
-    status:       row.status ?? 'pending',
-    created_at:   row.created_at ?? null,
-    updated_at:   row.updated_at ?? null,
+    order_id:          row.id ?? null,
+    table_number:      row.table_number ?? null,
+    items:             row.items ?? null,
+    notes:             row.notes ?? null,
+    priority:          row.priority ?? 'normal',
+    status:            row.status ?? 'pending',
+    sale_id:           row.sale_id ?? null,
+    total:             row.total ?? 0,
+    server_name:       row.server_name ?? null,
+    customer_name:     row.customer_name ?? null,
+    department:        row.department ?? null,
+    estimated_minutes: row.estimated_minutes ?? null,
+    started_at:        row.started_at ?? null,
+    ready_at:          row.ready_at ?? null,
+    served_at:         row.served_at ?? null,
+    completed_at:      row.completed_at ?? null,
+    cancel_reason:     row.cancel_reason ?? null,
+    cancelled_by:      row.cancelled_by ?? null,
+    created_at:        row.created_at ?? null,
+    updated_at:        row.updated_at ?? null,
   };
 }
 

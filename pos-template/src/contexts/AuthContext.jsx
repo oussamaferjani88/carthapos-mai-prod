@@ -1,9 +1,9 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
-import { isPreviewMode, logEnvironment } from '../utils/environment';
+import React, { createContext, useContext, useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import { isPreviewMode } from '../utils/environment';
 
 const AuthContext = createContext();
 
-export { AuthContext }; // Export nommé pour Layout.jsx
+export { AuthContext };
 
 export const useAuth = () => {
   const context = useContext(AuthContext);
@@ -16,11 +16,57 @@ export const useAuth = () => {
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [isLocked, setIsLocked] = useState(false);
+  const inactivityTimer = useRef(null);
+  const pingInterval = useRef(null);
+  const listenerCleanup = useRef(null);
 
   useEffect(() => {
-    logEnvironment();
     checkAuthStatus();
+    return () => {
+      clearAllTimers();
+    };
   }, []);
+
+  const clearAllTimers = useCallback(() => {
+    if (inactivityTimer.current) { clearTimeout(inactivityTimer.current); inactivityTimer.current = null; }
+    if (pingInterval.current) { clearInterval(pingInterval.current); pingInterval.current = null; }
+    if (listenerCleanup.current) { listenerCleanup.current(); listenerCleanup.current = null; }
+  }, []);
+
+  const startInactivityTimer = useCallback(() => {
+    clearAllTimers();
+
+    const events = ['mousedown', 'keydown', 'touchstart', 'scroll'];
+    const resetTimer = () => {
+      if (inactivityTimer.current) clearTimeout(inactivityTimer.current);
+      inactivityTimer.current = setTimeout(() => {
+        setIsLocked(true);
+      }, 10 * 60 * 1000);
+    };
+
+    events.forEach(e => window.addEventListener(e, resetTimer, { passive: true }));
+    resetTimer();
+
+    pingInterval.current = setInterval(() => {
+      if (window.electronAPI?.authSessionPing) {
+        window.electronAPI.authSessionPing().catch(() => {});
+      }
+    }, 60000);
+
+    listenerCleanup.current = () => {
+      events.forEach(e => window.removeEventListener(e, resetTimer));
+    };
+  }, [clearAllTimers]);
+
+  useEffect(() => {
+    if (user && !isPreviewMode()) {
+      startInactivityTimer();
+    } else {
+      clearAllTimers();
+    }
+    return clearAllTimers;
+  }, [user, startInactivityTimer, clearAllTimers]);
 
   const checkAuthStatus = async () => {
     const storedAuth = localStorage.getItem('pos_auth');
@@ -30,25 +76,16 @@ export const AuthProvider = ({ children }) => {
       try {
         const parsedUser = JSON.parse(storedUser);
         
-        // CRITICAL: In production mode, validate that the cached user actually exists in database
         if (!isPreviewMode() && window.electronAPI) {
-          console.log('🔍 Validating cached user against database...');
-          
           try {
-            // Check if user exists in current database
-            const userExists = await window.electronAPI.invoke('validate-user-exists', parsedUser.id);
-            
+            const userExists = await window.electronAPI.validateUserExists(parsedUser.id);
             if (!userExists) {
-              console.warn('⚠️ Cached user does not exist in current database - clearing session');
               localStorage.removeItem('pos_auth');
               localStorage.removeItem('pos_user');
               setLoading(false);
               return;
             }
-            
-            console.log('✅ Cached user validated successfully');
           } catch (error) {
-            console.warn('⚠️ Could not validate cached user - clearing session:', error);
             localStorage.removeItem('pos_auth');
             localStorage.removeItem('pos_user');
             setLoading(false);
@@ -66,50 +103,15 @@ export const AuthProvider = ({ children }) => {
     setLoading(false);
   };
 
-  const login = async (credentials) => {
-    // PREVIEW MODE: Use demo users for testing
-    if (isPreviewMode()) {
-      return loginWithDemoUsers(credentials);
-    }
-
-    // PRODUCTION MODE: Authenticate against database
-    return loginWithDatabase(credentials);
-  };
-
-  const loginWithDemoUsers = async (credentials) => {
-    console.log('🌐 Preview mode: Using demo authentication');
-    
+  const loginWithDemoUsers = useCallback(async (credentials) => {
     const demoUsers = [
-      { 
-        username: 'admin', 
-        password: 'admin123', 
-        role: 'admin', 
-        fullName: 'Administrateur',
-        permissions: ['all'] 
-      },
-      { 
-        username: 'caissier', 
-        password: 'caissier123', 
-        role: 'cashier', 
-        fullName: 'Caissier',
-        permissions: ['sales', 'customers'] 
-      },
-      { 
-        username: 'manager', 
-        password: 'manager123', 
-        role: 'manager', 
-        fullName: 'Manager',
-        permissions: ['sales', 'products', 'customers', 'reports', 'inventory'] 
-      }
+      { username: 'admin', password: 'admin123', role: 'admin', fullName: 'Administrateur', permissions: ['all'] },
+      { username: 'caissier', password: 'caissier123', role: 'cashier', fullName: 'Caissier', permissions: ['sales', 'customers'] },
+      { username: 'manager', password: 'manager123', role: 'manager', fullName: 'Manager', permissions: ['sales', 'products', 'customers', 'reports', 'inventory'] },
     ];
 
-    const validUser = demoUsers.find(u => 
-      u.username === credentials.username && u.password === credentials.password
-    );
-
-    if (!validUser) {
-      throw new Error('Nom d\'utilisateur ou mot de passe incorrect');
-    }
+    const validUser = demoUsers.find(u => u.username === credentials.username && u.password === credentials.password);
+    if (!validUser) throw new Error("Nom d'utilisateur ou mot de passe incorrect");
 
     const mockUser = {
       id: validUser.username === 'admin' ? 1 : validUser.username === 'caissier' ? 2 : 3,
@@ -117,85 +119,124 @@ export const AuthProvider = ({ children }) => {
       email: `${validUser.username}@pos.com`,
       role: validUser.role,
       fullName: validUser.fullName,
-      permissions: validUser.permissions
+      full_name: validUser.fullName,
+      permissions: validUser.permissions,
     };
 
     setUser(mockUser);
     localStorage.setItem('pos_auth', 'true');
     localStorage.setItem('pos_user', JSON.stringify(mockUser));
-    
     return mockUser;
-  };
+  }, []);
 
-  const loginWithDatabase = async (credentials) => {
-    console.log('⚡ Production mode: Authenticating against database');
-    
+  const loginWithDatabase = useCallback(async (credentials) => {
     try {
-      if (!window.electronAPI) {
-        throw new Error('Système non disponible');
-      }
+      if (!window.electronAPI) throw new Error('Système non disponible');
 
       const authenticatedUser = await window.electronAPI.authenticateUser(
         credentials.username,
         credentials.password
       );
 
-      if (!authenticatedUser) {
-        throw new Error('Nom d\'utilisateur ou mot de passe incorrect');
-      }
+      if (!authenticatedUser) throw new Error("Nom d'utilisateur ou mot de passe incorrect");
 
       setUser(authenticatedUser);
       localStorage.setItem('pos_auth', 'true');
       localStorage.setItem('pos_user', JSON.stringify(authenticatedUser));
       
+      try {
+        await window.electronAPI.authSessionSet?.(authenticatedUser.id, authenticatedUser);
+      } catch (e) { /* optional */ }
+
       return authenticatedUser;
     } catch (error) {
-      console.error('❌ Authentication error:', error);
       throw error;
     }
-  };
+  }, []);
 
-  const logout = async () => {
-    console.log('🚪 Logout appelé depuis AuthContext');
-    
-    // Log logout to database in production mode
-    if (!isPreviewMode() && user && window.electronAPI) {
-      try {
-        await window.electronAPI.logout(user.id);
-      } catch (error) {
-        console.error('❌ Error logging out in database:', error);
-      }
+  const login = useCallback(async (credentials) => {
+    if (isPreviewMode()) {
+      return loginWithDemoUsers(credentials);
     }
-    
+    return loginWithDatabase(credentials);
+  }, [loginWithDemoUsers, loginWithDatabase]);
+
+  const loginByUserSelect = useCallback(async (userObj, method, credential) => {
+    try {
+      if (!window.electronAPI) throw new Error('Système non disponible');
+
+      let authUser;
+      if (method === 'pin') {
+        authUser = await window.electronAPI.authenticateByPin(userObj.id, credential);
+      } else {
+        authUser = await window.electronAPI.authenticateUser(userObj.username, credential);
+      }
+
+      if (!authUser || !authUser.id) {
+        throw new Error("Identifiants incorrects");
+      }
+
+      setUser(authUser);
+      localStorage.setItem('pos_auth', 'true');
+      localStorage.setItem('pos_user', JSON.stringify(authUser));
+
+      try {
+        await window.electronAPI.authSessionSet?.(authUser.id, authUser);
+      } catch (e) { /* optional */ }
+
+      return authUser;
+    } catch (error) {
+      throw error;
+    }
+  }, []);
+
+  const unlock = useCallback(() => {
+    setIsLocked(false);
+    startInactivityTimer();
+  }, [startInactivityTimer]);
+
+  // Logout is synchronous: IPC calls are fire-and-forget to prevent async gaps
+  // between setIsLocked(false) and setUser(null) which caused React error #300
+  // (MainPOSApp defined inline + async state transition = cascading unmount/remount)
+  const logout = useCallback(() => {
+    clearAllTimers();
+    setIsLocked(false);
     setUser(null);
     localStorage.removeItem('pos_auth');
     localStorage.removeItem('pos_user');
-    console.log('🚪 Logout terminé, utilisateur supprimé');
-  };
+    localStorage.removeItem('pos_session_orders');
 
-  // Direct user setter for auto-login after first-time setup
-  const setUserDirectly = (userData) => {
-    console.log('👤 Setting user directly:', userData);
+    // Fire-and-forget IPC cleanup (non-blocking)
+    if (!isPreviewMode() && user && window.electronAPI) {
+      window.electronAPI.logout(user.id).catch(() => {});
+      window.electronAPI.authSessionClear?.().catch(() => {});
+    }
+  }, [clearAllTimers, user]);
+
+  const setUserDirectly = useCallback((userData) => {
     setUser(userData);
     localStorage.setItem('pos_auth', 'true');
     localStorage.setItem('pos_user', JSON.stringify(userData));
-  };
+  }, []);
 
-  const hasPermission = (permission) => {
+  const hasPermission = useCallback((permission) => {
     if (!user) return false;
-    if (user.permissions.includes('all')) return true;
-    return user.permissions.includes(permission);
-  };
+    if (user.permissions?.includes('all')) return true;
+    return user.permissions?.includes(permission);
+  }, [user]);
 
-  const value = {
+  const value = useMemo(() => ({
     user,
     login,
+    loginByUserSelect,
     logout,
-    setUserDirectly, // Expose for first-time setup auto-login
+    setUserDirectly,
     hasPermission,
     loading,
-    isAuthenticated: !!user
-  };
+    isAuthenticated: !!user,
+    isLocked,
+    unlock,
+  }), [user, login, loginByUserSelect, logout, setUserDirectly, hasPermission, loading, isLocked, unlock]);
 
   return (
     <AuthContext.Provider value={value}>

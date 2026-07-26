@@ -26,6 +26,8 @@ const { registerServiceHandlers } = require('../src/electron/handlers/ipc-servic
 const { registerBiExportHandlers } = require('../src/electron/handlers/ipc-bi-export-handler.cjs');
 const { registerCaisseHandlers } = require('../src/electron/handlers/ipc-cash-register-handlers.cjs');
 const { registerStockHandlers } = require('../src/electron/handlers/ipc-stock-handlers.cjs');
+const { registerReportsHandlers } = require('../src/electron/handlers/ipc-reports-handlers.cjs');
+const { registerHardwareHandlers } = require('../src/electron/handlers/ipc-hardware-handlers.cjs');
 
 // Global references
 let mainWindow = null;
@@ -152,11 +154,13 @@ function registerAllHandlers() {
     registerSalesHandlers(ipcMain, databaseManager);
     registerCustomerHandlers(ipcMain, databaseManager);
     registerSupplierHandlers(ipcMain, databaseManager);
-    registerKitchenHandlers(ipcMain, databaseManager);
+    registerKitchenHandlers(ipcMain, databaseManager, () => mainWindow);
     registerServiceHandlers(ipcMain, databaseManager);
     registerBiExportHandlers(databaseManager);
     registerCaisseHandlers(ipcMain, databaseManager);
     registerStockHandlers(ipcMain, databaseManager);
+    registerReportsHandlers(ipcMain, databaseManager);
+    registerHardwareHandlers(ipcMain, databaseManager);
     
     console.log('All IPC handlers registered successfully');
   } catch (error) {

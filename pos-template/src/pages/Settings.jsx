@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
 import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
@@ -7,726 +7,696 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '.
 import { Switch } from '../components/ui/switch';
 import { Badge } from '../components/ui/badge';
 import { Separator } from '../components/ui/separator';
-import { 
-  Settings as SettingsIcon, 
-  Shield, 
-  Palette, 
-  Database,
-  Printer,
-  Info
+import { ScrollArea } from '../components/ui/scroll-area';
+import {
+  Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle
+} from '../components/ui/dialog';
+import {
+  Settings as SettingsIcon, Shield, Palette, Database, Printer, Info, Plus, Trash2,
+  Percent, Edit2, Download, Upload, RefreshCw, Search, Save, AlertTriangle, X,
+  ChevronRight, Building2, Globe, Clock, Receipt, Lock, Zap, Check,
+  FileText, HardDrive, Bell, Image as ImageIcon, ChefHat
 } from 'lucide-react';
 import { useAppConfig } from '../hooks/useAppConfig';
 import { useLicense } from '../hooks/useLicense';
 import { useSettings } from '../hooks/useSettings';
-import { POSConfiguration } from '../lib/POSConfiguration';
+import { useToast } from '../hooks/use-toast';
+import ReceiptDesigner from './ReceiptDesigner';
+
+const CURRENCIES = [
+  { value: 'TND', label: 'Dinar Tunisien (DT)' },
+  { value: 'EUR', label: 'Euro (€)' },
+  { value: 'USD', label: 'Dollar ($)' },
+  { value: 'GBP', label: 'Livre (£)' },
+  { value: 'CHF', label: 'Franc suisse (CHF)' }
+];
+const LANGUAGES = [
+  { value: 'fr', label: 'Français' },
+  { value: 'en', label: 'English' },
+  { value: 'es', label: 'Español' },
+  { value: 'de', label: 'Deutsch' }
+];
+const TIMEZONES = [
+  { value: 'Africa/Tunis', label: 'Africa/Tunis (CET)' },
+  { value: 'Europe/Paris', label: 'Europe/Paris (CET)' },
+  { value: 'Europe/London', label: 'Europe/London (GMT)' },
+  { value: 'America/New_York', label: 'America/New_York (EST)' }
+];
+const DEFAULT_SETTINGS = {
+  businessName: '', businessLogo: '', businessAddress: '', businessPhone: '',
+  businessEmail: '', businessWebsite: '', businessTaxId: '', currency: 'TND',
+  taxEnabled: true, numberFormat: 'fr-FR', language: 'fr', timezone: 'Africa/Tunis',
+  printReceipts: true, printKitchen: true, receiptPrinter: '', kitchenPrinter: '',
+  paperWidth: '80', soundEnabled: true, theme: 'default'
+};
+
+const MODULES = [
+  { id: 'general', title: 'Général', description: 'Informations de l\'entreprise, devise, langue...', icon: Building2, color: 'bg-blue-500' },
+  { id: 'kitchen', title: 'Départements Cuisine', description: 'Gérer les départements de préparation...', icon: ChefHat, color: 'bg-amber-500' },
+  { id: 'receipt', title: 'Tickets', description: 'Conception et personnalisation des reçus...', icon: Receipt, color: 'bg-purple-500' },
+  { id: 'backup', title: 'Sauvegardes', description: 'Sauvegarde et restauration des données...', icon: HardDrive, color: 'bg-amber-500' },
+  { id: 'appearance', title: 'Apparence', description: 'Thème, sons et personnalisation...', icon: Palette, color: 'bg-pink-500' },
+];
+
+const SIDEBAR_ITEMS = [
+  { id: 'general', label: 'Général', icon: SettingsIcon },
+  { id: 'kitchen', label: 'Départements Cuisine', icon: ChefHat },
+  { id: 'receipt', label: 'Tickets', icon: Receipt },
+  { id: 'backup', label: 'Sauvegardes', icon: HardDrive },
+  { id: 'appearance', label: 'Apparence', icon: Palette },
+  { id: 'system', label: 'Système', icon: Info },
+];
+
+function validateField(key, value) {
+  const str = String(value || '');
+  switch (key) {
+    case 'businessEmail': if (str && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(str)) return 'Email invalide'; break;
+    case 'businessWebsite': if (str) { try { new URL(str); } catch { return 'URL invalide'; } } break;
+    case 'businessPhone': if (str && !/^[\d\s\+\-\(\)]{4,20}$/.test(str)) return 'Numéro de téléphone invalide'; break;
+  }
+  return null;
+}
+
+function SkeletonBlock({ className = '' }) {
+  return <div className={`animate-pulse rounded-md bg-muted ${className}`} />;
+}
+
+function SkeletonSettings() {
+  return (
+    <div className="space-y-6">
+      <SkeletonBlock className="h-8 w-48" />
+      <SkeletonBlock className="h-4 w-64" />
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {[1,2,3,4].map(i => (
+          <Card key={i}><CardContent className="p-6 space-y-4">
+            <SkeletonBlock className="h-5 w-32" />
+            <SkeletonBlock className="h-4 w-48" />
+            <SkeletonBlock className="h-10 w-full" />
+            <SkeletonBlock className="h-10 w-full" />
+          </CardContent></Card>
+        ))}
+      </div>
+    </div>
+  );
+}
 
 export default function Settings() {
   const { config } = useAppConfig();
   const { license } = useLicense();
-  const { setMultipleSettings } = useSettings();
-  const [dbPath, setDbPath] = useState('');
+  const { settings: dbSettings, loading: dbLoading, setMultipleSettings, reload } = useSettings();
+  const { toast } = useToast();
 
-  // Integration: POSConfiguration styling
-  const getThemeConfig = () => {
-    if (config && config.theme) {
-      return POSConfiguration.createConfig(config.theme);
-    }
-    if (typeof window !== 'undefined' && window.themeConfig) {
-      return POSConfiguration.createConfig(window.themeConfig);
-    }
-    return POSConfiguration.createConfig({});
-  };
-
-  const themeConfig = getThemeConfig();
-  const styles = POSConfiguration.getStyles(themeConfig);
-  const cardClasses = POSConfiguration.getCardClasses(themeConfig);
-  const buttonClasses = POSConfiguration.getButtonClasses(themeConfig);
-
-  const defaultSettings = {
-    businessName: '',
-    businessLogo: '',
-    businessAddress: '',
-    businessPhone: '',
-    businessEmail: '',
-    businessWebsite: '',
-    businessTaxId: '',
-    currency: 'TND',
-    taxEnabled: true,
-    taxRate: 19,
-    numberFormat: 'fr-FR',
-    language: 'fr',
-    timezone: 'Africa/Tunis',
-    autoBackup: true,
-    backupFolder: '',
-    backupFrequency: 'daily',
-    printReceipts: true,
-    printKitchen: true,
-    receiptPrinter: '',
-    kitchenPrinter: '',
-    paperWidth: '80',
-    soundEnabled: true,
-    theme: 'default'
-  };
-
-  const [settings, setSettings] = useState(defaultSettings);
+  const [activeModule, setActiveModule] = useState(null);
+  const [settings, setSettings] = useState(DEFAULT_SETTINGS);
   const [loading, setLoading] = useState(false);
-  const [loadedFromDb, setLoadedFromDb] = useState(false);
+  const [loaded, setLoaded] = useState(false);
+  const [dirty, setDirty] = useState(false);
+  const [dbPath, setDbPath] = useState('');
+  const [searchTerm, setSearchTerm] = useState('');
+  const [globalSearch, setGlobalSearch] = useState('');
 
-  useEffect(() => {
-    if (window.electronAPI?.getDatabasePath) {
-      window.electronAPI.getDatabasePath().then(setDbPath).catch(() => {});
-    }
-  }, []);
+  const [vatRates, setVatRates] = useState([]);
+  const [newVatRate, setNewVatRate] = useState({ name: '', rate: '' });
+  const [editingVatRate, setEditingVatRate] = useState(null);
 
-  useEffect(() => {
-    const loadFromDb = async () => {
-      if (window.electronAPI?.getAllSettings) {
-        try {
-          const dbSettings = await window.electronAPI.getAllSettings();
-          if (dbSettings && Object.keys(dbSettings).length > 0) {
-            setSettings(prev => ({
-              ...prev,
-              businessName: dbSettings.businessName || prev.businessName,
-              businessLogo: dbSettings.businessLogo || prev.businessLogo,
-              businessAddress: dbSettings.businessAddress || prev.businessAddress,
-              businessPhone: dbSettings.businessPhone || prev.businessPhone,
-              businessEmail: dbSettings.businessEmail || prev.businessEmail,
-              businessWebsite: dbSettings.businessWebsite || prev.businessWebsite,
-              businessTaxId: dbSettings.businessTaxId || prev.businessTaxId,
-              currency: dbSettings.currency || prev.currency,
-              taxEnabled: dbSettings.taxEnabled === 'true' || dbSettings.taxEnabled === true,
-              taxRate: dbSettings.taxRate ? parseFloat(dbSettings.taxRate) : prev.taxRate,
-              numberFormat: dbSettings.numberFormat || prev.numberFormat,
-              language: dbSettings.language || prev.language,
-              timezone: dbSettings.timezone || prev.timezone,
-              autoBackup: dbSettings.autoBackup === 'true',
-              backupFolder: dbSettings.backupFolder || prev.backupFolder,
-              backupFrequency: dbSettings.backupFrequency || prev.backupFrequency,
-              printReceipts: dbSettings.printReceipts === 'true',
-              printKitchen: dbSettings.printKitchen === 'true',
-              receiptPrinter: dbSettings.receiptPrinter || prev.receiptPrinter,
-              kitchenPrinter: dbSettings.kitchenPrinter || prev.kitchenPrinter,
-              paperWidth: dbSettings.paperWidth || prev.paperWidth,
-              soundEnabled: dbSettings.soundEnabled === 'true',
-              theme: dbSettings.theme || prev.theme
-            }));
-            setLoadedFromDb(true);
-          }
-        } catch (err) {
-          console.warn('Could not load settings from DB, using defaults:', err);
-        }
-      }
-    };
-    loadFromDb();
-  }, []);
+  const [showExportDialog, setShowExportDialog] = useState(false);
+  const [showImportDialog, setShowImportDialog] = useState(false);
+  const [importJson, setImportJson] = useState('');
+  const [showResetDialog, setShowResetDialog] = useState(false);
+  const importRef = useRef(null);
 
-  useEffect(() => {
-    if (config && !loadedFromDb) {
-      setSettings({
-        ...defaultSettings,
-        businessName: config.theme?.businessName || '',
-        currency: config.theme?.currency || 'TND',
-        taxRate: config.theme?.taxRate || 19,
-        language: config.theme?.language || 'fr',
-        timezone: config.theme?.timezone || 'Africa/Tunis',
-      });
-    }
-  }, [config, loadedFromDb]);
+  const [kitchenDepartments, setKitchenDepartments] = useState([]);
+  const [kitchenLoading, setKitchenLoading] = useState(false);
+  const [newDeptName, setNewDeptName] = useState('');
+  const [newDeptIcon, setNewDeptIcon] = useState('');
+  const [editingDept, setEditingDept] = useState(null);
+  const [editDeptName, setEditDeptName] = useState('');
+  const [editDeptIcon, setEditDeptIcon] = useState('');
+  const [showDeleteDeptConfirm, setShowDeleteDeptConfirm] = useState(null);
 
-  const handleSave = async () => {
+  const loadKitchenDepartments = useCallback(async () => {
+    setKitchenLoading(true);
     try {
-      setLoading(true);
-      
-      if (window.electronAPI?.setSetting) {
-        const result = await setMultipleSettings(settings);
-        if (!result.success) {
-          throw new Error(result.error || 'Save failed');
-        }
-      } else {
-        await new Promise(resolve => setTimeout(resolve, 500));
+      if (window.electronAPI?.getKitchenDepartments) {
+        const data = await window.electronAPI.getKitchenDepartments();
+        setKitchenDepartments(data || []);
       }
-      
-      alert('Paramètres sauvegardés avec succès');
-    } catch (error) {
-      console.error('Error saving settings:', error);
-      alert('Erreur lors de la sauvegarde');
-    } finally {
-      setLoading(false);
-    }
+    } catch (e) { console.warn('Could not load kitchen departments:', e); }
+    finally { setKitchenLoading(false); }
+  }, []);
+
+  useEffect(() => { loadKitchenDepartments(); }, [loadKitchenDepartments]);
+
+  const handleAddKitchenDept = async () => {
+    if (!newDeptName.trim()) return;
+    try {
+      await window.electronAPI.addKitchenDepartment({ name: newDeptName.trim(), icon: newDeptIcon.trim() || null, is_active: 1 });
+      setNewDeptName(''); setNewDeptIcon('');
+      toast({ title: 'Département ajouté' });
+      await loadKitchenDepartments();
+    } catch (e) { toast({ title: 'Erreur', description: e.message, variant: 'destructive' }); }
   };
 
-  const handleReset = () => {
-    if (confirm('Êtes-vous sûr de vouloir réinitialiser tous les paramètres ?')) {
-      setSettings({ ...defaultSettings, businessName: config.theme?.businessName || '' });
-    }
+  const handleUpdateKitchenDept = async (id) => {
+    if (!editDeptName.trim()) return;
+    try {
+      await window.electronAPI.updateKitchenDepartment(id, { name: editDeptName.trim(), icon: editDeptIcon.trim() || null });
+      setEditingDept(null);
+      toast({ title: 'Département mis à jour' });
+      await loadKitchenDepartments();
+    } catch (e) { toast({ title: 'Erreur', description: e.message, variant: 'destructive' }); }
   };
 
-  const currencies = [
-    { value: 'TND', label: 'Dinar Tunisien (DT)' },
-    { value: 'EUR', label: 'Euro (€)' },
-    { value: 'USD', label: 'Dollar ($)' },
-    { value: 'GBP', label: 'Livre (£)' },
-    { value: 'CHF', label: 'Franc suisse (CHF)' }
-  ];
+  const handleToggleKitchenDept = async (id, isActive) => {
+    try {
+      await window.electronAPI.updateKitchenDepartment(id, { is_active: isActive ? 0 : 1 });
+      await loadKitchenDepartments();
+    } catch (e) { toast({ title: 'Erreur', description: e.message, variant: 'destructive' }); }
+  };
 
-  const languages = [
-    { value: 'fr', label: 'Français' },
-    { value: 'en', label: 'English' },
-    { value: 'es', label: 'Español' },
-    { value: 'de', label: 'Deutsch' }
-  ];
+  const handleDeleteKitchenDept = async (id) => {
+    try {
+      await window.electronAPI.deleteKitchenDepartment(id);
+      setShowDeleteDeptConfirm(null);
+      toast({ title: 'Département supprimé' });
+      await loadKitchenDepartments();
+    } catch (e) { toast({ title: 'Erreur', description: e.message, variant: 'destructive' }); }
+  };
 
-  const timezones = [
-    { value: 'Africa/Tunis', label: 'Africa/Tunis (CET)' },
-    { value: 'Europe/Paris', label: 'Europe/Paris (CET)' },
-    { value: 'Europe/London', label: 'Europe/London (GMT)' },
-    { value: 'America/New_York', label: 'America/New_York (EST)' },
-    { value: 'America/Los_Angeles', label: 'America/Los_Angeles (PST)' }
-  ];
+  useEffect(() => { if (window.electronAPI?.getDatabasePath) window.electronAPI.getDatabasePath().then(setDbPath).catch(() => {}); }, []);
 
+  useEffect(() => {
+    if (dbSettings && Object.keys(dbSettings).length > 0 && !loaded) {
+      setSettings(prev => ({
+        ...prev,
+        businessName: dbSettings.businessName ?? prev.businessName,
+        businessLogo: dbSettings.businessLogo ?? prev.businessLogo,
+        businessAddress: dbSettings.businessAddress ?? prev.businessAddress,
+        businessPhone: dbSettings.businessPhone ?? prev.businessPhone,
+        businessEmail: dbSettings.businessEmail ?? prev.businessEmail,
+        businessWebsite: dbSettings.businessWebsite ?? prev.businessWebsite,
+        businessTaxId: dbSettings.businessTaxId ?? prev.businessTaxId,
+        currency: dbSettings.currency ?? prev.currency,
+        taxEnabled: dbSettings.taxEnabled ?? prev.taxEnabled,
+        numberFormat: dbSettings.numberFormat ?? prev.numberFormat,
+        language: dbSettings.language ?? prev.language,
+        timezone: dbSettings.timezone ?? prev.timezone,
+        soundEnabled: dbSettings.soundEnabled ?? prev.soundEnabled,
+        theme: dbSettings.theme ?? prev.theme
+      }));
+      setLoaded(true);
+    }
+  }, [dbSettings, loaded]);
+
+  useEffect(() => {
+    if (!loaded && config) {
+      setSettings(prev => ({
+        ...prev,
+        businessName: config.theme?.businessName || prev.businessName,
+        currency: config.theme?.currency || prev.currency,
+        language: config.theme?.language || prev.language,
+        timezone: config.theme?.timezone || prev.timezone,
+      }));
+      setLoaded(true);
+    }
+  }, [config, loaded]);
+
+  useEffect(() => { loadVatRates(); }, []);
+  const loadVatRates = async () => { try { if (window.electronAPI?.getVatRates) setVatRates(await window.electronAPI.getVatRates() || []); } catch {} };
+
+  const handleSettingChange = (key, value) => { setSettings(prev => ({ ...prev, [key]: value })); setDirty(true); };
+  const handleSave = async () => {
+    for (const [key, value] of Object.entries(settings)) { const err = validateField(key, value); if (err) { toast({ title: 'Validation', description: `${key}: ${err}`, variant: 'destructive' }); return; } }
+    setLoading(true);
+    try { const result = await setMultipleSettings(settings); if (result.success) { setDirty(false); toast({ title: 'Paramètres sauvegardés' }); } else { toast({ title: 'Erreur', description: result.error, variant: 'destructive' }); } }
+    catch (e) { toast({ title: 'Erreur', description: e.message, variant: 'destructive' }); }
+    finally { setLoading(false); }
+  };
+  const confirmReset = () => { setSettings(DEFAULT_SETTINGS); setDirty(true); setShowResetDialog(false); toast({ title: 'Paramètres réinitialisés', description: 'Sauvegardez pour appliquer.' }); };
+  const handleExport = async () => {
+    try { if (window.electronAPI?.exportSettings) { const r = await window.electronAPI.exportSettings(); if (r.success) { const b = new Blob([r.data], { type: 'application/json' }); const u = URL.createObjectURL(b); const a = document.createElement('a'); a.href = u; a.download = `carthapos-settings-${new Date().toISOString().slice(0,10)}.json`; a.click(); URL.revokeObjectURL(u); setShowExportDialog(false); toast({ title: 'Export réussi' }); } } }
+    catch (e) { toast({ title: 'Erreur', description: e.message, variant: 'destructive' }); }
+  };
+  const handleImportFile = (e) => { const file = e.target.files[0]; if (!file) return; const reader = new FileReader(); reader.onload = (ev) => setImportJson(ev.target.result); reader.readAsText(file); e.target.value = ''; };
+  const handleImport = async () => {
+    if (!importJson.trim()) return;
+    try { if (window.electronAPI?.importSettings) { const r = await window.electronAPI.importSettings(importJson); if (r.success) { await reload(); setImportJson(''); setShowImportDialog(false); toast({ title: 'Import réussi', description: `${r.count} paramètres importés.` }); } else { toast({ title: 'Erreur', description: r.error, variant: 'destructive' }); } } }
+    catch (e) { toast({ title: 'Erreur', description: e.message, variant: 'destructive' }); }
+  };
+  const handleAddVatRate = async () => {
+    if (!newVatRate.name || !newVatRate.rate) return;
+    try { await window.electronAPI.addVatRate({ name: newVatRate.name, rate: parseFloat(newVatRate.rate), is_active: true }); setNewVatRate({ name: '', rate: '' }); loadVatRates(); }
+    catch (e) { toast({ title: 'Erreur', description: e.message, variant: 'destructive' }); }
+  };
+  const handleUpdateVatRate = async (id, updates) => { try { await window.electronAPI.updateVatRate(id, updates); loadVatRates(); } catch (e) { toast({ title: 'Erreur', description: e.message, variant: 'destructive' }); } };
+  const handleDeleteVatRate = async (id) => { try { await window.electronAPI.deleteVatRate(id); loadVatRates(); } catch (e) { toast({ title: 'Erreur', description: e.message, variant: 'destructive' }); } };
+
+  const matchSearch = (text) => !globalSearch || text.toLowerCase().includes(globalSearch.toLowerCase());
+  const s = settings;
+
+  // ── Dashboard Landing ──
+  if (!activeModule) {
+    return (
+      <ScrollArea className="h-[calc(100vh-4rem)]">
+        <div className="max-w-5xl mx-auto p-8 space-y-10">
+          <div>
+            <h1 className="text-3xl font-bold tracking-tight">Paramètres</h1>
+            <p className="text-muted-foreground mt-1">Configurez votre système CarthaPOS</p>
+          </div>
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+            <Input placeholder="Rechercher un paramètre..." className="pl-10 h-11" value={globalSearch} onChange={(e) => setGlobalSearch(e.target.value)} />
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {MODULES.filter(m => !globalSearch || m.title.toLowerCase().includes(globalSearch.toLowerCase()) || m.description.toLowerCase().includes(globalSearch.toLowerCase())).map(m => (
+              <button key={m.id} onClick={() => setActiveModule(m.id)}
+                className="group text-left p-6 rounded-xl border bg-card hover:shadow-md hover:border-primary/30 transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-primary/20">
+                <div className={`w-10 h-10 rounded-lg ${m.color} flex items-center justify-center mb-4 group-hover:scale-110 transition-transform`}>
+                  <m.icon className="w-5 h-5 text-white" />
+                </div>
+                <h3 className="font-semibold text-lg mb-1 flex items-center gap-2">
+                  {m.title}
+                  <ChevronRight className="h-4 w-4 text-muted-foreground opacity-0 group-hover:opacity-100 group-hover:translate-x-1 transition-all" />
+                </h3>
+                <p className="text-sm text-muted-foreground">{m.description}</p>
+              </button>
+            ))}
+          </div>
+          {license && (
+            <Card className="bg-muted/30">
+              <CardContent className="p-6 flex items-center justify-between">
+                <div className="flex items-center gap-4">
+                  <div className="w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center"><Shield className="w-5 h-5 text-primary" /></div>
+                  <div>
+                    <p className="font-medium">{license.clientName || 'CarthaPOS'}</p>
+                    <p className="text-sm text-muted-foreground">Licence {license.licenseType === 'LIFETIME' ? 'à vie' : 'Abonnement'} — {license.sector || 'Général'}</p>
+                  </div>
+                </div>
+                <Badge variant={license.licenseType === 'LIFETIME' ? 'default' : 'secondary'}>{license.modules?.filter(m => m.isEnabled).length || 0} modules</Badge>
+              </CardContent>
+            </Card>
+          )}
+        </div>
+      </ScrollArea>
+    );
+  }
+
+  // ── Sub-pages ──
+  if (activeModule === 'receipt') return <SettingsLayout active="receipt" onBack={() => setActiveModule(null)} onNavigate={setActiveModule}><ReceiptDesigner /></SettingsLayout>;
+
+  // ── General / Backup / Appearance / System pages ──
   return (
-    <div className="space-y-6">
-      <div>
-        <h1 className="text-3xl font-bold">Paramètres</h1>
-        <p className="text-muted-foreground">
-          Configurez votre système POS selon vos besoins
-        </p>
-      </div>
-
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Paramètres principaux */}
-        <div className="lg:col-span-2 space-y-6">
-          {/* Informations générales */}
+    <SettingsLayout active={activeModule} onBack={() => setActiveModule(null)} onNavigate={setActiveModule}>
+      {activeModule === 'general' && (
+        <div className="space-y-8">
+          <SectionHeader icon={Building2} title="Informations de l'entreprise" description="Nom, adresse et coordonnées de votre établissement" />
           <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center">
-                <SettingsIcon className="mr-2 h-5 w-5" />
-                Informations générales
-              </CardTitle>
-              <CardDescription>
-                Configuration de base de votre établissement
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="grid gap-2">
-                <Label htmlFor="businessName">Nom de l'établissement</Label>
-                <Input
-                  id="businessName"
-                  value={settings.businessName}
-                  onChange={(e) => setSettings({ ...settings, businessName: e.target.value })}
-                  placeholder="Nom affiché sur les tickets"
-                />
-              </div>
-
-              <div className="grid gap-2">
-                <Label htmlFor="businessLogo">Logo (URL)</Label>
-                <Input
-                  id="businessLogo"
-                  value={settings.businessLogo}
-                  onChange={(e) => setSettings({ ...settings, businessLogo: e.target.value })}
-                  placeholder="URL du logo ou chemin local"
-                />
-              </div>
-
-              <div className="grid gap-2">
-                <Label htmlFor="businessAddress">Adresse</Label>
-                <Input
-                  id="businessAddress"
-                  value={settings.businessAddress}
-                  onChange={(e) => setSettings({ ...settings, businessAddress: e.target.value })}
-                  placeholder="Adresse complète"
-                />
-              </div>
-
+            <CardContent className="p-6 space-y-5">
+              <Field label="Nom de l'établissement" helper="Affiché sur les tickets et l'interface">
+                <Input value={s.businessName} onChange={(e) => handleSettingChange('businessName', e.target.value)} placeholder="Mon Restaurant" />
+              </Field>
+              <Field label="Logo de l'entreprise" helper="Image affichée sur les tickets et l'interface">
+                <div className="space-y-3">
+                  {s.businessLogo ? (
+                    <div className="relative group">
+                      <div className="flex items-center gap-4 p-4 rounded-xl border bg-muted/30">
+                        <div className="w-20 h-20 rounded-lg bg-white border flex items-center justify-center overflow-hidden shrink-0">
+                          <img src={s.businessLogo} alt="Logo" className="max-w-full max-h-full object-contain" />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium truncate">Logo actuel</p>
+                          <p className="text-xs text-muted-foreground mt-0.5">
+                            {s.businessLogo.startsWith('data:') ? 'Image téléchargée' : 'URL externe'}
+                          </p>
+                          <div className="flex gap-2 mt-2">
+                            <label className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-primary/10 text-primary text-xs font-medium cursor-pointer hover:bg-primary/20 transition-colors">
+                              <RefreshCw className="w-3 h-3" />
+                              Remplacer
+                              <input type="file" accept="image/*" className="hidden" onChange={(e) => {
+                                const file = e.target.files?.[0];
+                                if (!file) return;
+                                const reader = new FileReader();
+                                reader.onload = (ev) => { handleSettingChange('businessLogo', ev.target.result); };
+                                reader.readAsDataURL(file);
+                              }} />
+                            </label>
+                            <Button variant="ghost" size="sm" className="h-auto py-1.5 px-3 text-xs text-destructive hover:text-destructive" onClick={() => handleSettingChange('businessLogo', '')}>
+                              <Trash2 className="w-3 h-3 mr-1" />
+                              Supprimer
+                            </Button>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  ) : (
+                    <label className="flex flex-col items-center justify-center w-full h-32 border-2 border-dashed rounded-xl bg-muted/20 hover:bg-muted/40 cursor-pointer transition-colors">
+                      <ImageIcon className="w-8 h-8 text-muted-foreground/40 mb-2" />
+                      <span className="text-sm font-medium text-muted-foreground">Cliquer ou glisser une image</span>
+                      <span className="text-xs text-muted-foreground/60 mt-1">PNG, JPG, SVG (max 2 Mo)</span>
+                      <input
+                        type="file"
+                        accept="image/*"
+                        className="hidden"
+                        onChange={(e) => {
+                          const file = e.target.files?.[0];
+                          if (!file) return;
+                          if (file.size > 2 * 1024 * 1024) {
+                            toast({ title: 'Fichier trop volumineux', description: 'Taille maximale : 2 Mo', variant: 'destructive' });
+                            return;
+                          }
+                          const reader = new FileReader();
+                          reader.onload = (ev) => { handleSettingChange('businessLogo', ev.target.result); };
+                          reader.readAsDataURL(file);
+                        }}
+                      />
+                    </label>
+                  )}
+                </div>
+              </Field>
+              <Field label="Adresse">
+                <Input value={s.businessAddress} onChange={(e) => handleSettingChange('businessAddress', e.target.value)} placeholder="123 Rue Principale, Tunis" />
+              </Field>
               <div className="grid grid-cols-2 gap-4">
-                <div className="grid gap-2">
-                  <Label htmlFor="businessPhone">Téléphone</Label>
-                  <Input
-                    id="businessPhone"
-                    value={settings.businessPhone}
-                    onChange={(e) => setSettings({ ...settings, businessPhone: e.target.value })}
-                    placeholder="01 23 45 67 89"
-                  />
-                </div>
-                <div className="grid gap-2">
-                  <Label htmlFor="businessEmail">Email</Label>
-                  <Input
-                    id="businessEmail"
-                    type="email"
-                    value={settings.businessEmail}
-                    onChange={(e) => setSettings({ ...settings, businessEmail: e.target.value })}
-                    placeholder="contact@example.com"
-                  />
-                </div>
+                <Field label="Téléphone"><Input value={s.businessPhone} onChange={(e) => handleSettingChange('businessPhone', e.target.value)} placeholder="+216 71 000 000" /></Field>
+                <Field label="Email"><Input type="email" value={s.businessEmail} onChange={(e) => handleSettingChange('businessEmail', e.target.value)} placeholder="contact@monrestaurant.tn" /></Field>
               </div>
-
               <div className="grid grid-cols-2 gap-4">
-                <div className="grid gap-2">
-                  <Label htmlFor="businessWebsite">Site web</Label>
-                  <Input
-                    id="businessWebsite"
-                    value={settings.businessWebsite}
-                    onChange={(e) => setSettings({ ...settings, businessWebsite: e.target.value })}
-                    placeholder="https://example.com"
-                  />
-                </div>
-                <div className="grid gap-2">
-                  <Label htmlFor="businessTaxId">N° fiscal / SIRET</Label>
-                  <Input
-                    id="businessTaxId"
-                    value={settings.businessTaxId}
-                    onChange={(e) => setSettings({ ...settings, businessTaxId: e.target.value })}
-                    placeholder="12345678900000"
-                  />
-                </div>
+                <Field label="Site web"><Input value={s.businessWebsite} onChange={(e) => handleSettingChange('businessWebsite', e.target.value)} placeholder="https://monrestaurant.tn" /></Field>
+                <Field label="N° fiscal / SIRET"><Input value={s.businessTaxId} onChange={(e) => handleSettingChange('businessTaxId', e.target.value)} placeholder="12345678900000" /></Field>
               </div>
+            </CardContent>
+          </Card>
 
-              <Separator />
-
+          <SectionHeader icon={Globe} title="Régionalisation" description="Devise, langue et paramètres régionaux" />
+          <Card>
+            <CardContent className="p-6 space-y-5">
               <div className="grid grid-cols-2 gap-4">
-                <div className="grid gap-2">
-                  <Label htmlFor="currency">Devise</Label>
-                  <Select 
-                    value={settings.currency} 
-                    onValueChange={(value) => setSettings({ ...settings, currency: value })}
-                  >
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {currencies.map((currency) => (
-                        <SelectItem key={currency.value} value={currency.value}>
-                          {currency.label}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
+                <Field label="Devise">
+                  <Select value={s.currency} onValueChange={(v) => handleSettingChange('currency', v)}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>{CURRENCIES.map(c => <SelectItem key={c.value} value={c.value}>{c.label}</SelectItem>)}</SelectContent>
                   </Select>
-                </div>
-
-                <div className="grid gap-2">
-                  <Label htmlFor="language">Langue</Label>
-                  <Select 
-                    value={settings.language} 
-                    onValueChange={(value) => setSettings({ ...settings, language: value })}
-                  >
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {languages.map((language) => (
-                        <SelectItem key={language.value} value={language.value}>
-                          {language.label}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
+                </Field>
+                <Field label="Langue">
+                  <Select value={s.language} onValueChange={(v) => handleSettingChange('language', v)}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>{LANGUAGES.map(l => <SelectItem key={l.value} value={l.value}>{l.label}</SelectItem>)}</SelectContent>
                   </Select>
-                </div>
+                </Field>
               </div>
-
               <div className="grid grid-cols-2 gap-4">
-                <div className="grid gap-2">
-                  <Label htmlFor="timezone">Fuseau horaire</Label>
-                  <Select 
-                    value={settings.timezone} 
-                    onValueChange={(value) => setSettings({ ...settings, timezone: value })}
-                  >
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {timezones.map((timezone) => (
-                        <SelectItem key={timezone.value} value={timezone.value}>
-                          {timezone.label}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
+                <Field label="Fuseau horaire">
+                  <Select value={s.timezone} onValueChange={(v) => handleSettingChange('timezone', v)}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>{TIMEZONES.map(t => <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>)}</SelectContent>
                   </Select>
-                </div>
-
-                <div className="grid gap-2">
-                  <Label htmlFor="numberFormat">Format des nombres</Label>
-                  <Select 
-                    value={settings.numberFormat} 
-                    onValueChange={(value) => setSettings({ ...settings, numberFormat: value })}
-                  >
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
+                </Field>
+                <Field label="Format des nombres">
+                  <Select value={s.numberFormat} onValueChange={(v) => handleSettingChange('numberFormat', v)}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
                     <SelectContent>
                       <SelectItem value="fr-FR">1 234,56 (FR)</SelectItem>
                       <SelectItem value="en-US">1,234.56 (US)</SelectItem>
                       <SelectItem value="de-DE">1.234,56 (DE)</SelectItem>
                     </SelectContent>
                   </Select>
-                </div>
+                </Field>
               </div>
             </CardContent>
           </Card>
 
-          {/* Paramètres financiers */}
+          <SectionHeader icon={Percent} title="TVA" description="Gestion des taux de TVA" />
           <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center">
-                <SettingsIcon className="mr-2 h-5 w-5" />
-                Paramètres financiers
-              </CardTitle>
-              <CardDescription>Taux de TVA et formatage monétaire</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
+            <CardContent className="p-6 space-y-4">
               <div className="flex items-center justify-between">
-                <div className="space-y-0.5">
-                  <Label>TVA activée</Label>
-                  <p className="text-sm text-muted-foreground">Appliquer la TVA sur les ventes</p>
-                </div>
-                <Switch
-                  checked={settings.taxEnabled}
-                  onCheckedChange={(checked) => setSettings({ ...settings, taxEnabled: checked })}
-                />
+                <div><Label>TVA activée</Label><p className="text-sm text-muted-foreground">Appliquer la TVA sur les ventes</p></div>
+                <Switch checked={s.taxEnabled} onCheckedChange={(v) => handleSettingChange('taxEnabled', v)} />
               </div>
-              {settings.taxEnabled && (
-                <div className="grid gap-2">
-                  <Label htmlFor="taxRate">Taux de TVA (%)</Label>
-                  <Input
-                    id="taxRate"
-                    type="number"
-                    step="0.1"
-                    value={settings.taxRate}
-                    onChange={(e) => setSettings({ ...settings, taxRate: parseFloat(e.target.value) })}
-                  />
-                </div>
-              )}
-            </CardContent>
-          </Card>
-
-          {/* Paramètres d'impression */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center">
-                <Printer className="mr-2 h-5 w-5" />
-                Paramètres d'impression
-              </CardTitle>
-              <CardDescription>Configuration des imprimantes et tickets</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="grid grid-cols-2 gap-4">
-                <div className="grid gap-2">
-                  <Label htmlFor="receiptPrinter">Imprimante tickets</Label>
-                  <Input
-                    id="receiptPrinter"
-                    value={settings.receiptPrinter}
-                    onChange={(e) => setSettings({ ...settings, receiptPrinter: e.target.value })}
-                    placeholder="USB001 ou IP:192.168.1.100"
-                  />
-                </div>
-                <div className="grid gap-2">
-                  <Label htmlFor="kitchenPrinter">Imprimante cuisine</Label>
-                  <Input
-                    id="kitchenPrinter"
-                    value={settings.kitchenPrinter}
-                    onChange={(e) => setSettings({ ...settings, kitchenPrinter: e.target.value })}
-                    placeholder="USB002 ou IP:192.168.1.101"
-                  />
-                </div>
-              </div>
-
-              <div className="grid gap-2">
-                <Label htmlFor="paperWidth">Largeur papier (mm)</Label>
-                <Select 
-                  value={settings.paperWidth} 
-                  onValueChange={(value) => setSettings({ ...settings, paperWidth: value })}
-                >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="58">58 mm</SelectItem>
-                    <SelectItem value="80">80 mm</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-
               <Separator />
-
-              <div className="flex items-center justify-between">
-                <div className="space-y-0.5">
-                  <Label>Auto-impression ticket</Label>
-                  <p className="text-sm text-muted-foreground">Imprimer automatiquement après chaque vente</p>
-                </div>
-                <Switch
-                  checked={settings.printReceipts}
-                  onCheckedChange={(checked) => setSettings({ ...settings, printReceipts: checked })}
-                />
-              </div>
-
-              <Separator />
-
-              <div className="flex items-center justify-between">
-                <div className="space-y-0.5">
-                  <Label>Auto-impression cuisine</Label>
-                  <p className="text-sm text-muted-foreground">Imprimer automatiquement les commandes en cuisine</p>
-                </div>
-                <Switch
-                  checked={settings.printKitchen}
-                  onCheckedChange={(checked) => setSettings({ ...settings, printKitchen: checked })}
-                />
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* Sauvegarde */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center">
-                <Database className="mr-2 h-5 w-5" />
-                Sauvegarde
-              </CardTitle>
-              <CardDescription>Configuration des sauvegardes automatiques</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="flex items-center justify-between">
-                <div className="space-y-0.5">
-                  <Label>Sauvegarde automatique</Label>
-                  <p className="text-sm text-muted-foreground">Sauvegarder automatiquement les données</p>
-                </div>
-                <Switch
-                  checked={settings.autoBackup}
-                  onCheckedChange={(checked) => setSettings({ ...settings, autoBackup: checked })}
-                />
-              </div>
-
-              {settings.autoBackup && (
-                <>
-                  <Separator />
-                  <div className="grid gap-2">
-                    <Label htmlFor="backupFolder">Dossier de sauvegarde</Label>
-                    <Input
-                      id="backupFolder"
-                      value={settings.backupFolder}
-                      onChange={(e) => setSettings({ ...settings, backupFolder: e.target.value })}
-                      placeholder="C:\backups\ ou ./backups/"
-                    />
+              <div className="space-y-3">
+                {vatRates.length === 0 ? (
+                  <div className="text-center py-8"><Percent className="h-10 w-10 mx-auto text-muted-foreground/30 mb-2" /><p className="text-sm text-muted-foreground">Aucun taux de TVA configuré</p></div>
+                ) : vatRates.map((vr) => (
+                  <div key={vr.id} className="flex items-center gap-3 p-3 rounded-lg border hover:bg-muted/30 transition-colors">
+                    {editingVatRate?.id === vr.id ? (
+                      <>
+                        <Input className="flex-1 h-8 text-sm" value={editingVatRate.name} onChange={(e) => setEditingVatRate({ ...editingVatRate, name: e.target.value })} placeholder="Nom" />
+                        <div className="flex items-center gap-1"><Input className="w-20 h-8 text-sm text-right" type="number" step="0.1" min="0" max="100" value={editingVatRate.rate} onChange={(e) => setEditingVatRate({ ...editingVatRate, rate: e.target.value })} /><Percent className="w-3.5 h-3.5 text-muted-foreground" /></div>
+                        <Button size="sm" className="h-8 px-3" onClick={() => { handleUpdateVatRate(vr.id, { name: editingVatRate.name, rate: parseFloat(editingVatRate.rate), is_active: vr.is_active }); setEditingVatRate(null); }}>OK</Button>
+                        <Button size="sm" variant="ghost" className="h-8 px-2" onClick={() => setEditingVatRate(null)}><X className="h-4 w-4" /></Button>
+                      </>
+                    ) : (
+                      <>
+                        <div className="flex-1"><span className="font-medium text-sm">{vr.name}</span></div>
+                        <Badge variant="secondary" className="font-mono">{vr.rate}%</Badge>
+                        <Switch checked={!!vr.is_active} onCheckedChange={(v) => handleUpdateVatRate(vr.id, { name: vr.name, rate: vr.rate, is_active: v })} />
+                        <Button size="sm" variant="ghost" className="h-8 w-8 p-0" onClick={() => setEditingVatRate({ id: vr.id, name: vr.name, rate: String(vr.rate) })}><Edit2 className="w-3.5 h-3.5" /></Button>
+                        <Button size="sm" variant="ghost" className="h-8 w-8 p-0 text-destructive" onClick={() => handleDeleteVatRate(vr.id)}><Trash2 className="w-3.5 h-3.5" /></Button>
+                      </>
+                    )}
                   </div>
-                  <div className="grid gap-2">
-                    <Label htmlFor="backupFrequency">Fréquence</Label>
-                    <Select 
-                      value={settings.backupFrequency} 
-                      onValueChange={(value) => setSettings({ ...settings, backupFrequency: value })}
-                    >
-                      <SelectTrigger>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="hourly">Toutes les heures</SelectItem>
-                        <SelectItem value="daily">Quotidienne</SelectItem>
-                        <SelectItem value="weekly">Hebdomadaire</SelectItem>
-                        <SelectItem value="monthly">Mensuelle</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                </>
-              )}
-            </CardContent>
-          </Card>
-
-          {/* Apparence */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center">
-                <Palette className="mr-2 h-5 w-5" />
-                Apparence
-              </CardTitle>
-              <CardDescription>Personnalisation de l'interface</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="grid gap-2">
-                <Label htmlFor="theme">Thème</Label>
-                <Select 
-                  value={settings.theme} 
-                  onValueChange={(value) => setSettings({ ...settings, theme: value })}
-                >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="default">Défaut</SelectItem>
-                    <SelectItem value="dark">Sombre</SelectItem>
-                    <SelectItem value="light">Clair</SelectItem>
-                    <SelectItem value="blue">Bleu</SelectItem>
-                    <SelectItem value="green">Vert</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <Separator />
-
-              <div className="flex items-center justify-between">
-                <div className="space-y-0.5">
-                  <Label>Sons système</Label>
-                  <p className="text-sm text-muted-foreground">Activer les notifications sonores</p>
+                ))}
+                <div className="flex items-center gap-2 pt-2 border-t">
+                  <Input className="flex-1 h-9 text-sm" value={newVatRate.name} onChange={(e) => setNewVatRate({ ...newVatRate, name: e.target.value })} placeholder="Nom (ex: TVA 7%)" onKeyDown={(e) => e.key === 'Enter' && handleAddVatRate()} />
+                  <div className="flex items-center gap-1"><Input className="w-20 h-9 text-sm text-right" type="number" step="0.1" min="0" max="100" value={newVatRate.rate} onChange={(e) => setNewVatRate({ ...newVatRate, rate: e.target.value })} placeholder="0" onKeyDown={(e) => e.key === 'Enter' && handleAddVatRate()} /><Percent className="w-3.5 h-4 text-muted-foreground" /></div>
+                  <Button size="sm" className="h-9 px-3" onClick={handleAddVatRate} disabled={!newVatRate.name || !newVatRate.rate}><Plus className="w-4 h-4 mr-1" /> Ajouter</Button>
                 </div>
-                <Switch
-                  checked={settings.soundEnabled}
-                  onCheckedChange={(checked) => setSettings({ ...settings, soundEnabled: checked })}
-                />
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      )}
+
+      {activeModule === 'kitchen' && (
+        <div className="space-y-8">
+          <SectionHeader icon={ChefHat} title="Départements Cuisine" description="Gérer les départements de préparation utilisés dans le workflow cuisine" />
+
+          {/* Add new department */}
+          <Card>
+            <CardContent className="p-6">
+              <div className="flex items-end gap-3">
+                <div className="flex-1 grid gap-2">
+                  <Label>Nom du département</Label>
+                  <Input value={newDeptName} onChange={(e) => setNewDeptName(e.target.value)} placeholder="Ex: Plongerie, Pâtisserie..." onKeyDown={(e) => e.key === 'Enter' && handleAddKitchenDept()} />
+                </div>
+                <div className="w-24 grid gap-2">
+                  <Label>Icône (emoji)</Label>
+                  <Input value={newDeptIcon} onChange={(e) => setNewDeptIcon(e.target.value)} placeholder="🍽️" maxLength={4} />
+                </div>
+                <Button onClick={handleAddKitchenDept} disabled={!newDeptName.trim()} className="gap-2">
+                  <Plus className="h-4 w-4" /> Ajouter
+                </Button>
               </div>
             </CardContent>
           </Card>
 
-          {/* Receipt Designer Link */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center">
-                <Printer className="mr-2 h-5 w-5" />
-                Conception du ticket
-              </CardTitle>
-              <CardDescription>
-                Personnalisez le design de vos tickets de caisse
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <p className="text-sm text-muted-foreground mb-4">
-                Configurez tous les éléments qui apparaissent sur vos tickets: logo, 
-                informations commerciales, colonnes de produits, messages personnalisés, etc.
-              </p>
-              <Button 
-                variant="outline" 
-                className="w-full"
-                onClick={() => window.location.href = '#/receipt-designer'}
-              >
-                <Printer className="mr-2 h-4 w-4" />
-                Ouvrir le concepteur de tickets
+          {/* Department list */}
+          {kitchenLoading ? (
+            <div className="flex items-center justify-center py-12"><RefreshCw className="h-6 w-6 text-muted-foreground animate-spin" /></div>
+          ) : kitchenDepartments.length === 0 ? (
+            <Card className="border-dashed">
+              <CardContent className="p-10 flex flex-col items-center justify-center text-center">
+                <div className="w-14 h-14 rounded-2xl bg-muted/60 flex items-center justify-center mb-3">
+                  <ChefHat className="h-7 w-7 text-muted-foreground/40" />
+                </div>
+                <h3 className="text-sm font-semibold text-muted-foreground mb-1">Aucun département</h3>
+                <p className="text-xs text-muted-foreground/70 max-w-xs">Ajoutez des départements pour organiser la préparation de vos produits.</p>
+              </CardContent>
+            </Card>
+          ) : (
+            <div className="space-y-2">
+              {kitchenDepartments.map((dept, idx) => (
+                <Card key={dept.id} className={`transition-all duration-200 hover:shadow-md hover:border-primary/20 ${dept.is_active ? '' : 'opacity-50'}`} style={{ animationDelay: `${idx * 50}ms` }}>
+                  <CardContent className="p-4 flex items-center gap-4">
+                    {editingDept === dept.id ? (
+                      <>
+                        <Input value={editDeptName} onChange={(e) => setEditDeptName(e.target.value)} className="flex-1 h-9" onKeyDown={(e) => e.key === 'Enter' && handleUpdateKitchenDept(dept.id)} autoFocus />
+                        <Input value={editDeptIcon} onChange={(e) => setEditDeptIcon(e.target.value)} className="w-16 h-9 text-center" maxLength={4} placeholder="🍽️" />
+                        <Button size="sm" onClick={() => handleUpdateKitchenDept(dept.id)} disabled={!editDeptName.trim()} className="gap-1"><Check className="h-4 w-4" /> OK</Button>
+                        <Button size="sm" variant="ghost" onClick={() => setEditingDept(null)}><X className="h-4 w-4" /></Button>
+                      </>
+                    ) : (
+                      <>
+                        <span className="text-2xl w-10 h-10 flex items-center justify-center rounded-xl bg-amber-50 border border-amber-100 shrink-0 transition-transform hover:scale-110">{dept.icon || '🍽️'}</span>
+                        <div className="flex-1 min-w-0">
+                          <span className="font-semibold text-sm">{dept.name}</span>
+                          {dept.product_count !== undefined && <span className="text-xs text-muted-foreground ml-2">({dept.product_count} produit{dept.product_count !== 1 ? 's' : ''})</span>}
+                        </div>
+                        <Badge variant={dept.is_active ? 'default' : 'secondary'} className="text-[10px] px-1.5 py-0.5">
+                          {dept.is_active ? 'Actif' : 'Inactif'}
+                        </Badge>
+                        <Switch checked={dept.is_active === 1 || dept.is_active === true} onCheckedChange={() => handleToggleKitchenDept(dept.id, dept.is_active)} />
+                        <Button size="sm" variant="ghost" className="h-8 w-8 p-0 hover:bg-blue-50 hover:text-blue-600 transition-colors" onClick={() => { setEditingDept(dept.id); setEditDeptName(dept.name); setEditDeptIcon(dept.icon || ''); }}>
+                          <Edit2 className="h-4 w-4" />
+                        </Button>
+                        <Button size="sm" variant="ghost" className="h-8 w-8 p-0 text-destructive hover:text-destructive hover:bg-destructive/10 transition-colors" onClick={() => setShowDeleteDeptConfirm(dept)}>
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </>
+                    )}
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          )}
+
+          {/* Delete confirmation dialog */}
+          <Dialog open={!!showDeleteDeptConfirm} onOpenChange={() => setShowDeleteDeptConfirm(null)}>
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle className="flex items-center text-orange-600"><AlertTriangle className="mr-2 h-5 w-5" /> Supprimer le département</DialogTitle>
+                <DialogDescription>
+                  Supprimer "{showDeleteDeptConfirm?.name}" ? Les produits associés ne seront plus liés à ce département.
+                </DialogDescription>
+              </DialogHeader>
+              <DialogFooter>
+                <Button variant="outline" onClick={() => setShowDeleteDeptConfirm(null)}>Annuler</Button>
+                <Button variant="destructive" onClick={() => handleDeleteKitchenDept(showDeleteDeptConfirm?.id)}>Supprimer</Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+        </div>
+      )}
+
+      {activeModule === 'backup' && (
+        <div className="space-y-8">
+          <SectionHeader icon={HardDrive} title="Sauvegardes" description="Sauvegardez et restaurez vos données" />
+          <Card><CardContent className="p-6 flex items-center justify-between">
+            <div><Label>Sauvegarde automatique</Label><p className="text-sm text-muted-foreground">Créer des sauvegardes périodiques</p></div>
+            <Switch checked={s.autoBackup === 'true'} onCheckedChange={(v) => handleSettingChange('autoBackup', String(v))} />
+          </CardContent></Card>
+          <Card><CardContent className="p-6 space-y-4">
+            <div className="flex gap-3">
+              <Button onClick={async () => { try { const r = await window.electronAPI.createBackup(); if (r.success) toast({ title: 'Sauvegarde créée', description: r.filename }); } catch (e) { toast({ title: 'Erreur', description: e.message, variant: 'destructive' }); } }}><Download className="mr-2 h-4 w-4" /> Créer une sauvegarde</Button>
+              <Button variant="outline" onClick={() => setShowImportDialog(true)}><Upload className="mr-2 h-4 w-4" /> Restaurer</Button>
+            </div>
+          </CardContent></Card>
+        </div>
+      )}
+
+      {activeModule === 'appearance' && (
+        <div className="space-y-8">
+          <SectionHeader icon={Palette} title="Apparence" description="Thème et personnalisation de l'interface" />
+          <Card><CardContent className="p-6 space-y-5">
+            <Field label="Thème">
+              <Select value={s.theme} onValueChange={(v) => handleSettingChange('theme', v)}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="default">Défaut</SelectItem><SelectItem value="dark">Sombre</SelectItem><SelectItem value="light">Clair</SelectItem><SelectItem value="blue">Bleu</SelectItem><SelectItem value="green">Vert</SelectItem>
+                </SelectContent>
+              </Select>
+            </Field>
+            <Separator />
+            <div className="flex items-center justify-between">
+              <div><Label>Sons système</Label><p className="text-sm text-muted-foreground">Activer les notifications sonores</p></div>
+              <Switch checked={s.soundEnabled} onCheckedChange={(v) => handleSettingChange('soundEnabled', v)} />
+            </div>
+          </CardContent></Card>
+        </div>
+      )}
+
+      {activeModule === 'system' && (
+        <div className="space-y-8">
+          <SectionHeader icon={Info} title="Système" description="Informations sur l'application et la base de données" />
+          <Card><CardContent className="p-6 space-y-4">
+            <div className="grid grid-cols-2 gap-6">
+              <div><Label className="text-sm font-medium text-muted-foreground">Version</Label><p className="text-sm mt-1">1.0.0</p></div>
+              <div><Label className="text-sm font-medium text-muted-foreground">Base de données</Label><p className="text-sm mt-1">SQLite</p></div>
+            </div>
+            <div><Label className="text-sm font-medium text-muted-foreground">Emplacement</Label><p className="text-xs mt-1 break-all font-mono text-muted-foreground">{dbPath || 'Indisponible'}</p></div>
+          </CardContent></Card>
+          <Card><CardContent className="p-6">
+            <div className="flex gap-3">
+              <Button variant="outline" onClick={() => setShowExportDialog(true)}><Download className="mr-2 h-4 w-4" /> Exporter la config</Button>
+              <Button variant="outline" onClick={() => setShowImportDialog(true)}><Upload className="mr-2 h-4 w-4" /> Importer la config</Button>
+              <Button variant="outline" onClick={() => setShowResetDialog(true)} className="text-destructive border-destructive/30 hover:bg-destructive/5"><AlertTriangle className="mr-2 h-4 w-4" /> Réinitialiser</Button>
+            </div>
+          </CardContent></Card>
+        </div>
+      )}
+
+      {/* Save bar */}
+      {dirty && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50">
+          <Card className="shadow-lg border-primary/20 bg-background/95 backdrop-blur">
+            <CardContent className="p-3 flex items-center gap-3">
+              <span className="text-sm text-muted-foreground">Modifications non enregistrées</span>
+              <Button variant="outline" size="sm" onClick={() => { setSettings(dbSettings || DEFAULT_SETTINGS); setDirty(false); }}>Annuler</Button>
+              <Button size="sm" onClick={handleSave} disabled={loading}>
+                {loading ? <RefreshCw className="h-4 w-4 mr-1 animate-spin" /> : <Save className="h-4 w-4 mr-1" />}
+                Sauvegarder
               </Button>
             </CardContent>
           </Card>
-
-          {/* Actions */}
-          <Card>
-            <CardContent className="pt-6">
-              <div className="flex space-x-2">
-                <Button onClick={handleSave} disabled={loading}>
-                  {loading ? 'Sauvegarde...' : 'Sauvegarder'}
-                </Button>
-                <Button variant="outline" onClick={handleReset}>
-                  Réinitialiser
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
         </div>
+      )}
 
-        {/* Informations système */}
-        <div className="space-y-6">
-          {/* Informations de licence */}
-          {license && (
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center">
-                  <Shield className="mr-2 h-5 w-5" />
-                  Licence
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-3">
-                <div>
-                  <Label className="text-sm font-medium">Clé de licence</Label>
-                  <p className="text-sm text-muted-foreground font-mono">
-                    {license.licenseKey}
-                  </p>
-                </div>
+      {/* Dialogs */}
+      <Dialog open={showExportDialog} onOpenChange={setShowExportDialog}>
+        <DialogContent><DialogHeader><DialogTitle>Exporter la configuration</DialogTitle><DialogDescription>Tous les paramètres seront exportés en JSON.</DialogDescription></DialogHeader>
+          <DialogFooter><Button variant="outline" onClick={() => setShowExportDialog(false)}>Annuler</Button><Button onClick={handleExport}><Download className="h-4 w-4 mr-1" /> Exporter</Button></DialogFooter>
+        </DialogContent>
+      </Dialog>
+      <Dialog open={showImportDialog} onOpenChange={setShowImportDialog}>
+        <DialogContent><DialogHeader><DialogTitle>Importer la configuration</DialogTitle><DialogDescription>Les paramètres existants seront écrasés.</DialogDescription></DialogHeader>
+          <div className="space-y-4"><input ref={importRef} type="file" accept=".json" className="hidden" onChange={handleImportFile} /><Button variant="outline" className="w-full" onClick={() => importRef.current?.click()}><Upload className="h-4 w-4 mr-2" /> Choisir un fichier</Button>{importJson && <div className="text-sm text-green-600 flex items-center gap-2"><Database className="h-4 w-4" /> Fichier chargé ({Math.round(importJson.length / 1024)} Ko)</div>}</div>
+          <DialogFooter><Button variant="outline" onClick={() => { setShowImportDialog(false); setImportJson(''); }}>Annuler</Button><Button onClick={handleImport} disabled={!importJson}><Upload className="h-4 w-4 mr-1" /> Importer</Button></DialogFooter>
+        </DialogContent>
+      </Dialog>
+      <Dialog open={showResetDialog} onOpenChange={setShowResetDialog}>
+        <DialogContent><DialogHeader><DialogTitle className="flex items-center text-orange-600"><AlertTriangle className="mr-2 h-5 w-5" /> Réinitialiser</DialogTitle><DialogDescription>Restaurer les valeurs par défaut ? Sauvegardez pour appliquer.</DialogDescription></DialogHeader>
+          <DialogFooter><Button variant="outline" onClick={() => setShowResetDialog(false)}>Annuler</Button><Button variant="destructive" onClick={confirmReset}>Réinitialiser</Button></DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </SettingsLayout>
+  );
+}
 
-                <div>
-                  <Label className="text-sm font-medium">Client</Label>
-                  <p className="text-sm text-muted-foreground">
-                    {license.clientName}
-                  </p>
-                </div>
+// ── Shared Layout Components ──
 
-                <div>
-                  <Label className="text-sm font-medium">Secteur</Label>
-                  <p className="text-sm text-muted-foreground capitalize">
-                    {license.sector}
-                  </p>
-                </div>
-
-                <div>
-                  <Label className="text-sm font-medium">Type</Label>
-                  <Badge variant={license.licenseType === 'LIFETIME' ? 'default' : 'secondary'}>
-                    {license.licenseType === 'LIFETIME' ? 'À vie' : 'Abonnement'}
-                  </Badge>
-                </div>
-
-                {license.expirationDate && (
-                  <div>
-                    <Label className="text-sm font-medium">Expiration</Label>
-                    <p className="text-sm text-muted-foreground">
-                      {new Date(license.expirationDate).toLocaleDateString('fr-FR')}
-                    </p>
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-          )}
-
-          {/* Modules activés */}
-          {license?.modules && (
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center">
-                  <Palette className="mr-2 h-5 w-5" />
-                  Modules activés
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-2">
-                  {license.modules
-                    .filter(module => module.isEnabled)
-                    .map((module) => (
-                      <div key={module.name} className="flex items-center justify-between">
-                        <span className="text-sm">{module.displayName}</span>
-                        <Badge variant="outline">Activé</Badge>
-                      </div>
-                    ))}
-                </div>
-              </CardContent>
-            </Card>
-          )}
-
-          {/* Informations système */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center">
-                <Info className="mr-2 h-5 w-5" />
-                Système
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              <div>
-                <Label className="text-sm font-medium">Version</Label>
-                <p className="text-sm text-muted-foreground">1.0.0</p>
-              </div>
-
-              <div>
-                <Label className="text-sm font-medium">Base de données</Label>
-                <p className="text-sm text-muted-foreground">SQLite</p>
-              </div>
-
-              <div>
-                <Label className="text-sm font-medium">Emplacement du fichier DB</Label>
-                <p className="text-xs text-muted-foreground break-all font-mono" title={dbPath}>
-                  {dbPath || 'Indisponible'}
-                </p>
-              </div>
-
-              <div>
-                <Label className="text-sm font-medium">Dernière sauvegarde</Label>
-                <p className="text-sm text-muted-foreground">
-                  {new Date().toLocaleDateString('fr-FR')} à {new Date().toLocaleTimeString('fr-FR')}
-                </p>
-              </div>
-            </CardContent>
-          </Card>
+function SettingsLayout({ children, active, onBack, onNavigate }) {
+  return (
+    <div className="flex h-[calc(100vh-4rem)]">
+      <aside className="w-56 shrink-0 border-r bg-muted/20 hidden md:block">
+        <div className="p-4">
+          <button onClick={onBack} className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors mb-4">
+            <ChevronRight className="h-4 w-4 rotate-180" /> Tous les paramètres
+          </button>
+          <nav className="space-y-1">
+            {SIDEBAR_ITEMS.map(item => (
+              <button key={item.id} onClick={() => onNavigate(item.id)}
+                className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-colors ${active === item.id ? 'bg-primary/10 text-primary font-medium' : 'text-muted-foreground hover:bg-muted hover:text-foreground'}`}>
+                <item.icon className="h-4 w-4" />
+                {item.label}
+              </button>
+            ))}
+          </nav>
         </div>
-      </div>
+      </aside>
+      <main className="flex-1 overflow-auto">
+        <ScrollArea className="h-full">
+          <div className="max-w-4xl p-8">{children}</div>
+        </ScrollArea>
+      </main>
     </div>
   );
 }
 
+function SectionHeader({ icon: Icon, title, description }) {
+  return (
+    <div className="flex items-start gap-3">
+      <div className="mt-0.5 w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center shrink-0"><Icon className="h-4 w-4 text-primary" /></div>
+      <div><h2 className="text-lg font-semibold">{title}</h2><p className="text-sm text-muted-foreground">{description}</p></div>
+    </div>
+  );
+}
+
+function Field({ label, helper, children }) {
+  return (
+    <div className="space-y-1.5">
+      <Label className="text-sm font-medium">{label}</Label>
+      {children}
+      {helper && <p className="text-xs text-muted-foreground">{helper}</p>}
+    </div>
+  );
+}

@@ -190,7 +190,7 @@ export default function Layout({ children }) {
         </header>
 
         {/* Page content */}
-        <main className="flex-1 overflow-auto p-6">
+        <main className="flex-1 overflow-auto px-2 py-3">
           {children}
         </main>
       </div>

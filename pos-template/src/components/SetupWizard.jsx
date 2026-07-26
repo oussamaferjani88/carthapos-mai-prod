@@ -1,192 +1,266 @@
-import { useState } from 'react';
-import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
-import { Button } from './ui/button';
-import { Input } from './ui/input';
-import { Label } from './ui/label';
-import { Shield, Lock, CheckCircle, AlertCircle } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { Shield, Lock, CheckCircle, AlertCircle, Building2, Eye, EyeOff, Globe, Banknote, MapPin } from 'lucide-react';
+import { useAppConfig } from '../hooks/useAppConfig';
 
 export default function SetupWizard({ onComplete }) {
-  const [formData, setFormData] = useState({
-    password: '',
-    confirmPassword: ''
-  });
-  const [error, setError] = useState('');
+  const { config } = useAppConfig();
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+
+  const [admin, setAdmin] = useState({
+    fullName: '',
+    username: 'admin',
+    email: '',
+    password: '',
+    confirmPassword: '',
+  });
+
+  const [showPassword, setShowPassword] = useState(false);
+  const [passwordChecks, setPasswordChecks] = useState({});
+
+  const theme = config?.theme || {};
+  const businessName = theme.businessName || 'Mon Commerce';
+  const currency = theme.currency || 'TND';
+  const language = theme.language === 'fr' ? 'Français' : theme.language || 'Français';
+  const timezone = theme.timezone || 'Europe/Paris';
+  const countryMap = {
+    'Europe/Paris': 'France',
+    'Africa/Tunis': 'Tunisie',
+    'Africa/Casablanca': 'Maroc',
+    'Africa/Algiers': 'Algérie',
+    'Africa/Dakar': 'Sénégal',
+  };
+  const country = countryMap[timezone] || timezone.split('/')[0];
+
+  useEffect(() => {
+    if (window.electronAPI?.validatePasswordDetailed && admin.password) {
+      window.electronAPI.validatePasswordDetailed(admin.password)
+        .then(setPasswordChecks)
+        .catch(() => setPasswordChecks({}));
+    } else if (admin.password) {
+      setPasswordChecks({
+        valid: admin.password.length >= 6,
+        checks: { length: admin.password.length >= 6 },
+      });
+    } else {
+      setPasswordChecks({});
+    }
+  }, [admin.password]);
+
+  const updateAdmin = (key, value) => setAdmin(prev => ({ ...prev, [key]: value }));
+
+  const canSubmit = () =>
+    admin.fullName.trim().length > 0 &&
+    admin.username.trim().length > 0 &&
+    admin.password.length >= 6 &&
+    admin.password === admin.confirmPassword;
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    if (!canSubmit()) return;
     setError('');
-
-    // Validation
-    if (!formData.password || !formData.confirmPassword) {
-      setError('Veuillez remplir tous les champs');
-      return;
-    }
-
-    if (formData.password !== formData.confirmPassword) {
-      setError('Les mots de passe ne correspondent pas');
-      return;
-    }
-
-    if (formData.password.length < 6) {
-      setError('Le mot de passe doit contenir au moins 6 caractères');
-      return;
-    }
-
+    setLoading(true);
     try {
-      setLoading(true);
+      if (!window.electronAPI) throw new Error('Electron API not available');
 
-      // Create admin user with fixed username "admin"
-      if (window.electronAPI) {
-        let adminUser = null;
-        try {
-          adminUser = await window.electronAPI.createAdminUser({
-            username: 'admin', // Fixed username
-            password: formData.password
-          });
-          console.log('✅ Admin user created successfully:', adminUser);
-        } catch (createErr) {
-          // If admin already exists (e.g., seeded demo), update its password instead
-          const msg = (createErr && createErr.message) ? createErr.message.toLowerCase() : '';
-          if (msg.includes('already exists')) {
-            console.warn('⚠️ Admin already exists, updating password instead...');
-            await window.electronAPI.updateAdminPassword(formData.password);
-            // Authenticate to get full user payload
-            adminUser = await window.electronAPI.authenticateUser('admin', formData.password);
-            console.log('✅ Admin password updated and authenticated successfully');
-          } else {
-            throw createErr;
-          }
+      let adminUser = null;
+      try {
+        adminUser = await window.electronAPI.createAdminUser({
+          username: admin.username,
+          password: admin.password,
+          fullName: admin.fullName,
+          email: admin.email || undefined,
+        });
+      } catch (createErr) {
+        const msg = (createErr?.message || '').toLowerCase();
+        if (msg.includes('already exists')) {
+          await window.electronAPI.updateAdminPassword(admin.password);
+          adminUser = await window.electronAPI.authenticateUser(admin.username, admin.password);
+        } else {
+          throw createErr;
         }
-
-        // Pass user to parent for auto-login (parent will handle localStorage)
-        onComplete(adminUser);
-      } else {
-        throw new Error('Electron API not available');
       }
-    } catch (error) {
-      console.error('❌ Setup error:', error);
-      setError('Erreur lors de la création du compte: ' + error.message);
+
+      onComplete(adminUser);
+    } catch (err) {
+      setError('Erreur: ' + err.message);
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-50 via-indigo-50 to-purple-50 p-4">
-      <Card className="w-full max-w-md shadow-2xl border-0 overflow-hidden">
-        {/* Header with gradient */}
-        <div className="bg-gradient-to-r from-blue-600 to-indigo-600 p-8 text-white">
-          <div className="w-20 h-20 bg-white/20 backdrop-blur-sm rounded-2xl flex items-center justify-center mx-auto mb-4">
-            <Shield className="w-10 h-10 text-white" />
+    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-primary/5 via-background to-accent/5 p-4">
+      <div className="w-full max-w-md">
+        {/* Logo & Title */}
+        <div className="text-center mb-6">
+          <div className="w-20 h-20 bg-primary/10 rounded-3xl flex items-center justify-center mx-auto mb-4 shadow-lg shadow-primary/10">
+            <Shield size={40} className="text-primary" />
           </div>
-          <h1 className="text-3xl font-bold text-center mb-2">
-            Bienvenue dans votre POS!
-          </h1>
-          <p className="text-center text-blue-100">
-            Créez votre mot de passe administrateur
-          </p>
+          <h1 className="text-2xl font-bold text-foreground">Bienvenue</h1>
+          <p className="text-muted-foreground text-sm mt-1">Configurez votre compte administrateur</p>
         </div>
 
-        <CardContent className="p-8">
-          <form onSubmit={handleSubmit} className="space-y-6">
-            {/* Info Badge */}
-            <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-              <div className="flex items-start gap-3">
-                <Shield className="w-5 h-5 text-blue-600 mt-0.5 flex-shrink-0" />
-                <div className="text-sm text-blue-800">
-                  <p className="font-semibold mb-1">Compte administrateur</p>
-                  <p className="text-blue-600">
-                    Nom d'utilisateur: <span className="font-mono font-semibold">admin</span>
-                  </p>
-                </div>
+        {/* Business Info Card (read-only) */}
+        <div className="bg-card border border-border/50 rounded-2xl p-5 mb-4 shadow-sm">
+          <div className="flex items-center gap-2 mb-4">
+            <Building2 size={16} className="text-primary" />
+            <h2 className="text-sm font-semibold text-foreground">Configuration du POS</h2>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div className="flex items-center gap-2.5 p-2.5 rounded-xl bg-muted/30">
+              <Building2 size={14} className="text-muted-foreground shrink-0" />
+              <div>
+                <p className="text-[10px] text-muted-foreground uppercase tracking-wide">Entreprise</p>
+                <p className="text-xs font-semibold text-foreground truncate">{businessName}</p>
               </div>
             </div>
-
-            {/* Password Fields */}
-            <div className="space-y-4">
-              <div className="space-y-2">
-                <Label htmlFor="password" className="text-sm font-medium text-gray-700">
-                  Mot de passe *
-                </Label>
-                <div className="relative">
-                  <Lock className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" />
-                  <Input
-                    id="password"
-                    type="password"
-                    placeholder="••••••••"
-                    value={formData.password}
-                    onChange={(e) => setFormData({...formData, password: e.target.value})}
-                    required
-                    className="h-12 pl-11 text-base"
-                    autoFocus
-                  />
-                </div>
-                <p className="text-xs text-gray-500 flex items-center gap-1">
-                  <span className="w-1 h-1 bg-gray-400 rounded-full"></span>
-                  Minimum 6 caractères
-                </p>
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="confirmPassword" className="text-sm font-medium text-gray-700">
-                  Confirmer le mot de passe *
-                </Label>
-                <div className="relative">
-                  <Lock className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" />
-                  <Input
-                    id="confirmPassword"
-                    type="password"
-                    placeholder="••••••••"
-                    value={formData.confirmPassword}
-                    onChange={(e) => setFormData({...formData, confirmPassword: e.target.value})}
-                    required
-                    className="h-12 pl-11 text-base"
-                  />
-                </div>
+            <div className="flex items-center gap-2.5 p-2.5 rounded-xl bg-muted/30">
+              <MapPin size={14} className="text-muted-foreground shrink-0" />
+              <div>
+                <p className="text-[10px] text-muted-foreground uppercase tracking-wide">Pays</p>
+                <p className="text-xs font-semibold text-foreground">{country}</p>
               </div>
             </div>
-
-            {/* Error Message */}
-            {error && (
-              <div className="flex items-start gap-2 text-sm text-red-600 bg-red-50 p-4 rounded-lg border border-red-200">
-                <AlertCircle className="w-5 h-5 mt-0.5 flex-shrink-0" />
-                <span>{error}</span>
+            <div className="flex items-center gap-2.5 p-2.5 rounded-xl bg-muted/30">
+              <Banknote size={14} className="text-muted-foreground shrink-0" />
+              <div>
+                <p className="text-[10px] text-muted-foreground uppercase tracking-wide">Devise</p>
+                <p className="text-xs font-semibold text-foreground">{currency}</p>
               </div>
-            )}
-
-            {/* Submit Button */}
-            <Button 
-              type="submit" 
-              className="w-full h-13 text-base font-semibold bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 shadow-lg"
-              disabled={loading}
-            >
-              {loading ? (
-                <>
-                  <div className="animate-spin rounded-full h-5 w-5 border-2 border-white border-t-transparent mr-2"></div>
-                  Configuration en cours...
-                </>
-              ) : (
-                <>
-                  <CheckCircle className="w-5 h-5 mr-2" />
-                  Créer mon compte et démarrer
-                </>
-              )}
-            </Button>
-          </form>
-
-          {/* Footer Info */}
-          <div className="mt-6 pt-6 border-t text-center space-y-3">
-            <p className="text-sm text-gray-600">
-              Vous pourrez créer des comptes caissiers après la configuration
-            </p>
-            <div className="flex items-center justify-center gap-2 text-xs text-gray-500">
-              <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
-              <span>Configuration sécurisée</span>
+            </div>
+            <div className="flex items-center gap-2.5 p-2.5 rounded-xl bg-muted/30">
+              <Globe size={14} className="text-muted-foreground shrink-0" />
+              <div>
+                <p className="text-[10px] text-muted-foreground uppercase tracking-wide">Langue</p>
+                <p className="text-xs font-semibold text-foreground">{language}</p>
+              </div>
             </div>
           </div>
-        </CardContent>
-      </Card>
+        </div>
+
+        {/* Admin Account Card */}
+        <form onSubmit={handleSubmit}>
+          <div className="bg-card border border-border/50 rounded-2xl p-5 shadow-sm">
+            <div className="flex items-center gap-2 mb-4">
+              <Shield size={16} className="text-primary" />
+              <h2 className="text-sm font-semibold text-foreground">Compte administrateur</h2>
+            </div>
+
+            <div className="space-y-3">
+              <div className="space-y-1.5">
+                <label className="text-xs font-medium text-foreground">Nom complet *</label>
+                <input
+                  autoFocus
+                  value={admin.fullName}
+                  onChange={(e) => updateAdmin('fullName', e.target.value)}
+                  placeholder="Ex: Ahmed Ben Ali"
+                  className="w-full h-10 px-3.5 rounded-xl bg-background border border-border/50 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary/50 transition-all"
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-xs font-medium text-foreground">Nom d'utilisateur</label>
+                <input
+                  value={admin.username}
+                  onChange={(e) => updateAdmin('username', e.target.value)}
+                  className="w-full h-10 px-3.5 rounded-xl bg-background border border-border/50 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 transition-all"
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-xs font-medium text-foreground">Email (optionnel)</label>
+                <input
+                  type="email"
+                  value={admin.email}
+                  onChange={(e) => updateAdmin('email', e.target.value)}
+                  placeholder="admin@example.com"
+                  className="w-full h-10 px-3.5 rounded-xl bg-background border border-border/50 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 transition-all"
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-xs font-medium text-foreground">Mot de passe *</label>
+                <div className="relative">
+                  <input
+                    type={showPassword ? 'text' : 'password'}
+                    value={admin.password}
+                    onChange={(e) => updateAdmin('password', e.target.value)}
+                    placeholder="••••••••"
+                    className="w-full h-10 px-3.5 pr-10 rounded-xl bg-background border border-border/50 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 transition-all"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword(!showPassword)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                  >
+                    {showPassword ? <EyeOff size={14} /> : <Eye size={14} />}
+                  </button>
+                </div>
+                {admin.password && (
+                  <div className="flex flex-wrap gap-x-3 gap-y-0.5 mt-1">
+                    {[
+                      { key: 'length', label: '6+ caractères' },
+                      { key: 'uppercase', label: 'Majuscule' },
+                      { key: 'lowercase', label: 'Minuscule' },
+                      { key: 'number', label: 'Chiffre' },
+                      { key: 'special', label: 'Spécial' },
+                    ].map(({ key, label }) => {
+                      const passed = passwordChecks?.checks?.[key] || passwordChecks?.[key];
+                      return (
+                        <div key={key} className="flex items-center gap-1 text-[10px]">
+                          <div className={`w-1 h-1 rounded-full ${passed ? 'bg-emerald-500' : 'bg-muted-foreground/30'}`} />
+                          <span className={passed ? 'text-emerald-600' : 'text-muted-foreground'}>{label}</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-xs font-medium text-foreground">Confirmer le mot de passe *</label>
+                <input
+                  type="password"
+                  value={admin.confirmPassword}
+                  onChange={(e) => updateAdmin('confirmPassword', e.target.value)}
+                  placeholder="••••••••"
+                  className="w-full h-10 px-3.5 rounded-xl bg-background border border-border/50 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 transition-all"
+                />
+                {admin.confirmPassword && admin.password !== admin.confirmPassword && (
+                  <p className="text-[11px] text-destructive">Les mots de passe ne correspondent pas</p>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {error && (
+            <div className="mt-3 flex items-start gap-2 text-sm text-destructive bg-destructive/5 p-3 rounded-xl">
+              <AlertCircle size={14} className="mt-0.5 shrink-0" />
+              <span>{error}</span>
+            </div>
+          )}
+
+          <button
+            type="submit"
+            disabled={loading || !canSubmit()}
+            className="w-full mt-4 h-12 rounded-2xl bg-primary text-primary-foreground font-semibold text-sm flex items-center justify-center gap-2 hover:bg-primary/90 active:scale-[0.98] transition-all disabled:opacity-40 shadow-lg shadow-primary/20"
+          >
+            {loading ? (
+              <div className="animate-spin rounded-full h-5 w-5 border-2 border-primary-foreground border-t-transparent" />
+            ) : (
+              <>
+                <CheckCircle size={18} />
+                Créer et démarrer
+              </>
+            )}
+          </button>
+        </form>
+
+        <p className="text-center text-[11px] text-muted-foreground mt-4">
+          Configuration sécurisée — vos données restent locales
+        </p>
+      </div>
     </div>
   );
 }

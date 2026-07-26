@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { cn } from '../lib/utils';
 import { useThemeApplier } from '../hooks/useThemeApplier';
 import { POSHeader } from './POSHeader';
@@ -8,6 +8,16 @@ import { Shield } from 'lucide-react';
 
 export default function Layout({ children, config = {} }) {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const [navbarHidden, setNavbarHidden] = useState(false);
+
+  useEffect(() => {
+    const handler = (e) => {
+      if (e.detail?.hidden !== undefined) setNavbarHidden(e.detail.hidden);
+      else setNavbarHidden(prev => !prev);
+    };
+    window.addEventListener('pos-navbar-toggle', handler);
+    return () => window.removeEventListener('pos-navbar-toggle', handler);
+  }, []);
 
   // Extract theme from config (passed from App.jsx via useAppConfig)
   const theme = config?.theme || {};
@@ -52,9 +62,11 @@ export default function Layout({ children, config = {} }) {
         fontSize: mergedConfig.fontSize
       }}
     >
-      <POSNavbar 
-        onMobileMenuToggle={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
-      />
+      {!navbarHidden && (
+        <POSNavbar 
+          onMobileMenuToggle={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
+        />
+      )}
 
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
         <POSHeader 
@@ -62,7 +74,7 @@ export default function Layout({ children, config = {} }) {
         />
         
         <POSContent>
-          <div className="p-4">
+          <div className="px-2 pt-3 pb-20">
             {children}
           </div>
         </POSContent>
