@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
+import { getCurrencySymbol } from '../utils/currency';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
@@ -32,6 +33,7 @@ import {
 } from 'lucide-react';
 
 export default function Barcode() {
+  const formatCurrency = (v) => `${(parseFloat(v) || 0).toFixed(2)} ${getCurrencySymbol('TND')}`;
   const [products, setProducts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [scanning, setScanning] = useState(false);
@@ -252,7 +254,7 @@ export default function Barcode() {
                 </div>
                 <div>
                   <span className="font-medium">Prix:</span>
-                  <p>{foundProduct.price}€</p>
+                  <p>{formatCurrency(foundProduct.price)}</p>
                 </div>
                 <div>
                   <span className="font-medium">Catégorie:</span>
@@ -321,7 +323,7 @@ export default function Barcode() {
                   <TableCell className="font-mono">{product.barcode}</TableCell>
                   <TableCell className="font-medium">{product.name}</TableCell>
                   <TableCell>{product.category}</TableCell>
-                  <TableCell>{product.price}€</TableCell>
+                  <TableCell>{formatCurrency(product.price)}</TableCell>
                   <TableCell>
                     <Badge variant={product.stock > (product.min_stock || 10) ? "default" : product.stock > 0 ? "outline" : "destructive"}>
                       {product.stock}

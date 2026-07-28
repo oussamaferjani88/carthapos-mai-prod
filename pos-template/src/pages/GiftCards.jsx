@@ -1,9 +1,15 @@
 import React, { useState, useEffect } from 'react';
 import { Gift, CreditCard, Plus, Check, X, DollarSign, Users, Calendar, BarChart3 } from 'lucide-react';
 import { useThemeApplier } from '../hooks/useThemeApplier';
+import { getCurrencySymbol } from '../utils/currency';
 
 const GiftCards = () => {
   useThemeApplier();
+
+  const formatCurrency = (amount) => {
+    const val = parseFloat(amount) || 0;
+    return `${val.toFixed(2)} ${getCurrencySymbol('TND')}`;
+  };
   
   const [giftCards, setGiftCards] = useState([
     {
@@ -194,7 +200,7 @@ const GiftCards = () => {
       type: 'redeem',
       amount: -amount,
       date: new Date().toISOString().split('T')[0],
-      description: `Utilisation - ${amount.toFixed(2)} €`
+      description: `Utilisation - ${formatCurrency(amount)}`
     };
 
     setTransactions([...transactions, transaction]);
@@ -266,7 +272,7 @@ const GiftCards = () => {
           <div className="flex items-center justify-between">
             <div>
               <p className="text-sm font-medium text-muted-foreground">Valeur Restante</p>
-              <p className="text-2xl font-bold text-foreground">{stats.remainingValue.toFixed(2)} €</p>
+              <p className="text-2xl font-bold text-foreground">{formatCurrency(stats.remainingValue)}</p>
             </div>
             <DollarSign className="w-8 h-8 text-blue-500" />
           </div>
@@ -320,7 +326,7 @@ const GiftCards = () => {
                 <input
                   type="number"
                   step="0.01"
-                  placeholder="Valeur (€)"
+                  placeholder={`Valeur (${getCurrencySymbol('TND')})`}
                   value={newCard.value}
                   onChange={(e) => setNewCard({...newCard, value: e.target.value})}
                   className="px-3 py-2 border border-border rounded-md focus:outline-none focus:ring-2 focus:ring-primary bg-background"
@@ -420,8 +426,8 @@ const GiftCards = () => {
                     </span>
                   </div>
                   <div className="text-right">
-                    <p className="text-2xl font-bold text-foreground">{card.currentValue.toFixed(2)} €</p>
-                    <p className="text-sm text-muted-foreground">sur {card.initialValue.toFixed(2)} €</p>
+                    <p className="text-2xl font-bold text-foreground">{formatCurrency(card.currentValue)}</p>
+                    <p className="text-sm text-muted-foreground">sur {formatCurrency(card.initialValue)}</p>
                   </div>
                 </div>
 
@@ -538,7 +544,7 @@ const GiftCards = () => {
                         </td>
                         <td className="px-6 py-4 text-sm font-medium">
                           <span className={transaction.amount >= 0 ? 'text-green-600' : 'text-red-600'}>
-                            {transaction.amount >= 0 ? '+' : ''}{transaction.amount.toFixed(2)} €
+                            {transaction.amount >= 0 ? '+' : ''}{formatCurrency(transaction.amount)}
                           </span>
                         </td>
                         <td className="px-6 py-4 text-sm text-muted-foreground">

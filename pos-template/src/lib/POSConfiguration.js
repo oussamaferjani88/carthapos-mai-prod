@@ -78,7 +78,7 @@ export class POSConfiguration {
       glassEffect: configuration.glassEffect || false,
       
       // Currency & Formatting
-      currency: configuration.currency || 'DT',
+      currency: configuration.currency || 'TND',
       currencyPosition: configuration.currencyPosition || 'after',
       dateFormat: configuration.dateFormat || 'DD/MM/YYYY',
       timeFormat: configuration.timeFormat || '24h',

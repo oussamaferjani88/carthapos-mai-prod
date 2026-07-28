@@ -25,6 +25,7 @@ import {
 import BiExportModal from '../components/BiExportModal';
 import { POSConfiguration } from '../lib/POSConfiguration';
 import { useAppConfig } from '../hooks/useAppConfig';
+import { formatCurrency } from '../utils/currency';
 
 const PERIOD_PRESETS = [
   { value: 'today', label: "Aujourd'hui" },
@@ -65,10 +66,6 @@ const CHART_TOOLTIP_STYLE = {
   padding: '12px 16px',
   fontSize: '13px',
 };
-
-function formatPrice(v) {
-  return new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'EUR' }).format(v || 0);
-}
 
 function formatNumber(v) {
   return new Intl.NumberFormat('fr-FR').format(v || 0);
@@ -192,13 +189,17 @@ export default function Reports() {
       primaryColor: '#3b82f6',
       backgroundColor: '#ffffff',
       textColor: '#1f2937',
-      currency: 'EUR',
+      currency: 'TND',
       currencyPosition: 'after',
       taxRate: 20,
     });
   }, [electronConfig]);
 
   const config = useMemo(() => getConfig(), [getConfig]);
+
+  const formatPrice = useCallback((v) => {
+    return formatCurrency(v || 0, config?.currency || 'TND', config?.currencyPosition || 'after');
+  }, [config?.currency, config?.currencyPosition]);
 
   const themeColors = useMemo(() => [
     config.primaryColor,

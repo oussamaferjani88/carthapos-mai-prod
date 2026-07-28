@@ -33,6 +33,7 @@ import {
   Package,
   Search
 } from 'lucide-react';
+import { getImageStyle } from '../utils/imageSettings';
 
 export default function QuickService() {
   const [products, setProducts] = useState([]);
@@ -257,7 +258,8 @@ export default function QuickService() {
                             <img 
                               src={product.image} 
                               alt={product.name}
-                              className="w-full h-20 object-cover"
+                              className="w-full h-20"
+                              style={getImageStyle(product.image_settings)}
                             />
                           </div>
                         )}

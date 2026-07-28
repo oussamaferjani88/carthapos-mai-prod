@@ -111,8 +111,8 @@ async function generateInsights(clientId, businessType, timezone = 'UTC') {
 
 function formatCurrency(val) {
   const num = Number(val);
-  if (isNaN(num)) return '€0.00';
-  return num.toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' });
+  if (isNaN(num)) return '0,00 TND';
+  return num.toLocaleString('fr-FR', { style: 'currency', currency: 'TND' });
 }
 
 module.exports = { generateInsights };

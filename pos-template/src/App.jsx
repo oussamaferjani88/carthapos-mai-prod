@@ -80,22 +80,32 @@ function MainPOSApp({ config, license }) {
                 <Route path="/sales" element={<ProtectedRoute><Sales /></ProtectedRoute>} />
                 <Route path="/products" element={<ProtectedRoute><Products /></ProtectedRoute>} />
                 {/* DEBUG: Inventory route below - should be commented out for disabled inventory */}
-                <Route path="/inventory" element={<ProtectedRoute><Inventory /></ProtectedRoute>} />
+                {config?.modules?.some(m => m.name === 'inventory' && m.isEnabled !== false) && (
+                  <Route path="/inventory" element={<ProtectedRoute><Inventory /></ProtectedRoute>} />
+                )}
                 <Route path="/barcode" element={<ProtectedRoute><Barcode /></ProtectedRoute>} />
                 <Route path="/quick-service" element={<ProtectedRoute><QuickService /></ProtectedRoute>} />
                 <Route path="/customers" element={<ProtectedRoute><Customers /></ProtectedRoute>} />
-                <Route path="/tables" element={<ProtectedRoute><Tables /></ProtectedRoute>} />
-                <Route path="/kitchen" element={<ProtectedRoute><Kitchen /></ProtectedRoute>} />
+                {config?.modules?.some(m => m.name === 'tables' && m.isEnabled !== false) && (
+                  <Route path="/tables" element={<ProtectedRoute><Tables /></ProtectedRoute>} />
+                )}
+                {config?.modules?.some(m => m.name === 'kitchen' && m.isEnabled !== false) && (
+                  <Route path="/kitchen" element={<ProtectedRoute><Kitchen /></ProtectedRoute>} />
+                )}
                 <Route path="/menu-management" element={<ProtectedRoute><MenuManagement /></ProtectedRoute>} />
                 <Route path="/takeaway" element={<ProtectedRoute><Takeaway /></ProtectedRoute>} />
-                <Route path="/loyalty" element={<ProtectedRoute><Loyalty /></ProtectedRoute>} />
+                {config?.modules?.some(m => m.name === 'loyalty' && m.isEnabled !== false) && (
+                  <Route path="/loyalty" element={<ProtectedRoute><Loyalty /></ProtectedRoute>} />
+                )}
                 <Route path="/payment-advanced" element={<ProtectedRoute><PaymentAdvanced /></ProtectedRoute>} />
                 <Route path="/gift-cards" element={<ProtectedRoute><GiftCards /></ProtectedRoute>} />
                 <Route path="/prescription" element={<ProtectedRoute><Prescription /></ProtectedRoute>} />
                 <Route path="/production" element={<ProtectedRoute><Production /></ProtectedRoute>} />
                 <Route path="/appointments" element={<ProtectedRoute><Appointments /></ProtectedRoute>} />
                 <Route path="/services" element={<ProtectedRoute><Services /></ProtectedRoute>} />
-                <Route path="/suppliers" element={<ProtectedRoute><Suppliers /></ProtectedRoute>} />
+                {config?.modules?.some(m => m.name === 'suppliers' && m.isEnabled !== false) && (
+                  <Route path="/suppliers" element={<ProtectedRoute><Suppliers /></ProtectedRoute>} />
+                )}
                 <Route path="/reports" element={<ProtectedRoute><Reports /></ProtectedRoute>} />
                 <Route path="/settings" element={<ProtectedRoute><Settings /></ProtectedRoute>} />
                 <Route path="/hardware-settings" element={<ProtectedRoute><HardwareSettings /></ProtectedRoute>} />
@@ -186,6 +196,11 @@ function AppContent() {
   const handleSetupComplete = async (adminUser) => {
     if (adminUser && setUserDirectly) {
       setUserDirectly(adminUser);
+      if (!isPreviewMode() && window.electronAPI?.authSessionSet) {
+        try {
+          await window.electronAPI.authSessionSet(adminUser.id, adminUser);
+        } catch (e) { /* non-critical */ }
+      }
     }
     setIsFirstTime(false);
   };
@@ -203,7 +218,7 @@ function AppContent() {
           textColor: '#1f2937',
           textMutedColor: '#6b7280',
           cardBorderColor: '#e5e7eb',
-          currency: 'DT',
+          currency: 'TND',
           currencyPosition: 'after'
         });
       };
@@ -345,7 +360,7 @@ function AppContent() {
       ) : (
         <MainPOSApp config={config} license={license} />
       )}
-      <VirtualKeyboard disabled={!user} />
+      <VirtualKeyboard disabled={(!user && !isFirstTime) || isLocked} autoOpen={isFirstTime && !user} />
     </>
   );
 }

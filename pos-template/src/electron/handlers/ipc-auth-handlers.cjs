@@ -118,7 +118,9 @@ function registerAuthHandlers(ipcMainInstance, externalAuthManager, externalData
   ipcMainInstance.handle('create-admin-user', async (event, userData) => {
     try {
       await ensureManagers();
-      return await authManager.createAdminUser(userData);
+      const user = await authManager.createAdminUser(userData);
+      activeSessions.set(event.sender.id, { userId: user.id, userData: user, loginAt: Date.now(), lastActivity: Date.now() });
+      return user;
     } catch (error) {
       logger.error('❌ Error creating admin user:', error);
       throw error;
@@ -437,7 +439,17 @@ function registerAuthHandlers(ipcMainInstance, externalAuthManager, externalData
   ipcMainInstance.handle('get-audit-logs', async (event, filters) => {
     try {
       await ensureManagers();
-      requireAdmin(event);
+      const role = getCurrentUserRole(event);
+      if (!role) {
+        // Session not registered — return empty rather than crash
+        logger.warn('⚠️ get-audit-logs: no active session, returning empty');
+        return [];
+      }
+      if (role !== 'admin' && role !== 'manager') {
+        // Non-admin: return only own activity
+        const userId = getCurrentUserId(event);
+        return await authManager.getAuditLogs({ ...filters, user_id: userId });
+      }
       return await authManager.getAuditLogs(filters || {});
     } catch (error) {
       logger.error('❌ IPC get-audit-logs error:', error);

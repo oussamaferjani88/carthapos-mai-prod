@@ -35,6 +35,7 @@ import {
   TableHeader, 
   TableRow 
 } from '../components/ui/table';
+import { getCurrencySymbol } from '../utils/currency';
 
 export default function Appointments() {
   const [appointments, setAppointments] = useState([]);
@@ -52,6 +53,11 @@ export default function Appointments() {
     price: 0,
     notes: ''
   });
+
+  const formatCurrency = (amount) => {
+    const val = parseFloat(amount) || 0;
+    return `${val.toFixed(2)} ${getCurrencySymbol('TND')}`;
+  };
 
   useEffect(() => {
     loadData();
@@ -447,7 +453,7 @@ export default function Appointments() {
                       </TableCell>
                       <TableCell>
                         <span className="font-medium">
-                          {appointment.price?.toFixed(2)}€
+                          {formatCurrency(appointment.price)}
                         </span>
                       </TableCell>
                       <TableCell>
@@ -556,7 +562,7 @@ export default function Appointments() {
                 <SelectContent>
                   {services.map((service) => (
                     <SelectItem key={service.id} value={service.id.toString()}>
-                      {service.name} - {service.duration}min - {service.price}€
+                      {service.name} - {service.duration}min - {formatCurrency(service.price)}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -587,7 +593,7 @@ export default function Appointments() {
                 />
               </div>
               <div className="grid gap-2">
-                <Label htmlFor="price">Prix (€)</Label>
+                <Label htmlFor="price">Prix ({getCurrencySymbol('TND')})</Label>
                 <Input
                   id="price"
                   type="number"

@@ -163,7 +163,10 @@ export default function HardwareSettings() {
 
   const saveSetting = async (key, value) => {
     setSaving(true);
-    try { await window.electronAPI.setSetting(key, value); }
+    try {
+      await window.electronAPI.setSetting(key, value);
+      window.dispatchEvent(new Event('pos:settings-changed'));
+    }
     catch (e) { toast({ title: 'Erreur', description: e.message, variant: 'destructive' }); }
     finally { setSaving(false); }
   };

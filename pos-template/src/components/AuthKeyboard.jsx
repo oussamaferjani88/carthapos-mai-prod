@@ -86,9 +86,10 @@ export default function AuthKeyboard({ onSubmit, onBack, error, loading, userNam
             ref={inputRef}
             type={showPassword ? 'text' : 'password'}
             value={password}
-            readOnly
+            onChange={(e) => { if (!loading) setPassword(e.target.value) }}
             placeholder="Tapez votre mot de passe..."
             className="w-full h-12 px-4 pr-20 rounded-xl bg-background border border-border/50 text-sm text-center focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary/50 transition-all tracking-wider"
+            autoFocus
           />
           <button
             type="button"

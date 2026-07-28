@@ -9,27 +9,36 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { ScrollArea } from './ui/scroll-area';
 import { Switch } from './ui/switch';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
+import { useAppConfig } from '../hooks/useAppConfig';
 import {
   Plus, Edit2, Trash2, UserCheck, UserX, Shield, Users, X, FileText, RefreshCw,
   ChevronDown, ChevronUp, Clock, Lock, Search, Key, AlertTriangle, Check, Save,
   ChevronLeft, ChevronRight
 } from 'lucide-react';
 
-const POS_MODULES = [
+const BASE_MODULES = [
   { id: 'pos', label: 'Point de vente', icon: '💳', description: 'Interface de caisse principale' },
   { id: 'dashboard', label: 'Tableau de bord', icon: '📊', description: 'Vue d\'ensemble des ventes et statistiques' },
   { id: 'sales', label: 'Ventes', icon: '💰', description: 'Encaissement et gestion des ventes' },
   { id: 'products', label: 'Produits', icon: '📦', description: 'Gestion du catalogue de produits' },
   { id: 'customers', label: 'Clients', icon: '👥', description: 'Gestion de la base clients' },
   { id: 'reports', label: 'Rapports', icon: '📈', description: 'Rapports et analyses de ventes' },
-  { id: 'tables', label: 'Tables', icon: '🪑', description: 'Plan de salle et gestion des tables' },
   { id: 'inventory', label: 'Gestion de stock', icon: '🏭', description: 'Suivi des mouvements de stock' },
   { id: 'settings', label: 'Paramètres', icon: '⚙️', description: 'Configuration du système' },
-  { id: 'gift_cards', label: 'Cartes cadeaux', icon: '🎁', description: 'Gestion des cartes cadeaux' },
-  { id: 'suppliers', label: 'Fournisseurs', icon: '🚚', description: 'Gestion des fournisseurs' },
-  { id: 'services', label: 'Services', icon: '💈', description: 'Gestion des services et rendez-vous' },
-  { id: 'kitchen', label: 'Cuisine', icon: '🍳', description: 'Gestion des commandes cuisine' },
   { id: 'caisse', label: 'Caisse', icon: '🏪', description: 'Ouverture/fermeture de caisse' },
+];
+
+const OPTIONAL_MODULES = [
+  { id: 'kitchen', label: 'Cuisine', icon: '🍳', description: 'Gestion des commandes cuisine', configModule: 'kitchen' },
+  { id: 'tables', label: 'Tables', icon: '🪑', description: 'Plan de salle et gestion des tables', configModule: 'tables' },
+  { id: 'gift_cards', label: 'Cartes cadeaux', icon: '🎁', description: 'Gestion des cartes cadeaux', configModule: 'gift-cards' },
+  { id: 'suppliers', label: 'Fournisseurs', icon: '🚚', description: 'Gestion des fournisseurs', configModule: 'suppliers' },
+  { id: 'services', label: 'Services', icon: '💈', description: 'Gestion des services et rendez-vous', configModule: 'services' },
+  { id: 'loyalty', label: 'Fidélité', icon: '❤️', description: 'Programme de fidélité clients', configModule: 'loyalty' },
+  { id: 'barcode', label: 'Code-barres', icon: '📱', description: 'Gestion des codes-barres produits', configModule: 'barcode' },
+  { id: 'production', label: 'Production', icon: '🏭', description: 'Gestion de la production', configModule: 'production' },
+  { id: 'appointments', label: 'Rendez-vous', icon: '📅', description: 'Gestion des rendez-vous', configModule: 'appointments' },
+  { id: 'prescription', label: 'Ordonnances', icon: '💊', description: 'Gestion des ordonnances', configModule: 'prescription' },
 ];
 
 const MODULE_PERMISSION_LABELS = { can_read: 'Lecture', can_create: 'Création', can_update: 'Modification', can_delete: 'Suppression' };
@@ -55,6 +64,7 @@ const AUDIT_ACTION_LABELS = {
 const ITEMS_PER_PAGE = 15;
 
 const UserManagementAdvanced = ({ config }) => {
+  const { config: appConfig } = useAppConfig();
   const [currentUser] = useState(() => { try { return JSON.parse(localStorage.getItem('pos_user') || '{}'); } catch { return {}; } });
   const [activeTab, setActiveTab] = useState('users');
   const [loading, setLoading] = useState(true);
@@ -114,6 +124,16 @@ const UserManagementAdvanced = ({ config }) => {
   }, [loadUsers, loadAudit]);
 
   const getRoleInfo = (role) => ROLES.find(r => r.value === role) || ROLES[2];
+
+  const POS_MODULES = useMemo(() => {
+    const enabledNames = (appConfig?.modules || []).filter(m => m.isEnabled !== false).map(m => m.name);
+    const features = appConfig?.features || {};
+    const optional = OPTIONAL_MODULES.filter(m => {
+      if (features[m.id] === true) return true;
+      return enabledNames.some(n => n === m.configModule || n.includes(m.configModule) || m.configModule.includes(n));
+    });
+    return [...BASE_MODULES, ...optional];
+  }, [appConfig]);
 
   // ── User form validation ──────────────────────────────────────
   const validateUserForm = () => {
@@ -697,44 +717,50 @@ const UserManagementAdvanced = ({ config }) => {
 
       {/* ═══ MODULE PERMISSIONS ══════════════════════════════════ */}
       <Dialog open={showPermissionsDialog} onOpenChange={setShowPermissionsDialog}>
-        <DialogContent className="max-w-2xl max-h-[85vh] flex flex-col">
-          <DialogHeader>
+        <DialogContent className="max-w-2xl max-h-[85vh] flex flex-col p-0">
+          <DialogHeader className="px-6 pt-6 pb-4">
             <DialogTitle className="flex items-center gap-2">
               <Lock className="h-5 w-5" />Permissions modules
             </DialogTitle>
             <DialogDescription>
-              Permissions de {permTarget?.username || 'l\'utilisateur'} — Lecture, Création, Modification, Suppression par module
+              Permissions de {permTarget?.username || 'l\'utilisateur'} — {POS_MODULES.length} modules disponibles
             </DialogDescription>
           </DialogHeader>
-          <ScrollArea className="flex-1 pr-2">
+          <div className="flex-1 overflow-y-auto px-6 pb-4" style={{ maxHeight: 'calc(85vh - 140px)' }}>
             <div className="space-y-2">
               {POS_MODULES.map(mod => (
-                <div key={mod.id} className="border rounded-lg p-3">
-                  <div className="flex items-center gap-3 mb-2">
-                    <span className="text-lg">{mod.icon}</span>
-                    <div>
-                      <div className="font-medium text-sm">{mod.label}</div>
-                      <div className="text-xs text-muted-foreground">{mod.description}</div>
+                <div key={mod.id} className="border rounded-xl p-4 bg-card hover:bg-accent/30 transition-colors">
+                  <div className="flex items-center gap-3 mb-3">
+                    <span className="text-xl">{mod.icon}</span>
+                    <div className="flex-1 min-w-0">
+                      <div className="font-semibold text-sm">{mod.label}</div>
+                      <div className="text-xs text-muted-foreground truncate">{mod.description}</div>
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      {modulePerms[mod.id]?.can_read && <Badge variant="outline" className="text-[10px] py-0">L</Badge>}
+                      {modulePerms[mod.id]?.can_create && <Badge variant="outline" className="text-[10px] py-0">C</Badge>}
+                      {modulePerms[mod.id]?.can_update && <Badge variant="outline" className="text-[10px] py-0">M</Badge>}
+                      {modulePerms[mod.id]?.can_delete && <Badge variant="outline" className="text-[10px] py-0 text-destructive">S</Badge>}
                     </div>
                   </div>
-                  <div className="grid grid-cols-4 gap-2 ml-9">
+                  <div className="grid grid-cols-4 gap-2">
                     {Object.entries(MODULE_PERMISSION_LABELS).map(([key, label]) => (
-                      <label key={key} className="flex items-center gap-1.5 text-xs cursor-pointer">
+                      <label key={key} className="flex items-center gap-1.5 text-xs cursor-pointer p-1.5 rounded-lg hover:bg-muted/50 transition-colors">
                         <input
                           type="checkbox"
                           checked={modulePerms[mod.id]?.[key] || false}
                           onChange={(e) => setModulePerm(mod.id, key, e.target.checked)}
-                          className="rounded border-gray-300"
+                          className="rounded border-gray-300 h-3.5 w-3.5"
                         />
-                        {label}
+                        <span className="truncate">{label}</span>
                       </label>
                     ))}
                   </div>
                 </div>
               ))}
             </div>
-          </ScrollArea>
-          <div className="flex items-center justify-between pt-3 border-t mt-2">
+          </div>
+          <div className="flex items-center justify-between pt-3 border-t px-6 pb-4">
             <div className="flex gap-2">
               <Button variant="outline" size="sm" onClick={() => setAllPerms(true)}>Tout activer</Button>
               <Button variant="outline" size="sm" onClick={() => setAllPerms(false)}>Tout désactiver</Button>

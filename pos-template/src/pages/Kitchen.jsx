@@ -10,6 +10,7 @@ import {
 import { POSConfiguration } from '../lib/POSConfiguration';
 import { useAppConfig } from '../hooks/useAppConfig';
 import { useToast } from '../hooks/use-toast';
+import { getCurrencySymbol } from '../utils/currency';
 import { Button } from '../components/ui/button';
 import { Card, CardContent } from '../components/ui/card';
 import { Badge } from '../components/ui/badge';
@@ -469,7 +470,7 @@ function OrderDetailsSheet({ order, open, onClose, onStatusChange, onCancel, onP
             order.server_name && { label: 'Serveur', value: order.server_name },
             order.customer_name && { label: 'Client', value: order.customer_name },
             order.estimated_minutes && { label: 'Prépar. estimée', value: `~${order.estimated_minutes} min` },
-            order.total > 0 && { label: 'Total', value: `${Number(order.total).toFixed(2)} ${config?.theme?.currency || 'DT'}` },
+            order.total > 0 && { label: 'Total', value: `${Number(order.total).toFixed(2)} ${getCurrencySymbol(config?.theme?.currency || 'TND')}` },
           ].filter(Boolean).map((item, i) => (
             <div key={i} className="p-3 rounded-xl border bg-card/50">
               <p className="text-[11px] text-muted-foreground uppercase tracking-wide">{item.label}</p>
@@ -746,7 +747,7 @@ function HistoryView({ historyOrders, historyLoading, historyStatus, setHistoryS
                   <div className="text-xs text-muted-foreground">
                     {(order.items || []).length} article(s)
                     {order._elapsed && order._elapsed.text !== '—' && <span> · {order._elapsed.text}</span>}
-                    {order.total > 0 && <span> · {Number(order.total).toFixed(2)} DT</span>}
+                    {order.total > 0 && <span> · {Number(order.total).toFixed(2)} {getCurrencySymbol('TND')}</span>}
                   </div>
                   {order.cancel_reason && <p className="text-[11px] text-red-600 mt-1.5 italic truncate">{order.cancel_reason}</p>}
                 </div>

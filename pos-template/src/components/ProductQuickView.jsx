@@ -5,6 +5,7 @@ import { Button } from './ui/button';
 import { Badge } from './ui/badge';
 import { Separator } from './ui/separator';
 import { ScrollArea } from './ui/scroll-area';
+import { getImageStyle } from '../utils/imageSettings';
 
 const ProductQuickView = memo(function ProductQuickView({
   open,
@@ -36,7 +37,7 @@ const ProductQuickView = memo(function ProductQuickView({
         {/* Product Image */}
         <div className="relative h-56 bg-muted flex-shrink-0">
           {product.image ? (
-            <img src={product.image} alt={product.name} className="w-full h-full object-cover" loading="lazy" />
+            <img src={product.image} alt={product.name} className="w-full h-full" style={getImageStyle(product.image_settings)} loading="lazy" />
           ) : (
             <div className="w-full h-full flex items-center justify-center">
               <Package className="h-16 w-16 text-muted-foreground/30" />

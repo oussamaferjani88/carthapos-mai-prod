@@ -34,10 +34,12 @@ import {
 } from 'lucide-react';
 import { POSConfiguration } from '../lib/POSConfiguration';
 import { useAppConfig } from '../hooks/useAppConfig';
+import { getCurrencySymbol } from '../utils/currency';
 import { useAuth } from '../contexts/AuthContext';
 import { getIconComponent } from '../components/CategoryIconPicker';
 import NumericKeypad from '../components/NumericKeypad';
 import { activityLog } from '../utils/activityLog';
+import { getImageStyle } from '../utils/imageSettings';
 import { Label } from '../components/ui/label';
 import { Separator } from '../components/ui/separator';
 import { Switch } from '../components/ui/switch';
@@ -214,7 +216,7 @@ const Sales = () => {
   }, []);
 
   useEffect(() => {
-    if (activeShift) return;
+    if (activeShift || showOpenShiftDialog || showCloseShiftDialog) return;
     const blockKeys = (e) => {
       if (e.key === 'Escape') return;
       if (e.key === 'Tab') { e.preventDefault(); return; }
@@ -223,7 +225,7 @@ const Sales = () => {
     };
     window.addEventListener('keydown', blockKeys, true);
     return () => window.removeEventListener('keydown', blockKeys, true);
-  }, [activeShift]);
+  }, [activeShift, showOpenShiftDialog, showCloseShiftDialog]);
 
   const loadTaxSettings = async () => {
     try {
@@ -1427,7 +1429,7 @@ const Sales = () => {
                         </div>
                         <div className="text-right flex-shrink-0">
                           <p className="text-xs font-medium text-gray-600">{customer.loyalty_points || 0} pts</p>
-                          <p className="text-[10px] text-gray-400">{(customer.total_spent || 0).toFixed(0)}€</p>
+                          <p className="text-[10px] text-gray-400">{(customer.total_spent || 0).toFixed(0)}{getCurrencySymbol(config.currency || 'TND')}</p>
                         </div>
                       </button>
                     );
@@ -2105,7 +2107,7 @@ const Sales = () => {
                         <div className="space-y-1">
                           {product.image && (
                             <div className="-mx-3 -mt-3 mb-2 overflow-hidden bg-gray-50 h-[72px]">
-                              <img src={product.image} alt={product.name} className="w-full h-full object-cover" />
+                               <img src={product.image} alt={product.name} className="w-full h-full" style={getImageStyle(product.image_settings)} />
                             </div>
                           )}
                           <div className="flex items-start justify-between gap-1">

@@ -1,9 +1,11 @@
 import React, { useState, useEffect } from 'react';
+import { getCurrencySymbol } from '../utils/currency';
 import { Stethoscope, Plus, FileText, User, Calendar, Clock, Search, Filter } from 'lucide-react';
 import { useThemeApplier } from '../hooks/useThemeApplier';
 
 const Prescription = () => {
   useThemeApplier();
+  const formatCurrency = (v) => `${(parseFloat(v) || 0).toFixed(2)} ${getCurrencySymbol('TND')}`;
   
   const [prescriptions, setPrescriptions] = useState([
     {
@@ -201,7 +203,7 @@ const Prescription = () => {
           <div className="flex items-center justify-between">
             <div>
               <p className="text-sm font-medium text-muted-foreground">Valeur Totale</p>
-              <p className="text-2xl font-bold text-foreground">{stats.totalValue.toFixed(2)} €</p>
+              <p className="text-2xl font-bold text-foreground">{formatCurrency(stats.totalValue)}</p>
             </div>
             <Stethoscope className="w-8 h-8 text-purple-500" />
           </div>
@@ -373,7 +375,7 @@ const Prescription = () => {
                       <p className="text-sm text-muted-foreground">Quantité: {medication.quantity}</p>
                     </div>
                     <div className="text-right">
-                      <p className="font-medium text-foreground">{medication.price.toFixed(2)} €</p>
+                      <p className="font-medium text-foreground">{formatCurrency(medication.price)}</p>
                       {prescription.status !== 'completed' && (
                         <button
                           onClick={() => handleMedicationFulfill(prescription.id, index)}
@@ -403,7 +405,7 @@ const Prescription = () => {
 
             <div className="flex justify-between items-center pt-4 border-t border-border">
               <div className="text-lg font-semibold text-foreground">
-                Total: {prescription.total.toFixed(2)} €
+                Total: {formatCurrency(prescription.total)}
               </div>
               {prescription.status === 'pending' && (
                 <div className="flex gap-2">

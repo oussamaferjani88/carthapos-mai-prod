@@ -20,6 +20,7 @@ import {
   Save,
   X
 } from 'lucide-react';
+import { getCurrencySymbol } from '../utils/currency';
 
 export default function SecuritySettings() {
   const [currentUser, setCurrentUser] = useState({
@@ -93,7 +94,7 @@ export default function SecuritySettings() {
       timestamp: '2024-01-15 14:25:00',
       user: 'cashier1',
       action: 'SALE',
-      details: 'Vente n°1234 - 45.50€'
+      details: `Vente n°1234 - 45.50${getCurrencySymbol('TND')}`
     },
     {
       id: 3,

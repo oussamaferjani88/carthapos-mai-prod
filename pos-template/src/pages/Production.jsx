@@ -1,9 +1,11 @@
 import React, { useState, useEffect } from 'react';
+import { getCurrencySymbol } from '../utils/currency';
 import { Factory, Plus, Package, Clock, CheckCircle, AlertTriangle, TrendingUp, DollarSign } from 'lucide-react';
 import { useThemeApplier } from '../hooks/useThemeApplier';
 
 const Production = () => {
   useThemeApplier();
+  const formatCurrency = (v) => `${(parseFloat(v) || 0).toFixed(2)} ${getCurrencySymbol('TND')}`;
   
   const [productionOrders, setProductionOrders] = useState([
     {
@@ -261,7 +263,7 @@ const Production = () => {
           <div className="flex items-center justify-between">
             <div>
               <p className="text-sm font-medium text-muted-foreground">Coût Total</p>
-              <p className="text-2xl font-bold text-foreground">{stats.totalCost.toFixed(2)} €</p>
+              <p className="text-2xl font-bold text-foreground">{formatCurrency(stats.totalCost)}</p>
             </div>
             <DollarSign className="w-8 h-8 text-purple-500" />
           </div>
@@ -424,7 +426,7 @@ const Production = () => {
                 </div>
                 <div>
                   <p className="text-sm text-muted-foreground">Coût</p>
-                  <p className="text-sm font-medium text-foreground">{order.totalCost.toFixed(2)} €</p>
+                  <p className="text-sm font-medium text-foreground">{formatCurrency(order.totalCost)}</p>
                 </div>
               </div>
 
@@ -435,7 +437,7 @@ const Production = () => {
                     {order.ingredients.map((ingredient, index) => (
                       <div key={index} className="flex justify-between text-sm">
                         <span>{ingredient.name}: {ingredient.quantity} {ingredient.unit}</span>
-                        <span className="font-medium">{ingredient.cost.toFixed(2)} €</span>
+                        <span className="font-medium">{formatCurrency(ingredient.cost)}</span>
                       </div>
                     ))}
                   </div>
@@ -484,7 +486,7 @@ const Production = () => {
                     <h4 className="font-semibold text-foreground">{recipe.name}</h4>
                     <p className="text-sm text-muted-foreground">{recipe.category}</p>
                   </div>
-                  <span className="text-lg font-bold text-foreground">{recipe.costPerUnit.toFixed(2)} €</span>
+                   <span className="text-lg font-bold text-foreground">{formatCurrency(recipe.costPerUnit)}</span>
                 </div>
 
                 <div className="space-y-2 mb-4">

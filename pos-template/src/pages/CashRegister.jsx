@@ -7,6 +7,7 @@ import { Label } from '../components/ui/label';
 import { Textarea } from '../components/ui/textarea';
 import { POSConfiguration } from '../lib/POSConfiguration';
 import { useAppConfig } from '../hooks/useAppConfig';
+import { getCurrencySymbol } from '../utils/currency';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/ui/table';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '../components/ui/dialog';
 import {
@@ -113,7 +114,7 @@ export default function CashRegister() {
   };
 
   const formatDate = (d) => d ? new Date(d + 'Z').toLocaleString() : '-';
-  const formatCurrency = (v) => (parseFloat(v) || 0).toFixed(2) + '€';
+  const formatCurrency = (v) => `${(parseFloat(v) || 0).toFixed(2)} ${getCurrencySymbol(config?.currency || 'TND')}`;
 
   const getDuration = (opened, closed) => {
     if (!opened) return '-';
@@ -268,7 +269,7 @@ export default function CashRegister() {
           <div className="space-y-4">
             <div className="grid gap-2">
               <Label>Fond de caisse initial</Label>
-              <Input type="number" step="0.01" value={openFloat} onChange={e => setOpenFloat(e.target.value)} />
+              <Input type="number" step="0.01" value={openFloat} onChange={e => setOpenFloat(e.target.value)} autoFocus inputMode="decimal" />
             </div>
           </div>
           <DialogFooter>
@@ -291,7 +292,7 @@ export default function CashRegister() {
             <div className="grid grid-cols-2 gap-2">
               {denominations.map(d => (
                 <div key={d} className="flex items-center gap-2">
-                  <Label className="w-16 text-right text-sm">{d >= 1 ? `${d}€` : `${(d * 100).toFixed(0)}c`}</Label>
+                  <Label className="w-16 text-right text-sm">{d >= 1 ? `${d} ${getCurrencySymbol(config?.currency || 'TND')}` : `${(d * 100).toFixed(0)}c`}</Label>
                   <Input type="number" min="0" placeholder="0" value={counts[d] || ''} onChange={e => setCounts({...counts, [d]: e.target.value})} className="h-8" />
                 </div>
               ))}
@@ -341,7 +342,7 @@ export default function CashRegister() {
                   <p className="font-medium mb-2">Comptage détaillé</p>
                   {Object.entries(JSON.parse(shiftDetail.denomination_breakdown)).map(([d, c]) => (
                     <div key={d} className="flex justify-between text-xs">
-                      <span>{parseFloat(d) >= 1 ? `${parseFloat(d)}€` : `${(parseFloat(d) * 100).toFixed(0)}c`} × {c}</span>
+                      <span>{parseFloat(d) >= 1 ? `${parseFloat(d)} ${getCurrencySymbol(config?.currency || 'TND')}` : `${(parseFloat(d) * 100).toFixed(0)}c`} × {c}</span>
                       <span>{formatCurrency(parseFloat(d) * parseInt(c))}</span>
                     </div>
                   ))}

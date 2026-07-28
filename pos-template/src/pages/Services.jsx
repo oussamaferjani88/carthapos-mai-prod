@@ -12,6 +12,7 @@ import {
 } from 'lucide-react';
 import { POSConfiguration } from '../lib/POSConfiguration';
 import { useAppConfig } from '../hooks/useAppConfig';
+import { getCurrencySymbol } from '../utils/currency';
 
 // Components
 import { Button } from '../components/ui/button';
@@ -508,7 +509,7 @@ export default function Services() {
                 />
               </div>
               <div className="grid gap-2">
-                <Label htmlFor="price">Prix (DT) *</Label>
+                <Label htmlFor="price">Prix ({getCurrencySymbol(config?.currency || 'TND')}) *</Label>
                 <Input
                   id="price"
                   type="number"

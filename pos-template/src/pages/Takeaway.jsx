@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Plus, Package, Clock, Car, CheckCircle, XCircle, Phone, MapPin, User } from 'lucide-react';
 import { useThemeApplier } from '../hooks/useThemeApplier';
+import { getCurrencySymbol } from '../utils/currency';
 
 const Takeaway = () => {
   useThemeApplier();
@@ -325,13 +326,13 @@ const Takeaway = () => {
                 {order.items.map((item, index) => (
                   <div key={index} className="flex justify-between text-sm">
                     <span>{item.quantity}x {item.name}</span>
-                    <span className="font-medium">{item.price.toFixed(2)} DT</span>
+                    <span className="font-medium">{item.price.toFixed(2)} {getCurrencySymbol('TND')}</span>
                   </div>
                 ))}
               </div>
               <div className="flex justify-between font-semibold text-sm pt-2 border-t border-border mt-2">
                 <span>Total:</span>
-                <span>{order.total.toFixed(2)} DT</span>
+                <span>{order.total.toFixed(2)} {getCurrencySymbol('TND')}</span>
               </div>
             </div>
 

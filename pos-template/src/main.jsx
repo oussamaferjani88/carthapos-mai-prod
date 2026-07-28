@@ -36,8 +36,22 @@ if (typeof window !== 'undefined') {
     document.addEventListener('DOMContentLoaded', clearAllNotifications);
   }
   
-  // Clear notifications periodically to catch any that sneak through
-  setInterval(clearAllNotifications, 1000);
+  // Use MutationObserver instead of polling every second
+  const observer = new MutationObserver((mutations) => {
+    for (const m of mutations) {
+      for (const node of m.addedNodes) {
+        if (node.nodeType === 1 && !node.closest?.('#root') && (
+          node.id?.startsWith('notification-') ||
+          node.matches?.('.notification-item, .notification, .alert, .error-overlay, .error-notification')
+        )) {
+          node.remove();
+        }
+      }
+    }
+  });
+  if (document.body) {
+    observer.observe(document.body, { childList: true, subtree: true });
+  }
   
   // Override notification functions to prevent any alerts
   window.showNotification = () => {}; // No-op function

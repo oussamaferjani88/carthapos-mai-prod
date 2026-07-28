@@ -41,6 +41,17 @@ function registerCustomerHandlers(ipcMainInstance, databaseManager) {
   const db = databaseManager.getDatabase();
   if (!db) { console.warn('⚠️ Database not available for customer handlers'); return; }
 
+  function logAudit(user_id, user_name, action_type, entity_id, new_value, notes) {
+    try {
+      db.run(
+        `INSERT INTO audit_logs (timestamp, user_id, user_name, action_type, entity_type, entity_id, new_value, notes)
+         VALUES (datetime('now','localtime'), ?, ?, ?, 'customer', ?, ?, ?)`,
+        [user_id || 0, user_name || 'System', action_type, entity_id || null,
+         new_value ? JSON.stringify(new_value) : null, notes || null]
+      );
+    } catch (e) { /* non-critical */ }
+  }
+
   // ── Get all customers ──────────────────────────────────────────
   ipcMainInstance.handle('get-customers', () => {
     return new Promise((resolve, reject) => {
@@ -126,6 +137,7 @@ function registerCustomerHandlers(ipcMainInstance, databaseManager) {
             console.error('Error adding customer:', err);
             reject(err);
           } else {
+            logAudit(customer.created_by || 0, customer.created_by_name || null, 'CUSTOMER_CREATE', this.lastID, { name: name.trim(), email: cleanEmail, phone: cleanPhone }, `Client "${name.trim()}" créé`);
             console.log('✅ Customer added:', this.lastID, name.trim());
             resolve({ id: this.lastID, success: true });
           }
@@ -187,6 +199,7 @@ function registerCustomerHandlers(ipcMainInstance, databaseManager) {
             console.error('Error updating customer:', err);
             reject(err);
           } else {
+            logAudit(customer.updated_by || 0, customer.updated_by_name || null, 'CUSTOMER_UPDATE', id, { name: name.trim(), email: cleanEmail, phone: cleanPhone, is_active }, `Client "${name.trim()}" modifié`);
             resolve({ success: true });
           }
         }
@@ -229,6 +242,7 @@ function registerCustomerHandlers(ipcMainInstance, databaseManager) {
           console.error('Error deleting customer:', err);
           reject(err);
         } else {
+          logAudit(0, 'System', 'CUSTOMER_DELETE', id, null, `Client #${id} supprimé`);
           console.log('✅ Customer deleted:', id);
           resolve({ success: true });
         }
@@ -397,7 +411,7 @@ function registerCustomerHandlers(ipcMainInstance, databaseManager) {
   // ── Toggle customer active status ──────────────────────────────
   ipcMainInstance.handle('toggle-customer-active', async (event, id) => {
     try {
-      return await new Promise((resolve, reject) => {
+      const result = await new Promise((resolve, reject) => {
         db.run(
           `UPDATE customers SET is_active = CASE WHEN is_active = 1 THEN 0 ELSE 1 END,
                   updated_at = datetime('now')
@@ -405,10 +419,18 @@ function registerCustomerHandlers(ipcMainInstance, databaseManager) {
           [id],
           function(err) {
             if (err) reject(err);
-            else resolve({ success: true });
+            else resolve({ success: true, changes: this.changes });
           }
         );
       });
+      if (result.changes > 0) {
+        db.get('SELECT name, is_active FROM customers WHERE id = ?', [id], (sErr, row) => {
+          if (!sErr && row) {
+            logAudit(0, 'System', row.is_active ? 'CUSTOMER_ACTIVATE' : 'CUSTOMER_DEACTIVATE', id, null, `Client "${row.name}" ${row.is_active ? 'activé' : 'désactivé'}`);
+          }
+        });
+      }
+      return result;
     } catch (error) {
       console.error('Error toggling customer active:', error);
       throw error;

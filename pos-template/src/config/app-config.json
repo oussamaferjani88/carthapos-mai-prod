@@ -20,22 +20,28 @@
       "description": "Rapports de ventes et analyses"
     },
     {
-      "name": "kitchen-printer",
-      "displayName": "Impression cuisine",
+      "name": "kitchen",
+      "displayName": "Cuisine",
       "isEnabled": false,
-      "description": "Impression des commandes en cuisine"
+      "description": "Gestion des commandes cuisine"
     },
     {
-      "name": "table-management",
+      "name": "tables",
       "displayName": "Gestion des tables",
       "isEnabled": false,
       "description": "Gestion des tables pour restaurants"
     },
     {
-      "name": "loyalty-program",
+      "name": "loyalty",
       "displayName": "Programme de fidélité",
       "isEnabled": false,
       "description": "Gestion des clients fidèles"
+    },
+    {
+      "name": "suppliers",
+      "displayName": "Fournisseurs",
+      "isEnabled": false,
+      "description": "Gestion des fournisseurs"
     }
   ],
   "theme": {
@@ -47,7 +53,7 @@
       "text": "#1F2937"
     },
     "logo": null,
-    "currency": "EUR",
+    "currency": "TND",
     "taxRate": 20.0,
     "language": "fr",
     "timezone": "Europe/Paris"

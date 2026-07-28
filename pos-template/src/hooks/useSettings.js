@@ -6,11 +6,13 @@ const BOOLEAN_KEYS = new Set([
   'keyboardEnabled', 'keyboardSoundEnabled',
   'notificationEnabled', 'notificationSoundEnabled', 'notificationPersistentAlerts', 'notificationLowStockAlerts',
   'kioskEnabled', 'kioskFullscreen', 'kioskEmergencyExit', 'kioskHideCursor',
-  'backupIncludeImages'
+  'backupIncludeImages',
+  'autoLockEnabled'
 ]);
 
 const NUMBER_KEYS = new Set([
-  'backupInterval', 'backupMaxBackups'
+  'backupInterval', 'backupMaxBackups',
+  'autoLockTimeout'
 ]);
 
 export function deserializeSettingValue(key, rawValue) {
@@ -27,7 +29,8 @@ export function deserializeSettingValue(key, rawValue) {
 
 export function serializeSettingValue(key, value) {
   if (BOOLEAN_KEYS.has(key)) {
-    return value ? 'true' : 'false';
+    const isTruthy = value === true || value === 'true' || value === '1' || value === 1;
+    return isTruthy ? 'true' : 'false';
   }
   if (NUMBER_KEYS.has(key)) {
     return String(value);
@@ -96,13 +99,32 @@ export function useSettings() {
 
   const setMultipleSettings = useCallback(async (settingsObj) => {
     try {
+      const succeeded = {};
+      const failed = [];
       if (window.electronAPI?.setSetting) {
         for (const [key, value] of Object.entries(settingsObj)) {
-          const serialized = serializeSettingValue(key, value);
-          await window.electronAPI.setSetting(key, serialized);
+          try {
+            const serialized = serializeSettingValue(key, value);
+            const result = await window.electronAPI.setSetting(key, serialized);
+            if (result && result.success) {
+              succeeded[key] = value;
+            } else {
+              failed.push({ key, error: result?.error || 'Unknown error' });
+            }
+          } catch (e) {
+            failed.push({ key, error: e.message });
+          }
         }
+      } else {
+        Object.assign(succeeded, settingsObj);
       }
-      setSettings(prev => ({ ...prev, ...settingsObj }));
+      if (Object.keys(succeeded).length > 0) {
+        setSettings(prev => ({ ...prev, ...succeeded }));
+      }
+      if (failed.length > 0) {
+        console.error('Failed to save settings:', failed);
+        return { success: false, error: `${failed.length} setting(s) failed to save`, failed };
+      }
       return { success: true };
     } catch (err) {
       console.error('Error saving settings:', err);

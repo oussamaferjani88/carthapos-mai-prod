@@ -4,6 +4,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '.
 import { Button } from './ui/button';
 import { Badge } from './ui/badge';
 import { Checkbox } from './ui/checkbox';
+import { getImageStyle } from '../utils/imageSettings';
 
 const ProductTableView = memo(function ProductTableView({
   products,
@@ -85,7 +86,7 @@ const ProductTableView = memo(function ProductTableView({
                 </TableCell>
                 <TableCell>
                   {product.image ? (
-                    <img src={product.image} alt="" className="w-8 h-8 rounded object-cover" loading="lazy" />
+                    <img src={product.image} alt="" className="w-8 h-8 rounded" style={getImageStyle(product.image_settings)} loading="lazy" />
                   ) : (
                     <div className="w-8 h-8 rounded bg-muted flex items-center justify-center">
                       <Package className="h-4 w-4 text-muted-foreground/30" />

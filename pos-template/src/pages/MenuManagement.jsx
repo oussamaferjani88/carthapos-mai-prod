@@ -4,6 +4,7 @@ import { ScrollArea } from '../components/ui/scroll-area';
 import { useThemeApplier } from '../hooks/useThemeApplier';
 import { POSConfiguration } from '../lib/POSConfiguration';
 import { useAppConfig } from '../hooks/useAppConfig';
+import { getCurrencySymbol } from '../utils/currency';
 
 const MenuManagement = () => {
   useThemeApplier();
@@ -18,6 +19,13 @@ const MenuManagement = () => {
     });
   };
   const config = getConfig();
+
+  const formatCurrency = (amount) => {
+    const val = parseFloat(amount) || 0;
+    const symbol = getCurrencySymbol(config.currency || 'TND');
+    const position = config.currencyPosition || 'after';
+    return position === 'before' ? `${symbol}${val.toFixed(2)}` : `${val.toFixed(2)} ${symbol}`;
+  };
 
   const [categories, setCategories] = useState([
     { id: 1, name: 'Entrées', description: 'Plats d\'entrée', order: 1, active: true },
@@ -270,7 +278,7 @@ const MenuManagement = () => {
                         <div className="text-sm text-muted-foreground">{item.description}</div>
                       </td>
                       <td className="px-6 py-4 text-sm text-foreground">{getCategoryName(item.categoryId)}</td>
-                      <td className="px-6 py-4 text-sm font-medium text-foreground">{item.price.toFixed(2)} €</td>
+                      <td className="px-6 py-4 text-sm font-medium text-foreground">{formatCurrency(item.price)}</td>
                       <td className="px-6 py-4">
                         <span className={`px-2 py-1 rounded-full text-xs ${item.available ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>
                           {item.available ? 'Disponible' : 'Indisponible'}
@@ -374,7 +382,7 @@ const MenuManagement = () => {
                         <div className="flex items-center gap-2">
                           <span className="text-sm font-medium text-foreground">{item.name}</span>
                           {item.price > 0 && (
-                            <span className="text-xs font-medium text-emerald-600">+{item.price.toFixed(2)} €</span>
+                            <span className="text-xs font-medium text-emerald-600">+{formatCurrency(item.price)}</span>
                           )}
                           {item.price === 0 && <span className="text-xs text-muted-foreground">Inclus</span>}
                           {item.defaultSelected && <span className="text-xs bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded">Défaut</span>}

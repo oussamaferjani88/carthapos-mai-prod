@@ -980,7 +980,7 @@ router.post('/:id/module-upgrade-quote', async (req, res) => {
       alreadyOwnedCount: requestedModules.length - newModules.length,
       newModules,
       amountDue,
-      currency: 'EUR',
+      currency: 'TND',
     });
   } catch (error) {
     console.error('Error calculating module upgrade quote:', error);

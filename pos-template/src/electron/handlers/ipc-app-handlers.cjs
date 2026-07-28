@@ -23,7 +23,8 @@ const ALLOWED_SETTINGS_KEYS = new Set([
   'notificationEnabled', 'notificationSoundEnabled', 'notificationPersistentAlerts', 'notificationLowStockAlerts',
   'kioskEnabled', 'kioskFullscreen', 'kioskEmergencyExit', 'kioskHideCursor',
   'backupInterval', 'backupMaxBackups', 'backupIncludeImages',
-  'receiptConfig'
+  'receiptConfig',
+  'autoLockEnabled', 'autoLockTimeout'
 ]);
 
 function isAllowedKey(key) {
@@ -93,6 +94,11 @@ function validateSettingsPayload(key, value) {
     case 'language':
       if (!['fr', 'en', 'es', 'de'].includes(strValue)) return { valid: false, error: 'Unsupported language' };
       break;
+    case 'autoLockTimeout': {
+      const n = Number(strValue);
+      if (isNaN(n) || n < 1 || n > 120) return { valid: false, error: 'Timeout must be between 1 and 120 minutes' };
+      break;
+    }
   }
   return { valid: true };
 }
@@ -117,9 +123,45 @@ function logAudit(dbManager, event, actionType, notes, oldValue, newValue) {
 function registerAppHandlers(loadAppConfig, databaseManager) {
   const { ipcMain } = require('electron');
 
-  // ── App config (immutable, from app-config.json) ─────────────────────
-  ipcMain.handle('get-app-config', () => {
+  // ── App config (from app-config.json + SQLite settings overlay) ───────
+  ipcMain.handle('get-app-config', async () => {
     const config = loadAppConfig();
+    if (!config) return config;
+
+    // Merge user-modifiable settings from SQLite into config.theme
+    // so rendering components (POSHeader, etc.) get persisted values.
+    try {
+      if (databaseManager && typeof databaseManager.getData === 'function') {
+        const rows = await databaseManager.getData(
+          `SELECT key, value FROM settings WHERE key IN (
+            'businessLogo', 'businessName', 'businessAddress', 'businessPhone',
+            'businessEmail', 'businessWebsite', 'businessTaxId',
+            'currency', 'language', 'timezone', 'theme'
+          )`
+        );
+        if (rows && rows.length > 0) {
+          if (!config.theme) config.theme = {};
+          for (const row of rows) {
+            switch (row.key) {
+              case 'businessLogo':   config.theme.logo = row.value; break;
+              case 'businessName':   config.theme.businessName = row.value; break;
+              case 'businessAddress': config.theme.businessAddress = row.value; break;
+              case 'businessPhone':  config.theme.businessPhone = row.value; break;
+              case 'businessEmail':  config.theme.businessEmail = row.value; break;
+              case 'businessWebsite': config.theme.businessWebsite = row.value; break;
+              case 'businessTaxId':  config.theme.businessTaxId = row.value; break;
+              case 'currency':       config.theme.currency = row.value; break;
+              case 'language':       config.theme.language = row.value; break;
+              case 'timezone':       config.theme.timezone = row.value; break;
+              case 'theme':          if (row.value && row.value !== 'default') config.theme.id = row.value; break;
+            }
+          }
+        }
+      }
+    } catch (e) {
+      console.warn('⚠️ Could not merge settings into app config:', e.message);
+    }
+
     return config;
   });
 

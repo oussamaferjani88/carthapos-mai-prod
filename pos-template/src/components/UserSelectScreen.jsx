@@ -162,9 +162,9 @@ export default function UserSelectScreen({ config, onUserSelect, loading: extern
   return (
     <div className="min-h-screen flex flex-col items-center justify-center p-6">
       {/* Logo */}
-      {config?.logo && (
-        <img src={config.logo} alt="" className="h-12 mb-2 object-contain" />
-      )}
+      {(config?.logo || config?.theme?.logo) ? (
+        <img src={config?.logo || config?.theme?.logo} alt="" className="h-12 mb-2 object-contain" />
+      ) : null}
       <h1 className="text-2xl font-bold text-foreground mb-1">
         {config?.businessName || config?.business_name || 'CarthaPOS'}
       </h1>

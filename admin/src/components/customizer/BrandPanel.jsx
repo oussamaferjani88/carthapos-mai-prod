@@ -98,7 +98,7 @@ const BrandPanel = ({ formData, setFormData }) => {
       <div className="space-y-2">
         <Label className="text-sm font-medium">Devise</Label>
         <Select
-          value={formData.configuration.currency || 'EUR'}
+          value={formData.configuration.currency || 'TND'}
           onValueChange={(value) => handleChange('currency', value)}
         >
           <SelectTrigger>

@@ -363,7 +363,7 @@ async function autoSeed() {
                 accentColor: '#F59E0B',
                 backgroundColor: '#FFFFFF',
                 textColor: '#1F2937',
-                currency: 'EUR',
+                currency: 'TND',
                 taxRate: 20.0,
                 language: 'fr',
                 timezone: 'Europe/Paris'

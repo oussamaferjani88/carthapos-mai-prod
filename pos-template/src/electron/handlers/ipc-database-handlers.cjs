@@ -38,14 +38,14 @@ function registerDatabaseHandlers(getDatabase) {
        const db = getDatabase();
        if (!db) throw new Error('Database not initialized');
        
-         const { name, price, cost_price, category, family, barcode, stock, min_stock, unit, supplier, image, description, vat_rate_id, price_type, requires_kitchen, preparation_department, preparation_time } = product;
+         const { name, price, cost_price, category, family, barcode, stock, min_stock, unit, supplier, image, description, vat_rate_id, price_type, requires_kitchen, preparation_department, preparation_time, image_settings } = product;
          
          console.log(`⏱️ [ADD-PRODUCT START] Adding: "${name}" - Family: "${family}"`);
          
           return new Promise((resolve, reject) => {
             db.run(
-              'INSERT INTO products (name, price, cost_price, category, family, barcode, stock, min_stock, unit, supplier, image, description, vat_rate_id, price_type, requires_kitchen, preparation_department, preparation_time) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-              [name, price, cost_price || 0, category || family, family, barcode || null, stock || 0, min_stock || 0, unit || 'unit', supplier || '', image || null, description || '', vat_rate_id || null, price_type || 'ttc', requires_kitchen ? 1 : 0, preparation_department || null, preparation_time || null],
+              'INSERT INTO products (name, price, cost_price, category, family, barcode, stock, min_stock, unit, supplier, image, description, vat_rate_id, price_type, requires_kitchen, preparation_department, preparation_time, image_settings) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+              [name, price, cost_price || 0, category || family, family, barcode || null, stock || 0, min_stock || 0, unit || 'unit', supplier || '', image || null, description || '', vat_rate_id || null, price_type || 'ttc', requires_kitchen ? 1 : 0, preparation_department || null, preparation_time || null, image_settings || null],
             function(err) {
               const duration = Date.now() - startTime;
               if (err) {
@@ -73,14 +73,14 @@ function registerDatabaseHandlers(getDatabase) {
        const db = getDatabase();
        if (!db) throw new Error('Database not initialized');
        
-         const { name, price, cost_price, category, family, barcode, stock, min_stock, unit, supplier, image, description, vat_rate_id, price_type, requires_kitchen, preparation_department, preparation_time } = product;
+         const { name, price, cost_price, category, family, barcode, stock, min_stock, unit, supplier, image, description, vat_rate_id, price_type, requires_kitchen, preparation_department, preparation_time, image_settings } = product;
          
          console.log(`⏱️ [UPDATE-PRODUCT START] ID: ${id} - "${name}"`);
          
-         return new Promise((resolve, reject) => {
-           db.run(
-             'UPDATE products SET name = ?, price = ?, cost_price = ?, category = ?, family = ?, barcode = ?, stock = ?, min_stock = ?, unit = ?, supplier = ?, image = ?, description = ?, vat_rate_id = ?, price_type = ?, requires_kitchen = ?, preparation_department = ?, preparation_time = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
-              [name, price, cost_price || 0, category || family, family, barcode || null, stock || 0, min_stock || 0, unit || 'unit', supplier || '', image || null, description || '', vat_rate_id || null, price_type || 'ttc', requires_kitchen ? 1 : 0, preparation_department || null, preparation_time || null, id],
+          return new Promise((resolve, reject) => {
+            db.run(
+              'UPDATE products SET name = ?, price = ?, cost_price = ?, category = ?, family = ?, barcode = ?, stock = ?, min_stock = ?, unit = ?, supplier = ?, image = ?, description = ?, vat_rate_id = ?, price_type = ?, requires_kitchen = ?, preparation_department = ?, preparation_time = ?, image_settings = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
+               [name, price, cost_price || 0, category || family, family, barcode || null, stock || 0, min_stock || 0, unit || 'unit', supplier || '', image || null, description || '', vat_rate_id || null, price_type || 'ttc', requires_kitchen ? 1 : 0, preparation_department || null, preparation_time || null, image_settings || null, id],
            function(err) {
              const duration = Date.now() - startTime;
              if (err) {
@@ -693,7 +693,17 @@ function registerDatabaseHandlers(getDatabase) {
       return new Promise((resolve, reject) => {
         db.run('UPDATE products SET family = ? WHERE family = ?', [newFamily, oldFamily], function(err) {
           if (err) reject(err);
-          else resolve({ success: true, changes: this.changes });
+          else {
+            try {
+              db.run(
+                `INSERT INTO audit_logs (timestamp, user_id, user_name, action_type, entity_type, new_value, notes)
+                 VALUES (datetime('now','localtime'), 0, 'System', 'FAMILY_MOVE', 'family', ?, ?)`,
+                [JSON.stringify({ from: oldFamily, to: newFamily, count: this.changes }),
+                 `Famille "${oldFamily}" renommée en "${newFamily}" (${this.changes} produits déplacés)`]
+              );
+            } catch (e) { /* non-critical */ }
+            resolve({ success: true, changes: this.changes });
+          }
         });
       });
     } catch (error) {
@@ -777,10 +787,17 @@ function registerDatabaseHandlers(getDatabase) {
                      return;
                    }
                    
-                   if (row) {
-                     console.log(`✅ [ADD-FAMILY OK] "${trimmed}" - ${duration}ms - ID: ${row.id} - PERSISTED`);
-                     resolve({ id: row.id, name: trimmed });
-                   } else {
+                    if (row) {
+                      try {
+                        db.run(
+                          `INSERT INTO audit_logs (timestamp, user_id, user_name, action_type, entity_type, entity_id, new_value, notes)
+                           VALUES (datetime('now','localtime'), 0, 'System', 'FAMILY_CREATE', 'family', ?, ?, ?)`,
+                          [row.id, JSON.stringify({ name: trimmed }), `Famille "${trimmed}" créée`]
+                        );
+                      } catch (e) { /* non-critical */ }
+                      console.log(`✅ [ADD-FAMILY OK] "${trimmed}" - ${duration}ms - ID: ${row.id} - PERSISTED`);
+                      resolve({ id: row.id, name: trimmed });
+                    } else {
                      console.error(`❌ [ADD-FAMILY VERIFY-FAILED] Family not found after insert: "${trimmed}"`);
                      reject(new Error('Family not persisted'));
                    }
@@ -838,6 +855,17 @@ function registerDatabaseHandlers(getDatabase) {
           );
         });
       });
+
+      try {
+        const db = getDatabase();
+        if (db) {
+          db.run(
+            `INSERT INTO audit_logs (timestamp, user_id, user_name, action_type, entity_type, old_value, notes)
+             VALUES (datetime('now','localtime'), 0, 'System', 'FAMILY_DELETE', 'family', ?, ?)`,
+            [JSON.stringify({ name: name }), `Famille "${name}" supprimée`]
+          );
+        }
+      } catch (e) { /* non-critical */ }
 
        return { success: true };
      } catch (error) {

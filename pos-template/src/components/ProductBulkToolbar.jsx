@@ -12,7 +12,8 @@ const ProductBulkToolbar = memo(function ProductBulkToolbar({
   onGenerateBarcodes,
   onDuplicateSelected,
   onExportSelected,
-  onClearSelection
+  onClearSelection,
+  showSupplier = false
 }) {
   if (selectedCount === 0) return null;
 
@@ -29,9 +30,11 @@ const ProductBulkToolbar = memo(function ProductBulkToolbar({
           <Button variant="ghost" size="sm" onClick={onAssignFamily} title="Attribuer une famille">
             <Tag className="h-4 w-4 mr-1" /> Famille
           </Button>
-          <Button variant="ghost" size="sm" onClick={onAssignSupplier} title="Attribuer un fournisseur">
-            <Truck className="h-4 w-4 mr-1" /> Fournisseur
-          </Button>
+          {showSupplier && (
+            <Button variant="ghost" size="sm" onClick={onAssignSupplier} title="Attribuer un fournisseur">
+              <Truck className="h-4 w-4 mr-1" /> Fournisseur
+            </Button>
+          )}
           <Button variant="ghost" size="sm" onClick={onAssignVat} title="Attribuer un taux de TVA">
             <Percent className="h-4 w-4 mr-1" /> TVA
           </Button>

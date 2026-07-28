@@ -8,6 +8,7 @@ import {
 } from 'lucide-react';
 import { POSConfiguration } from '../lib/POSConfiguration';
 import { useAppConfig } from '../hooks/useAppConfig';
+import { getCurrencySymbol } from '../utils/currency';
 
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
@@ -75,7 +76,10 @@ export default function Customers() {
 
   const formatPrice = (v) => {
     const val = parseFloat(v) || 0;
-    return val.toFixed(2) + '€';
+    const symbol = getCurrencySymbol(config.currency || 'TND');
+    return config.currencyPosition === 'before'
+      ? `${symbol}${val.toFixed(2)}`
+      : `${val.toFixed(2)} ${symbol}`;
   };
 
   const formatDate = (d) => {

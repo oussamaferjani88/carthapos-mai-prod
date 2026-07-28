@@ -1,12 +1,22 @@
 /**
- * BI Export IPC Handler
- * Generates standardized CSV exports + ZIP package for BI/ETL ingestion.
- * IPC-only architecture — no direct renderer DB access.
+ * BI Export IPC Handler v2
  *
- * Uses BI Data Contract Layer:
- *   - BiSchemaContract  → canonical schema definitions + versioning
- *   - BiDataMapper      → raw DB → normalized BI objects
- *   - BiValidator       → pre-export validation
+ * Enterprise-grade, registry-driven export engine.
+ * Generates standardized CSV exports + ZIP package for BI/ETL ingestion.
+ *
+ * v2 — Full rewrite:
+ *   - Registry-driven dataset resolution (no hardcoded if/else)
+ *   - Business-type aware exports
+ *   - Parallel query execution
+ *   - Metadata v2 with complete export description
+ *   - Export summary with validation report
+ *   - Facts vs Dimensions classification
+ *
+ * Architecture:
+ *   BiDatasetRegistry  -> determines WHICH datasets to export
+ *   BiSchemaContract   -> defines column schemas for each dataset
+ *   BiDataMapper       -> transforms DB rows to BI objects
+ *   BiValidator        -> validates before export
  */
 
 const { ipcMain } = require('electron');
@@ -17,6 +27,7 @@ const zlib = require('zlib');
 const BiSchemaContract = require('../bi/BiSchemaContract.cjs');
 const BiDataMapper = require('../bi/BiDataMapper.cjs');
 const BiValidator = require('../bi/BiValidator.cjs');
+const BiDatasetRegistry = require('../bi/BiDatasetRegistry.cjs');
 
 class IPCBiExportHandler {
   constructor(logger, dbManager) {
@@ -25,92 +36,132 @@ class IPCBiExportHandler {
   }
 
   registerHandlers() {
-    this.logger.info(' Registering BI export IPC handlers...');
+    this.logger.info('Registering BI export IPC handlers (v2)...');
 
     ipcMain.handle('bi:export', async (_event, options = {}) => {
       try {
-        this.logger.info(' Starting BI export...');
+        this.logger.info('Starting BI export v2...');
         const result = await this.runExport(options);
-        this.logger.info(' BI export completed:', result.filePath);
+        this.logger.info('BI export v2 completed:', result.filePath);
         return result;
       } catch (error) {
-        this.logger.error(' BI export failed:', error);
+        this.logger.error('BI export v2 failed:', error);
         throw error;
       }
     });
 
-    this.logger.info(' BI export IPC handlers registered');
+    this.logger.info('BI export IPC handlers registered (v2)');
   }
 
+  // ═══════════════════════════════════════════════════════════════════════════
+  // MAIN EXPORT ORCHESTRATOR
+  // ═══════════════════════════════════════════════════════════════════════════
+
   async runExport(options = {}) {
+    const startTime = Date.now();
+
+    // 1. Load configuration
     const appConfig = this._loadAppConfig();
     if (!appConfig) throw new Error('App configuration not loaded');
 
-    const modules = appConfig.modules || [];
     const theme = appConfig.theme || {};
-    const businessType = theme.sector || theme.businessType || 'retail';
+    const businessType = options.businessType || theme.sector || theme.businessType || 'retail';
     const clientId = this._getClientId(appConfig);
+    const currency = theme.currency || 'TND';
+    const timezone = theme.timezone || 'Europe/Paris';
+    const language = theme.language || 'fr';
 
-    const enabledModules = modules
+    const enabledModules = (appConfig.modules || [])
       .filter(m => m.isEnabled !== false)
       .map(m => m.name || m);
 
+    // 2. Resolve which datasets to export
+    const datasetKeys = BiDatasetRegistry.resolveExportDatasets(businessType, enabledModules);
+    this.logger.info(`Exporting ${datasetKeys.length} datasets for business type "${businessType}"`);
+
+    // 3. Get database handle
     const db = this.dbManager.getDatabase();
     if (!db) throw new Error('Database not initialized');
 
-    /* ---- 1. Collect & map data ---- */
+    // 4. Collect data — parallelize independent queries
     const datasets = {};
+    const collectionErrors = [];
 
-    datasets.sales      = await this._collectSales(db);
-    datasets.products   = await this._collectProducts(db);
-    datasets.customers  = await this._collectCustomers(db);
-    datasets.inventory  = await this._collectInventory(db);
+    const PARALLEL_BATCHES = [
+      ['sales', 'products', 'customers'],
+      ['categories', 'product_families'],
+    ];
 
-    if (enabledModules.some(m => m.includes('tables')))
-      datasets.tables = await this._collectTables(db);
-    if (enabledModules.some(m => m.includes('kitchen')))
-      datasets.kitchen_orders = await this._collectKitchenOrders(db);
-    if (enabledModules.some(m => m.includes('suppliers')))
-      datasets.suppliers = await this._collectSuppliers(db);
-    if (enabledModules.some(m => m.includes('services') || m.includes('appointments'))) {
-      datasets.services = await this._collectServices(db);
-      datasets.appointments = await this._collectAppointments(db);
+    for (const batch of PARALLEL_BATCHES) {
+      const applicable = batch.filter(k => datasetKeys.includes(k));
+      if (applicable.length === 0) continue;
+
+      const results = await Promise.allSettled(
+        applicable.map(key => this._collectDataset(db, key))
+      );
+
+      for (let i = 0; i < results.length; i++) {
+        const key = applicable[i];
+        if (results[i].status === 'fulfilled') {
+          datasets[key] = results[i].value;
+        } else {
+          collectionErrors.push({ dataset: key, error: results[i].reason?.message });
+          this.logger.error(`Failed to collect ${key}:`, results[i].reason?.message);
+        }
+      }
     }
 
-    /* ---- 2. Validate ---- */
-    const validation = BiValidator.validateAll(datasets);
+    // Now run the rest sequentially (they may depend on products/customers)
+    for (const key of datasetKeys) {
+      if (datasets[key] !== undefined) continue;
+      try {
+        datasets[key] = await this._collectDataset(db, key);
+      } catch (err) {
+        collectionErrors.push({ dataset: key, error: err.message });
+        this.logger.error(`Failed to collect ${key}:`, err.message);
+      }
+    }
+
+    // 5. Validate
+    const validation = BiValidator.validateAll(datasets, datasetKeys);
     if (validation.warnings.length > 0) {
-      this.logger.warn(' BI export warnings:', validation.warnings.join('; '));
+      this.logger.warn('BI export warnings:', validation.warnings.join('; '));
     }
     if (validation.errors.length > 0) {
-      this.logger.error(' BI export validation errors:', validation.errors.join('; '));
-      throw new Error('Validation des données BI échouée:\n' + validation.errors.join('\n'));
+      this.logger.error('BI export validation errors:', validation.errors.join('; '));
+      throw new Error('Validation des donnees BI echouee:\n' + validation.errors.join('\n'));
     }
 
-    /* ---- 3. Generate CSV files ---- */
+    // 6. Generate CSV files
     const files = [];
+    const rowCounts = {};
     for (const [key, rows] of Object.entries(datasets)) {
-      files.push({
-        name: `${key}.csv`,
-        data: this._biRowsToCsv(key, rows),
-      });
+      const csv = this._biRowsToCsv(key, rows);
+      files.push({ name: `${key}.csv`, data: csv });
+      rowCounts[key] = rows.length;
     }
 
-    /* ---- 4. Build metadata (with bi_schema_version) ---- */
-    const metadata = {
-      client_id: clientId,
-      business_type: businessType,
-      business_name: theme.businessName || '',
-      enabled_modules: enabledModules,
-      pos_version: '1.0.0',
-      bi_schema_version: BiSchemaContract.BI_SCHEMA_VERSION,
-      export_timestamp: new Date().toISOString(),
-      total_files: files.length,
-      file_list: files.map(f => f.name)
-    };
+    // 7. Build metadata v2
+    const totalRows = Object.values(rowCounts).reduce((sum, n) => sum + n, 0);
+    const metadata = this._buildMetadataV2({
+      clientId,
+      businessType,
+      businessName: theme.businessName || '',
+      enabledModules,
+      currency,
+      timezone,
+      language,
+      files,
+      rowCounts,
+      totalRows,
+      validation,
+      collectionErrors,
+      startTime,
+    });
+
     files.push({ name: 'metadata.json', data: JSON.stringify(metadata, null, 2) });
 
-    /* ---- 5. Write ZIP ---- */
+    // 8. Write ZIP
     const outputDir = this._getOutputDir();
     if (!fs.existsSync(outputDir)) {
       fs.mkdirSync(outputDir, { recursive: true });
@@ -134,9 +185,99 @@ class IPCBiExportHandler {
       fileName: path.basename(outputPath),
       fileSize: fs.statSync(outputPath).size,
       metadata,
-      stats
+      stats,
+      validation: {
+        warnings: validation.warnings,
+        errors: validation.errors,
+        classification: validation.classification,
+        summary: validation.summary,
+      },
+      exportDuration: Date.now() - startTime,
     };
   }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // REGISTRY-DRIVEN DATA COLLECTION
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  async _collectDataset(db, datasetKey) {
+    const entry = BiDatasetRegistry.getRegistryEntry(datasetKey);
+    if (!entry) throw new Error(`No registry entry for dataset "${datasetKey}"`);
+
+    const rows = await this._queryAll(db, entry.sql);
+    const mapperFn = BiDataMapper.getMapper(entry.mapper);
+    if (!mapperFn) throw new Error(`No mapper "${entry.mapper}" for dataset "${datasetKey}"`);
+
+    return mapperFn(rows);
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // METADATA V2
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  _buildMetadataV2({
+    clientId, businessType, businessName, enabledModules,
+    currency, timezone, language, files, rowCounts,
+    totalRows, validation, collectionErrors, startTime,
+  }) {
+    const datasetSummaries = files
+      .filter(f => f.name !== 'metadata.json')
+      .map(f => {
+        const key = f.name.replace('.csv', '');
+        const entry = BiDatasetRegistry.getRegistryEntry(key);
+        return {
+          name: f.name,
+          key,
+          rows: rowCounts[key] || 0,
+          category: entry?.category || 'unknown',
+          description: entry?.description || '',
+          module: entry?.module || null,
+          required: entry?.required || false,
+        };
+      });
+
+    const { facts, dimensions } = validation.classification || { facts: [], dimensions: [] };
+
+    return {
+      schema_version: BiSchemaContract.BI_SCHEMA_VERSION,
+      export_version: BiSchemaContract.EXPORT_VERSION,
+      generator_version: BiSchemaContract.GENERATOR_VERSION,
+
+      client_id: clientId,
+      business_type: businessType,
+      business_name: businessName,
+      enabled_modules: enabledModules,
+
+      currency,
+      timezone,
+      language,
+
+      export_timestamp: new Date().toISOString(),
+      export_duration_ms: Date.now() - startTime,
+
+      total_files: files.filter(f => f.name !== 'metadata.json').length,
+      total_rows: totalRows,
+      dataset_summaries: datasetSummaries,
+
+      classification: {
+        facts: facts,
+        dimensions: dimensions,
+      },
+
+      validation: {
+        warnings_count: validation.warnings.length,
+        errors_count: validation.errors.length,
+        warnings: validation.warnings,
+        orphans_detected: validation.warnings.some(w => w.includes('orphelin')),
+      },
+
+      collection_errors: collectionErrors,
+    };
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // UTILITY METHODS (unchanged from v1)
+  // ═══════════════════════════════════════════════════════════════════════════
 
   _getClientId(config) {
     if (config.clientId) return config.clientId;
@@ -163,8 +304,7 @@ class IPCBiExportHandler {
   _getOutputDir() {
     try {
       const { app } = require('electron');
-      const dir = path.join(app.getPath('documents'), 'CarthaPOS', 'BI_Exports');
-      return dir;
+      return path.join(app.getPath('documents'), 'CarthaPOS', 'BI_Exports');
     } catch (e) {
       return path.join(process.cwd(), 'bi_exports');
     }
@@ -179,9 +319,6 @@ class IPCBiExportHandler {
     return str;
   }
 
-  /**
-   * Convert normalized BI rows to CSV using the schema contract column order.
-   */
   _biRowsToCsv(datasetKey, rows) {
     const columns = BiSchemaContract.getColumnNames(datasetKey);
     if (columns.length === 0) return '';
@@ -202,93 +339,10 @@ class IPCBiExportHandler {
     });
   }
 
-  /* ---- Data collection + mapping ---- */
+  // ═══════════════════════════════════════════════════════════════════════════
+  // ZIP CREATION (unchanged from v1 — proven, correct)
+  // ═══════════════════════════════════════════════════════════════════════════
 
-  async _collectSales(db) {
-    const rows = await this._queryAll(db, `
-      SELECT s.id, s.total, s.tax, s.discount, s.payment_method,
-             s.customer_id, s.table_id, s.created_at,
-             c.name AS customer_name, c.email AS customer_email
-      FROM sales s
-      LEFT JOIN customers c ON s.customer_id = c.id
-      ORDER BY s.created_at DESC
-    `);
-    return BiDataMapper.mapSalesRows(rows);
-  }
-
-  async _collectProducts(db) {
-    const rows = await this._queryAll(db, `
-      SELECT id, name, price, category, family, barcode, stock,
-             description, image, created_at, updated_at
-      FROM products ORDER BY name ASC
-    `);
-    return BiDataMapper.mapProductRows(rows);
-  }
-
-  async _collectCustomers(db) {
-    const rows = await this._queryAll(db, `
-      SELECT id, name, email, phone, address, created_at
-      FROM customers ORDER BY name ASC
-    `);
-    return BiDataMapper.mapCustomerRows(rows);
-  }
-
-  async _collectInventory(db) {
-    const rows = await this._queryAll(db, `
-      SELECT p.id AS product_id, p.name AS product_name, p.stock,
-             p.category, p.family, p.price,
-             COALESCE((SELECT COUNT(*) FROM sale_items si JOIN sales s ON si.sale_id = s.id WHERE si.product_id = p.id), 0) AS times_sold
-      FROM products p
-      ORDER BY p.name ASC
-    `);
-    return BiDataMapper.mapInventoryRows(rows);
-  }
-
-  async _collectTables(db) {
-    const rows = await this._queryAll(db, `
-      SELECT id, table_number, capacity, status, created_at
-      FROM restaurant_tables ORDER BY table_number ASC
-    `);
-    return BiDataMapper.mapTableRows(rows);
-  }
-
-  async _collectKitchenOrders(db) {
-    const rows = await this._queryAll(db, `
-      SELECT id, table_number, items, notes, priority, status, created_at, updated_at
-      FROM kitchen_orders ORDER BY created_at DESC
-    `);
-    return BiDataMapper.mapKitchenOrderRows(rows);
-  }
-
-  async _collectSuppliers(db) {
-    const rows = await this._queryAll(db, `
-      SELECT id, name, contact, phone, email, address, created_at
-      FROM suppliers ORDER BY name ASC
-    `);
-    return BiDataMapper.mapSupplierRows(rows);
-  }
-
-  async _collectServices(db) {
-    const rows = await this._queryAll(db, `
-      SELECT id, name, description, price, duration, created_at
-      FROM services ORDER BY name ASC
-    `);
-    return BiDataMapper.mapServiceRows(rows);
-  }
-
-  async _collectAppointments(db) {
-    const rows = await this._queryAll(db, `
-      SELECT id, customer_name, customer_phone, service_id,
-             appointment_date, notes, status, created_at
-      FROM appointments ORDER BY appointment_date DESC
-    `);
-    return BiDataMapper.mapAppointmentRows(rows);
-  }
-
-  /**
-   * Create a ZIP file using only Node.js built-in modules (zlib + fs).
-   * The ZIP format is: [Local File Header + File Data]* + [Central Directory] + [End of Central Directory]
-   */
   async _createZip(files, outputPath) {
     const LOCAL_FILE_HEADER_SIZE = 30;
     const CENTRAL_DIR_ENTRY_SIZE = 46;

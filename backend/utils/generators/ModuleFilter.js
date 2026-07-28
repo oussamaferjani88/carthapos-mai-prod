@@ -17,7 +17,6 @@ class ModuleFilter {
     this.moduleFileMapping = {
       'inventory': ['Inventory.jsx'],
       'kitchen': ['Kitchen.jsx'],
-      'customers': ['Customers.jsx'],
       'customer-management': ['Customers.jsx'],
       'loyalty': ['Loyalty.jsx'],
       'takeaway': ['Takeaway.jsx'],

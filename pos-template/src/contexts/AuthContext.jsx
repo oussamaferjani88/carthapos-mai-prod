@@ -13,6 +13,25 @@ export const useAuth = () => {
   return context;
 };
 
+function useSettingsValues() {
+  const [lockSettings, setLockSettings] = useState({ enabled: true, timeout: 10 });
+
+  useEffect(() => {
+    if (!window.electronAPI?.getAllSettings) return;
+    window.electronAPI.getAllSettings().then((result) => {
+      if (!result) return;
+      const enabled = result.autoLockEnabled === 'true' || result.autoLockEnabled === true;
+      const timeout = parseInt(result.autoLockTimeout, 10);
+      setLockSettings({
+        enabled,
+        timeout: isNaN(timeout) || timeout < 1 ? 10 : Math.min(timeout, 120),
+      });
+    }).catch(() => {});
+  }, []);
+
+  return lockSettings;
+}
+
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -20,6 +39,9 @@ export const AuthProvider = ({ children }) => {
   const inactivityTimer = useRef(null);
   const pingInterval = useRef(null);
   const listenerCleanup = useRef(null);
+  const lockSettings = useSettingsValues();
+  const lockSettingsRef = useRef(lockSettings);
+  lockSettingsRef.current = lockSettings;
 
   useEffect(() => {
     checkAuthStatus();
@@ -37,12 +59,15 @@ export const AuthProvider = ({ children }) => {
   const startInactivityTimer = useCallback(() => {
     clearAllTimers();
 
+    const { enabled, timeout } = lockSettingsRef.current;
+    if (!enabled) return;
+
     const events = ['mousedown', 'keydown', 'touchstart', 'scroll'];
     const resetTimer = () => {
       if (inactivityTimer.current) clearTimeout(inactivityTimer.current);
       inactivityTimer.current = setTimeout(() => {
         setIsLocked(true);
-      }, 10 * 60 * 1000);
+      }, timeout * 60 * 1000);
     };
 
     events.forEach(e => window.addEventListener(e, resetTimer, { passive: true }));
@@ -67,6 +92,12 @@ export const AuthProvider = ({ children }) => {
     }
     return clearAllTimers;
   }, [user, startInactivityTimer, clearAllTimers]);
+
+  useEffect(() => {
+    if (user && !isPreviewMode() && inactivityTimer.current) {
+      startInactivityTimer();
+    }
+  }, [lockSettings, user, startInactivityTimer]);
 
   const checkAuthStatus = async () => {
     const storedAuth = localStorage.getItem('pos_auth');
@@ -94,6 +125,14 @@ export const AuthProvider = ({ children }) => {
         }
         
         setUser(parsedUser);
+
+        // Re-register session in main process after app restart/page reload
+        // Without this, activeSessions Map is empty and admin checks fail
+        if (!isPreviewMode() && window.electronAPI?.authSessionSet) {
+          try {
+            await window.electronAPI.authSessionSet(parsedUser.id, parsedUser);
+          } catch (e) { /* non-critical */ }
+        }
       } catch (error) {
         console.error('Error parsing stored user:', error);
         localStorage.removeItem('pos_auth');
@@ -198,7 +237,10 @@ export const AuthProvider = ({ children }) => {
   // Logout is synchronous: IPC calls are fire-and-forget to prevent async gaps
   // between setIsLocked(false) and setUser(null) which caused React error #300
   // (MainPOSApp defined inline + async state transition = cascading unmount/remount)
+  const userRef = useRef(null);
+  userRef.current = user;
   const logout = useCallback(() => {
+    const currentUser = userRef.current;
     clearAllTimers();
     setIsLocked(false);
     setUser(null);
@@ -207,16 +249,19 @@ export const AuthProvider = ({ children }) => {
     localStorage.removeItem('pos_session_orders');
 
     // Fire-and-forget IPC cleanup (non-blocking)
-    if (!isPreviewMode() && user && window.electronAPI) {
-      window.electronAPI.logout(user.id).catch(() => {});
+    if (!isPreviewMode() && currentUser && window.electronAPI) {
+      window.electronAPI.logout(currentUser.id).catch(() => {});
       window.electronAPI.authSessionClear?.().catch(() => {});
     }
-  }, [clearAllTimers, user]);
+  }, [clearAllTimers]);
 
   const setUserDirectly = useCallback((userData) => {
     setUser(userData);
     localStorage.setItem('pos_auth', 'true');
     localStorage.setItem('pos_user', JSON.stringify(userData));
+    if (!isPreviewMode() && window.electronAPI?.authSessionSet) {
+      window.electronAPI.authSessionSet(userData.id, userData).catch(() => {});
+    }
   }, []);
 
   const hasPermission = useCallback((permission) => {

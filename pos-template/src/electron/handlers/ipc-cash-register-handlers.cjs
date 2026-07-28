@@ -27,7 +27,16 @@ function registerCaisseHandlers(ipcMainInstance, databaseManager) {
         `INSERT INTO shifts (user_id, user_name, opening_float, opened_at, status)
          VALUES (?, ?, ?, datetime('now','localtime'), 'open')`,
         [data.user_id, data.user_name || '', data.opening_float || 0],
-        function(err) { if (err) { reject(err); } else { resolve({ id: this.lastID }); } }
+        function(err) { if (err) { reject(err); } else {
+          try {
+            db.run(
+              `INSERT INTO audit_logs (timestamp, user_id, user_name, action_type, entity_type, entity_id, notes)
+               VALUES (datetime('now','localtime'), ?, ?, 'SHIFT_OPEN', 'shift', ?, ?)`,
+              [data.user_id, data.user_name || '', this.lastID, `Caisse ouverte avec un fonds de ${data.opening_float || 0} TND`]
+            );
+          } catch (e) { /* non-critical */ }
+          resolve({ id: this.lastID });
+        } }
       );
     });
   });
@@ -46,7 +55,24 @@ function registerCaisseHandlers(ipcMainInstance, databaseManager) {
         [data.closing_expected || 0, data.closing_actual || 0, diff,
          data.cash_sales || 0, data.card_sales || 0, data.other_sales || 0,
          data.note || '', JSON.stringify(data.denominations || {}), data.shift_id],
-        function(err) { if (err) { reject(err); } else { resolve({ success: true, difference: diff }); } }
+        function(err) {
+          if (err) { reject(err); } else {
+            try {
+              db.get('SELECT user_id, user_name FROM shifts WHERE id = ?', [data.shift_id], (sErr, shift) => {
+                if (!sErr && shift) {
+                  db.run(
+                    `INSERT INTO audit_logs (timestamp, user_id, user_name, action_type, entity_type, entity_id, new_value, notes)
+                     VALUES (datetime('now','localtime'), ?, ?, 'SHIFT_CLOSE', 'shift', ?, ?, ?)`,
+                    [shift.user_id, shift.user_name || '', data.shift_id,
+                     JSON.stringify({ expected: data.closing_expected, actual: data.closing_actual, difference: diff }),
+                     `Caisse fermée. Écart: ${diff >= 0 ? '+' : ''}${diff.toFixed(3)} TND`]
+                  );
+                }
+              });
+            } catch (e) { /* non-critical */ }
+            resolve({ success: true, difference: diff });
+          }
+        }
       );
     });
   });

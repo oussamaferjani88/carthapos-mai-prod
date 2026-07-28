@@ -366,7 +366,7 @@ class ThemeCustomizer {
           border: config.cardBorderColor || '#e5e7eb',
           cardBackground: config.cardBackgroundColor || '#FFFFFF'
         },
-        currency: config.currency || 'EUR',
+        currency: config.currency || 'TND',
         currencyPosition: config.currencyPosition || 'after',
         taxRate: config.taxRate || 20,
         language: config.language || 'fr',

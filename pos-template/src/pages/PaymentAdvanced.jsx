@@ -1,9 +1,11 @@
 import React, { useState, useEffect } from 'react';
+import { getCurrencySymbol } from '../utils/currency';
 import { CreditCard, Plus, Smartphone, Wifi, CheckCircle, XCircle, Clock, DollarSign } from 'lucide-react';
 import { useThemeApplier } from '../hooks/useThemeApplier';
 
 const PaymentAdvanced = () => {
   useThemeApplier();
+  const formatCurrency = (v) => `${(parseFloat(v) || 0).toFixed(2)} ${getCurrencySymbol('TND')}`;
   
   const [paymentMethods, setPaymentMethods] = useState([
     {
@@ -166,7 +168,7 @@ const PaymentAdvanced = () => {
           <div className="flex items-center justify-between">
             <div>
               <p className="text-sm font-medium text-muted-foreground">Total Journalier</p>
-              <p className="text-2xl font-bold text-foreground">{stats.dailyTotal.toFixed(2)} €</p>
+              <p className="text-2xl font-bold text-foreground">{formatCurrency(stats.dailyTotal)}</p>
             </div>
             <DollarSign className="w-8 h-8 text-green-500" />
           </div>
@@ -254,7 +256,7 @@ const PaymentAdvanced = () => {
                   <div className="space-y-2 mb-4">
                     <div className="flex justify-between text-sm">
                       <span className="text-muted-foreground">Total journalier:</span>
-                      <span className="font-medium text-foreground">{method.dailyTotal.toFixed(2)} €</span>
+                      <span className="font-medium text-foreground">{formatCurrency(method.dailyTotal)}</span>
                     </div>
                     {method.lastTransaction && (
                       <div className="flex justify-between text-sm">
@@ -354,7 +356,7 @@ const PaymentAdvanced = () => {
                           {transaction.customer}
                         </td>
                         <td className="px-6 py-4 text-sm font-medium text-foreground">
-                          {transaction.amount.toFixed(2)} €
+                          {formatCurrency(transaction.amount)}
                         </td>
                         <td className="px-6 py-4">
                           <div className="flex items-center gap-2">

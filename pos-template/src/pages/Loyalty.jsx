@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { Plus, Heart, Gift, Star, TrendingUp, Users, Award, Percent, Search, X } from 'lucide-react';
 import { useThemeApplier } from '../hooks/useThemeApplier';
+import { getCurrencySymbol } from '../utils/currency';
 
 const LEVELS = [
   { name: 'Bronze', min: 0, color: 'bg-amber-100 text-amber-800', icon: Award },
@@ -18,6 +19,11 @@ function getLevel(points) {
 
 const Loyalty = () => {
   useThemeApplier();
+
+  const formatCurrency = (amount) => {
+    const val = parseFloat(amount) || 0;
+    return `${val.toFixed(2)} ${getCurrencySymbol('TND')}`;
+  };
 
   const [customers, setCustomers] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -236,7 +242,7 @@ const Loyalty = () => {
                         <td className="px-4 py-3">
                           <div className="flex items-center"><Star className="w-4 h-4 text-yellow-500 mr-1" /><span className="font-medium">{customer.loyalty_points || 0}</span></div>
                         </td>
-                        <td className="px-4 py-3 text-sm font-medium">{(customer.total_spent || 0).toFixed(2)} €</td>
+                        <td className="px-4 py-3 text-sm font-medium">{formatCurrency(customer.total_spent || 0)}</td>
                         <td className="px-4 py-3 text-sm">{customer.visit_count || 0}</td>
                         <td className="px-4 py-3">
                           <select

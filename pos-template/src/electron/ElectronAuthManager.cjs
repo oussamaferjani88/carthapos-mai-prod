@@ -438,6 +438,9 @@ class ElectronAuthManager {
    */
   async logout(userId) {
     try {
+      const user = await this.db.getRow('SELECT username, full_name FROM users WHERE id = ?', [userId]);
+      const userName = user ? (user.full_name || user.username) : 'Inconnu';
+
       // Update last session logout time
       await this.db.runQuery(
         `UPDATE user_sessions 
@@ -445,6 +448,9 @@ class ElectronAuthManager {
          WHERE user_id = ? AND logout_time IS NULL`,
         [new Date().toISOString(), new Date().toISOString(), userId]
       );
+
+      await this.logAuditEvent({ user_id: userId, user_name: userName, action_type: 'LOGOUT', entity_type: 'user', entity_id: userId, notes: 'Déconnexion' });
+
       console.log('✅ User logged out successfully');
     } catch (error) {
       console.error('❌ Logout error:', error);

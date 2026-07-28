@@ -7,8 +7,10 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '.
 import { Textarea } from './ui/textarea';
 import { Separator } from './ui/separator';
 import { ScrollArea } from './ui/scroll-area';
-import { Upload, Scan, Sparkles, Barcode, Image as ImageIcon, X, Package, DollarSign, Box, ChefHat, Clock } from 'lucide-react';
+import { Upload, Scan, Sparkles, Barcode, Image as ImageIcon, X, Package, DollarSign, Box, ChefHat, Clock, ZoomIn, ZoomOut, RotateCcw, Move } from 'lucide-react';
 import { Switch } from './ui/switch';
+import { getCurrencySymbol } from '../utils/currency';
+import { parseImageSettings } from '../utils/imageSettings';
 
 const EMPTY_PRODUCT = {
   name: '', price: '', cost_price: '', barcode: '', description: '',
@@ -36,6 +38,8 @@ const ProductFormDialog = memo(function ProductFormDialog({
   families,
   onSubmit,
   showBarcode = true,
+  showSupplier = true,
+  isKitchenEnabled = false,
   vatRates = [],
   taxEnabled = false,
   kitchenDepartments = []
@@ -54,6 +58,7 @@ const ProductFormDialog = memo(function ProductFormDialog({
   const [family, setFamily] = useState('');
   const [unit, setUnit] = useState('pièce');
   const [imagePreview, setImagePreview] = useState(null);
+  const [imageSettings, setImageSettings] = useState({ zoom: 1, posX: 50, posY: 50, fit: 'cover' });
   const [vatRateId, setVatRateId] = useState('none');
   const [priceType, setPriceType] = useState('ttc');
   const [requiresKitchen, setRequiresKitchen] = useState(false);
@@ -75,6 +80,7 @@ const ProductFormDialog = memo(function ProductFormDialog({
     setFamily(product?.family || product?.category || '');
     setUnit(product?.unit || 'pièce');
     setImagePreview(product?.image || null);
+    setImageSettings(parseImageSettings(product?.image_settings) || { zoom: 1, posX: 50, posY: 50, fit: 'cover' });
     setVatRateId(product?.vat_rate_id?.toString() || 'none');
     setPriceType(product?.price_type || 'ttc');
     setRequiresKitchen(product?.requires_kitchen === 1 || product?.requires_kitchen === true);
@@ -88,6 +94,7 @@ const ProductFormDialog = memo(function ProductFormDialog({
     setName(''); setPrice(''); setCostPrice(''); setBarcode('');
     setDescription(''); setStock('0'); setMinStock('0'); setSupplier('');
     setFamily(''); setUnit('pièce'); setImagePreview(null);
+    setImageSettings({ zoom: 1, posX: 50, posY: 50, fit: 'cover' });
     setVatRateId('none'); setPriceType('ttc');
     setRequiresKitchen(false); setPreparationDepartment('');
     setPreparationTime(''); setFormError(''); setIsScanning(false);
@@ -115,6 +122,7 @@ const ProductFormDialog = memo(function ProductFormDialog({
       return;
     }
     imageFileRef.current = file;
+    setImageSettings({ zoom: 1, posX: 50, posY: 50, fit: 'cover' });
     const reader = new FileReader();
     reader.onload = (e) => setImagePreview(e.target.result);
     reader.readAsDataURL(file);
@@ -128,7 +136,7 @@ const ProductFormDialog = memo(function ProductFormDialog({
   const removeImage = useCallback(() => {
     imageFileRef.current = null;
     setImagePreview(null);
-    if (fileInputRef.current) fileInputRef.current.value = '';
+    setImageSettings({ zoom: 1, posX: 50, posY: 50, fit: 'cover' });
   }, []);
 
   const handleDragOver = useCallback((e) => { e.preventDefault(); e.stopPropagation(); setIsDragOver(true); }, []);
@@ -209,6 +217,7 @@ const ProductFormDialog = memo(function ProductFormDialog({
         min_stock: parseInt(minStock) || 0,
         unit, supplier: supplier.trim(),
         image: imageData, description: description.trim(),
+        image_settings: JSON.stringify(imageSettings),
         vat_rate_id: vatRateId === 'none' ? null : parseInt(vatRateId) || null,
         price_type: priceType,
         requires_kitchen: requiresKitchen,
@@ -220,7 +229,7 @@ const ProductFormDialog = memo(function ProductFormDialog({
     } catch (error) {
       setFormError('Erreur lors de la sauvegarde: ' + error.message);
     }
-  }, [name, price, costPrice, family, barcode, stock, minStock, unit, supplier, imagePreview, description, vatRateId, priceType, requiresKitchen, preparationDepartment, preparationTime, onSubmit, onOpenChange]);
+  }, [name, price, costPrice, family, barcode, stock, minStock, unit, supplier, imagePreview, imageSettings, description, vatRateId, priceType, requiresKitchen, preparationDepartment, preparationTime, onSubmit, onOpenChange]);
 
   return (
     <Dialog open={open} onOpenChange={handleDialogChange}>
@@ -295,14 +304,14 @@ const ProductFormDialog = memo(function ProductFormDialog({
                     </Label>
                     <div className="relative">
                       <Input id="price" type="number" step="0.01" min="0" value={price} onChange={(e) => setPrice(e.target.value)} placeholder="0.00" className="pr-8" required />
-                      <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">DT</span>
+                      <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">{getCurrencySymbol('TND')}</span>
                     </div>
                   </div>
                   <div className="grid gap-2">
                     <Label htmlFor="cost_price">Prix d'achat</Label>
                     <div className="relative">
                       <Input id="cost_price" type="number" step="0.01" min="0" value={costPrice} onChange={(e) => setCostPrice(e.target.value)} placeholder="0.00" className="pr-8" />
-                      <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">DT</span>
+                      <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">{getCurrencySymbol('TND')}</span>
                     </div>
                   </div>
                 </div>
@@ -336,7 +345,7 @@ const ProductFormDialog = memo(function ProductFormDialog({
                     <Input id="min_stock" type="number" min="0" step="1" value={minStock} onChange={(e) => setMinStock(e.target.value)} placeholder="0" />
                   </div>
                 </div>
-                <div className="grid grid-cols-2 gap-3">
+                <div className={`grid gap-3 ${showSupplier ? 'grid-cols-2' : 'grid-cols-1'}`}>
                   <div className="grid gap-2">
                     <Label>Unité</Label>
                     <Select value={unit} onValueChange={setUnit}>
@@ -354,16 +363,19 @@ const ProductFormDialog = memo(function ProductFormDialog({
                       </SelectContent>
                     </Select>
                   </div>
-                  <div className="grid gap-2">
-                    <Label htmlFor="supplier">Fournisseur</Label>
-                    <Input id="supplier" value={supplier} onChange={(e) => setSupplier(e.target.value)} placeholder="Nom du fournisseur" />
-                  </div>
+                  {showSupplier && (
+                    <div className="grid gap-2">
+                      <Label htmlFor="supplier">Fournisseur</Label>
+                      <Input id="supplier" value={supplier} onChange={(e) => setSupplier(e.target.value)} placeholder="Nom du fournisseur" />
+                    </div>
+                  )}
                 </div>
               </Section>
 
               <Separator />
 
               {/* KITCHEN CONFIGURATION */}
+              {isKitchenEnabled && (
               <div className={`rounded-xl border transition-all duration-300 ${requiresKitchen ? 'border-amber-300 bg-amber-50/50 shadow-sm shadow-amber-100' : 'border-muted-foreground/10 bg-muted/20'}`}>
                 <div className="space-y-3 p-4">
                   <div className="flex items-center justify-between">
@@ -417,6 +429,7 @@ const ProductFormDialog = memo(function ProductFormDialog({
                   )}
                 </div>
               </div>
+              )}
 
               {/* BARCODE */}
               {showBarcode && (
@@ -454,7 +467,18 @@ const ProductFormDialog = memo(function ProductFormDialog({
                   <input ref={fileInputRef} type="file" accept="image/*" onChange={handleImageUpload} className="hidden" />
                   {imagePreview ? (
                     <div className="relative group">
-                      <img src={imagePreview} alt="Aperçu" className="w-full h-40 object-cover" />
+                      <div className="w-full h-40 overflow-hidden bg-muted/50">
+                        <img
+                          src={imagePreview}
+                          alt="Aperçu"
+                          className="w-full h-full transition-transform duration-200"
+                          style={{
+                            objectFit: imageSettings.fit,
+                            objectPosition: `${imageSettings.posX}% ${imageSettings.posY}%`,
+                            transform: `scale(${imageSettings.zoom})`,
+                          }}
+                        />
+                      </div>
                       <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
                         <Button type="button" variant="secondary" size="sm" onClick={() => fileInputRef.current?.click()}>Remplacer</Button>
                         <Button type="button" variant="destructive" size="sm" onClick={removeImage}><X className="h-4 w-4" /></Button>
@@ -468,6 +492,79 @@ const ProductFormDialog = memo(function ProductFormDialog({
                     </button>
                   )}
                 </div>
+                {imagePreview && (
+                  <div className="space-y-3 pt-1">
+                    <div className="flex items-center gap-2">
+                      <Label className="text-xs text-muted-foreground w-12">Ajuster</Label>
+                      <div className="flex items-center gap-1 flex-1">
+                        <Button type="button" variant="outline" size="sm" className="h-7 w-7 p-0" onClick={() => setImageSettings(s => ({ ...s, zoom: Math.max(0.5, s.zoom - 0.1) }))}>
+                          <ZoomOut className="h-3 w-3" />
+                        </Button>
+                        <input
+                          type="range"
+                          min="0.5"
+                          max="3"
+                          step="0.05"
+                          value={imageSettings.zoom}
+                          onChange={(e) => setImageSettings(s => ({ ...s, zoom: parseFloat(e.target.value) }))}
+                          className="flex-1 h-1 accent-primary"
+                        />
+                        <Button type="button" variant="outline" size="sm" className="h-7 w-7 p-0" onClick={() => setImageSettings(s => ({ ...s, zoom: Math.min(3, s.zoom + 0.1) }))}>
+                          <ZoomIn className="h-3 w-3" />
+                        </Button>
+                        <span className="text-[10px] text-muted-foreground w-8 text-right">{Math.round(imageSettings.zoom * 100)}%</span>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Label className="text-xs text-muted-foreground w-12">Position</Label>
+                      <div className="flex-1 flex items-center gap-1">
+                        <Move className="h-3 w-3 text-muted-foreground shrink-0" />
+                        <input
+                          type="range"
+                          min="0"
+                          max="100"
+                          value={imageSettings.posX}
+                          onChange={(e) => setImageSettings(s => ({ ...s, posX: parseInt(e.target.value) }))}
+                          className="flex-1 h-1 accent-primary"
+                          title="Position horizontale"
+                        />
+                        <input
+                          type="range"
+                          min="0"
+                          max="100"
+                          value={imageSettings.posY}
+                          onChange={(e) => setImageSettings(s => ({ ...s, posY: parseInt(e.target.value) }))}
+                          className="flex-1 h-1 accent-primary"
+                          title="Position verticale"
+                        />
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Label className="text-xs text-muted-foreground w-12">Mode</Label>
+                      <div className="flex gap-1 flex-1">
+                        {[
+                          { value: 'cover', label: 'Remplir' },
+                          { value: 'contain', label: 'Ajuster' },
+                          { value: 'fill', label: 'Étirer' },
+                        ].map(m => (
+                          <Button
+                            key={m.value}
+                            type="button"
+                            variant={imageSettings.fit === m.value ? 'default' : 'outline'}
+                            size="sm"
+                            className="h-6 px-2 text-[10px] flex-1"
+                            onClick={() => setImageSettings(s => ({ ...s, fit: m.value }))}
+                          >
+                            {m.label}
+                          </Button>
+                        ))}
+                      </div>
+                      <Button type="button" variant="ghost" size="sm" className="h-6 w-6 p-0" onClick={() => setImageSettings({ zoom: 1, posX: 50, posY: 50, fit: 'cover' })} title="Réinitialiser">
+                        <RotateCcw className="h-3 w-3" />
+                      </Button>
+                    </div>
+                  </div>
+                )}
               </Section>
             </div>
           </ScrollArea>

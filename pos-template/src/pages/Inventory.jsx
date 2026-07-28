@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { POSConfiguration } from '../lib/POSConfiguration';
 import { useAppConfig } from '../hooks/useAppConfig';
 import { useAuth } from '../contexts/AuthContext';
+import { getImageStyle } from '../utils/imageSettings';
 import { Button } from '../components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
 import { Input } from '../components/ui/input';
@@ -60,6 +61,10 @@ export default function Inventory() {
   const isAdmin = user?.role === 'admin';
   const isManager = user?.role === 'manager';
   const canEdit = isAdmin || isManager;
+
+  const isSupplierEnabled = electronConfig?.modules
+    ? electronConfig.modules.some(m => (m.name || m) === 'suppliers' && m.isEnabled !== false)
+    : false;
 
   const getConfig = useCallback(() => {
     if (electronConfig?.theme) return POSConfiguration.createConfig(electronConfig.theme);
@@ -484,7 +489,7 @@ export default function Inventory() {
           { label: 'Prix moyen achat', value: formatPrice(stats.avgCost), icon: ShoppingCart, color: '#06b6d4', bg: '#ecfeff' },
           { label: 'Unités totales', value: stats.totalStock.toLocaleString(), icon: Box, color: '#22c55e', bg: '#f0fdf4' },
           { label: 'Familles', value: stats.familiesCount, icon: Tag, color: '#ec4899', bg: '#fdf2f8' },
-          { label: 'Fournisseurs', value: stats.suppliersCount, icon: Truck, color: '#f97316', bg: '#fff7ed' },
+          ...(isSupplierEnabled ? [{ label: 'Fournisseurs', value: stats.suppliersCount, icon: Truck, color: '#f97316', bg: '#fff7ed' }] : []),
         ].map((stat, i) => (
           <Card key={i} className="transition-all hover:shadow-md hover:scale-[1.02]">
             <CardContent className="p-3">
@@ -507,7 +512,9 @@ export default function Inventory() {
         <TabsList className="h-10">
           <TabsTrigger value="inventory" className="text-xs"><Package className="h-3.5 w-3.5 mr-1" />Inventaire</TabsTrigger>
           <TabsTrigger value="movements" className="text-xs"><History className="h-3.5 w-3.5 mr-1" />Mouvements</TabsTrigger>
-          <TabsTrigger value="suppliers" className="text-xs"><Truck className="h-3.5 w-3.5 mr-1" />Fournisseurs</TabsTrigger>
+          {isSupplierEnabled && (
+            <TabsTrigger value="suppliers" className="text-xs"><Truck className="h-3.5 w-3.5 mr-1" />Fournisseurs</TabsTrigger>
+          )}
         </TabsList>
       </Tabs>
 
@@ -528,6 +535,7 @@ export default function Inventory() {
                 {allFamilies.map(f => <SelectItem key={f} value={f}>{f}</SelectItem>)}
               </SelectContent>
             </Select>
+            {isSupplierEnabled && (
             <Select value={filterSupplier} onValueChange={v => { setFilterSupplier(v); setPage(1); }}>
               <SelectTrigger className="w-[140px] h-9"><Truck className="h-3.5 w-3.5 mr-1 text-muted-foreground" /><SelectValue /></SelectTrigger>
               <SelectContent>
@@ -535,6 +543,7 @@ export default function Inventory() {
                 {supplierList.map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}
               </SelectContent>
             </Select>
+            )}
             <Select value={filterStatus} onValueChange={v => { setFilterStatus(v); setPage(1); }}>
               <SelectTrigger className="w-[140px] h-9"><SelectValue placeholder="Tous statuts" /></SelectTrigger>
               <SelectContent>
@@ -601,7 +610,7 @@ export default function Inventory() {
                       <TableHead className="w-10"></TableHead>
                       <TableHead>Produit</TableHead>
                       <TableHead>Famille</TableHead>
-                      <TableHead>Fournisseur</TableHead>
+                      {isSupplierEnabled && <TableHead>Fournisseur</TableHead>}
                       <TableHead className="text-right">Stock</TableHead>
                       <TableHead className="text-right">Min</TableHead>
                       <TableHead>Unité</TableHead>
@@ -615,7 +624,7 @@ export default function Inventory() {
                   <TableBody>
                     {paginatedProducts.length === 0 ? (
                       <TableRow>
-                        <TableCell colSpan={13} className="text-center py-12 text-muted-foreground">
+                        <TableCell colSpan={isSupplierEnabled ? 13 : 12} className="text-center py-12 text-muted-foreground">
                           <Package className="h-8 w-8 mx-auto mb-2 opacity-30" />
                           <p>Aucun produit trouvé</p>
                         </TableCell>
@@ -629,7 +638,7 @@ export default function Inventory() {
                           <TableCell><Checkbox checked={isSelected} onCheckedChange={() => toggleSelect(product.id)} /></TableCell>
                           <TableCell>
                             <div className="w-8 h-8 rounded bg-muted flex items-center justify-center overflow-hidden">
-                              {product.image ? <img src={product.image} alt="" className="w-full h-full object-cover" loading="lazy" /> : <Package className="h-4 w-4 text-muted-foreground/40" />}
+                              {product.image ? <img src={product.image} alt="" className="w-full h-full" style={getImageStyle(product.image_settings)} loading="lazy" /> : <Package className="h-4 w-4 text-muted-foreground/40" />}
                             </div>
                           </TableCell>
                           <TableCell>
@@ -639,7 +648,7 @@ export default function Inventory() {
                             </div>
                           </TableCell>
                           <TableCell className="text-sm">{product.family || product.category || '-'}</TableCell>
-                          <TableCell className="text-sm max-w-[120px] truncate">{product.supplier || '-'}</TableCell>
+                          {isSupplierEnabled && <TableCell className="text-sm max-w-[120px] truncate">{product.supplier || '-'}</TableCell>}
                           <TableCell className="text-right font-mono text-sm font-medium">{product.stock || 0}</TableCell>
                           <TableCell className="text-right font-mono text-sm text-muted-foreground">{product.min_stock || 0}</TableCell>
                           <TableCell className="text-sm">{product.unit || '-'}</TableCell>
@@ -771,7 +780,7 @@ export default function Inventory() {
       )}
 
       {/* ═══════════════════════ TAB: SUPPLIERS ═══════════════════════ */}
-      {activeTab === 'suppliers' && (
+      {isSupplierEnabled && activeTab === 'suppliers' && (
         <>
           <div className="flex items-center justify-between">
             <div className="relative w-64">
@@ -907,7 +916,7 @@ export default function Inventory() {
               <div className="space-y-4 pb-4">
                 <div className="flex gap-4">
                   <div className="w-24 h-24 rounded-lg bg-muted flex items-center justify-center overflow-hidden flex-shrink-0">
-                    {detailsProduct.image ? <img src={detailsProduct.image} alt="" className="w-full h-full object-cover" /> : <Package className="h-10 w-10 text-muted-foreground/30" />}
+                    {detailsProduct.image ? <img src={detailsProduct.image} alt="" className="w-full h-full" style={getImageStyle(detailsProduct.image_settings)} /> : <Package className="h-10 h-10 text-muted-foreground/30" />}
                   </div>
                   <div className="flex-1 space-y-1">
                     <p className="font-semibold">{detailsProduct.name}</p>
@@ -918,7 +927,7 @@ export default function Inventory() {
                 <Separator />
                 <div className="grid grid-cols-2 gap-3 text-sm">
                   <div><span className="text-muted-foreground">Famille:</span> <span className="font-medium">{detailsProduct.family || detailsProduct.category || '-'}</span></div>
-                  <div><span className="text-muted-foreground">Fournisseur:</span> <span className="font-medium">{detailsProduct.supplier || '-'}</span></div>
+                  {isSupplierEnabled && <div><span className="text-muted-foreground">Fournisseur:</span> <span className="font-medium">{detailsProduct.supplier || '-'}</span></div>}
                   <div><span className="text-muted-foreground">Prix achat:</span> <span className="font-medium">{detailsProduct.cost_price > 0 ? formatPrice(detailsProduct.cost_price) : '-'}</span></div>
                   <div><span className="text-muted-foreground">Prix vente:</span> <span className="font-medium">{formatPrice(detailsProduct.price)}</span></div>
                   <div><span className="text-muted-foreground">Stock actuel:</span> <span className="font-bold">{detailsProduct.stock || 0}</span></div>

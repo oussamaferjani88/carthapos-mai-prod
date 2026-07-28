@@ -1856,6 +1856,14 @@ class ElectronDatabaseManager {
       console.log('✅ Migration: Added index on sales.kitchen_status');
     } catch (e) { /* already exists */ }
 
+    // ── Product image adjustment settings ──
+    try {
+      await this.runQuery("ALTER TABLE products ADD COLUMN image_settings TEXT DEFAULT NULL");
+      console.log('✅ Migration: products.image_settings added');
+    } catch (e) {
+      if (!e.message?.includes('duplicate column')) console.warn(`⚠️ Migration (products.image_settings): ${e.message}`);
+    }
+
     console.log('✅ Database tables and indexes created successfully');
     } catch (error) {
       console.error('❌ Critical error during table creation:', error);

@@ -94,7 +94,7 @@ const DEFAULT_CONFIGURATION = {
   splashScreen: false,
   
   // Currency & Localization
-  currency: 'EUR',
+  currency: 'TND',
   currencyPosition: 'before',
   taxRate: 20.0,
   language: 'fr',

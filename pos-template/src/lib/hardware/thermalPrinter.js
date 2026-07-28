@@ -41,12 +41,12 @@ class ThermalPrinterManager {
             businessName: all.businessName || 'Mon Commerce',
             businessAddress: all.businessAddress || '',
             businessPhone: all.businessPhone || '',
-            currency: all.currency || 'DT'
+            currency: all.currency || 'TND'
           };
         }
       }
     } catch {
-      this._cachedBusinessInfo = { businessName: 'Mon Commerce', businessAddress: '', businessPhone: '', currency: 'DT' };
+      this._cachedBusinessInfo = { businessName: 'Mon Commerce', businessAddress: '', businessPhone: '', currency: 'TND' };
     }
 
     try {
@@ -70,7 +70,7 @@ class ThermalPrinterManager {
   }
 
   generateReceiptData(sale) {
-    const biz = this._cachedBusinessInfo || { businessName: 'Mon Commerce', businessAddress: '', businessPhone: '', currency: 'DT' };
+    const biz = this._cachedBusinessInfo || { businessName: 'Mon Commerce', businessAddress: '', businessPhone: '', currency: 'TND' };
     const rc = this._cachedReceiptConfig;
     const now = new Date();
     return {

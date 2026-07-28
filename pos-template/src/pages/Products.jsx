@@ -15,6 +15,7 @@ import { useAppConfig } from '../hooks/useAppConfig';
 import { useAuth } from '../contexts/AuthContext';
 import { isPreviewMode } from '../utils/environment';
 import { activityLog } from '../utils/activityLog';
+import { getImageStyle } from '../utils/imageSettings';
 import ProductFormDialog from '../components/ProductFormDialog';
 import ProductQuickView from '../components/ProductQuickView';
 import ProductTableView from '../components/ProductTableView';
@@ -74,6 +75,14 @@ export default function Products() {
   const isBarcodeEnabled = electronConfig?.modules
     ? electronConfig.modules.some(m => (m.name || m) === 'barcode' && m.isEnabled !== false)
     : true;
+
+  const isSupplierEnabled = electronConfig?.modules
+    ? electronConfig.modules.some(m => (m.name || m) === 'suppliers' && m.isEnabled !== false)
+    : false;
+
+  const isKitchenEnabled = electronConfig?.modules
+    ? electronConfig.modules.some(m => (m.name || m) === 'kitchen' && m.isEnabled !== false)
+    : false;
 
   const isAdmin = user?.role === 'admin';
   const isManager = user?.role === 'manager';
@@ -137,7 +146,7 @@ export default function Products() {
         isPreviewMode() ? null : window.electronAPI.getProducts(),
         window.electronAPI.getFamilies?.() || [],
         window.electronAPI.getVatRates?.() || [],
-        window.electronAPI.getKitchenDepartments?.() || []
+        isKitchenEnabled ? (window.electronAPI.getKitchenDepartments?.() || []) : []
       ]);
 
       const prods = isPreviewMode() ? DEMO_PRODUCTS : (productsData || []);
@@ -168,7 +177,7 @@ export default function Products() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [isKitchenEnabled]);
 
   useEffect(() => {
     loadData();
@@ -613,7 +622,7 @@ export default function Products() {
           <div className="relative flex-1 min-w-[200px] max-w-md">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
             <Input
-              placeholder="Rechercher par nom, famille, fournisseur, code-barres..."
+              placeholder={isSupplierEnabled ? "Rechercher par nom, famille, fournisseur, code-barres..." : "Rechercher par nom, famille, code-barres..."}
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
               className="pl-9 h-9"
@@ -634,6 +643,7 @@ export default function Products() {
               {families.map(f => (<SelectItem key={f.name} value={f.name}>{f.name}</SelectItem>))}
             </SelectContent>
           </Select>
+          {isKitchenEnabled && (
           <Select value={kitchenFilter} onValueChange={setKitchenFilter}>
             <SelectTrigger className="w-[170px] h-9">
               <ChefHat className="h-3.5 w-3.5 mr-2 text-muted-foreground" />
@@ -645,6 +655,7 @@ export default function Products() {
               <SelectItem value="non-kitchen">Non-cuisine</SelectItem>
             </SelectContent>
           </Select>
+          )}
           <Select value={sortBy} onValueChange={setSortBy}>
             <SelectTrigger className="w-[140px] h-9">
               <ArrowUpDown className="h-3.5 w-3.5 mr-2 text-muted-foreground" />
@@ -734,7 +745,7 @@ export default function Products() {
                 {/* Image */}
                 <div className="relative h-36 bg-muted">
                   {product.image ? (
-                    <img src={product.image} alt={product.name} className="w-full h-full object-cover" loading="lazy" />
+                    <img src={product.image} alt={product.name} className="w-full h-full" style={getImageStyle(product.image_settings)} loading="lazy" />
                   ) : (
                     <div className="w-full h-full flex items-center justify-center">
                       <Package className="h-10 w-10 text-muted-foreground/20" />
@@ -759,7 +770,7 @@ export default function Products() {
                       {product.family && (
                         <Badge variant="secondary" className="text-[10px]">{product.family}</Badge>
                       )}
-                      {(product.requires_kitchen === 1 || product.requires_kitchen === true) && (
+                      {isKitchenEnabled && (product.requires_kitchen === 1 || product.requires_kitchen === true) && (
                         <Badge variant="outline" className="text-[10px] bg-amber-50 text-amber-600 border-amber-200">
                           <ChefHat className="h-2.5 w-2.5 mr-0.5" />
                           {product.preparation_department || 'Cuisine'}
@@ -772,7 +783,7 @@ export default function Products() {
                   </div>
 
                   {/* Supplier */}
-                  {product.supplier && (
+                  {isSupplierEnabled && product.supplier && (
                     <p className="text-xs text-muted-foreground mb-2 truncate">📦 {product.supplier}</p>
                   )}
 
@@ -854,6 +865,8 @@ export default function Products() {
         families={families.map(f => f.name)}
         onSubmit={handleFormSubmit}
         showBarcode={isBarcodeEnabled}
+        showSupplier={isSupplierEnabled}
+        isKitchenEnabled={isKitchenEnabled}
         vatRates={vatRates}
         taxEnabled={taxEnabled}
         kitchenDepartments={kitchenDepartments}
@@ -883,6 +896,7 @@ export default function Products() {
         onDuplicateSelected={handleBulkDuplicate}
         onExportSelected={handleExportCSV}
         onClearSelection={() => setSelectedIds(new Set())}
+        showSupplier={isSupplierEnabled}
       />
 
       {/* FAMILY MANAGEMENT DIALOG */}
@@ -1028,19 +1042,21 @@ export default function Products() {
       </Dialog>
 
       {/* BULK ASSIGN SUPPLIER DIALOG */}
-      <Dialog open={bulkSupplierOpen} onOpenChange={setBulkSupplierOpen}>
-        <DialogContent className="sm:max-w-[400px]">
-          <DialogHeader>
-            <DialogTitle>Attribuer un fournisseur</DialogTitle>
-            <DialogDescription>Entrez le nom du fournisseur pour les {selectedIds.size} produit(s) sélectionné(s)</DialogDescription>
-          </DialogHeader>
-          <Input placeholder="Nom du fournisseur" value={bulkSupplierValue} onChange={(e) => setBulkSupplierValue(e.target.value)} autoFocus />
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setBulkSupplierOpen(false)}>Annuler</Button>
-            <Button onClick={handleBulkAssignSupplier}>Appliquer</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      {isSupplierEnabled && (
+        <Dialog open={bulkSupplierOpen} onOpenChange={setBulkSupplierOpen}>
+          <DialogContent className="sm:max-w-[400px]">
+            <DialogHeader>
+              <DialogTitle>Attribuer un fournisseur</DialogTitle>
+              <DialogDescription>Entrez le nom du fournisseur pour les {selectedIds.size} produit(s) sélectionné(s)</DialogDescription>
+            </DialogHeader>
+            <Input placeholder="Nom du fournisseur" value={bulkSupplierValue} onChange={(e) => setBulkSupplierValue(e.target.value)} autoFocus />
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setBulkSupplierOpen(false)}>Annuler</Button>
+              <Button onClick={handleBulkAssignSupplier}>Appliquer</Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      )}
 
       {/* BULK ASSIGN VAT DIALOG */}
       <Dialog open={bulkVatOpen} onOpenChange={setBulkVatOpen}>

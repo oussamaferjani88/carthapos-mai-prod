@@ -47,7 +47,9 @@ const DEFAULT_SETTINGS = {
   businessEmail: '', businessWebsite: '', businessTaxId: '', currency: 'TND',
   taxEnabled: true, numberFormat: 'fr-FR', language: 'fr', timezone: 'Africa/Tunis',
   printReceipts: true, printKitchen: true, receiptPrinter: '', kitchenPrinter: '',
-  paperWidth: '80', soundEnabled: true, theme: 'default'
+  paperWidth: '80', soundEnabled: true, theme: 'default',
+  autoLockEnabled: true, autoLockTimeout: 10,
+  autoBackup: false
 };
 
 const MODULES = [
@@ -109,7 +111,6 @@ export default function Settings() {
   const [activeModule, setActiveModule] = useState(null);
   const [settings, setSettings] = useState(DEFAULT_SETTINGS);
   const [loading, setLoading] = useState(false);
-  const [loaded, setLoaded] = useState(false);
   const [dirty, setDirty] = useState(false);
   const [dbPath, setDbPath] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
@@ -134,7 +135,12 @@ export default function Settings() {
   const [editDeptIcon, setEditDeptIcon] = useState('');
   const [showDeleteDeptConfirm, setShowDeleteDeptConfirm] = useState(null);
 
+  const isKitchenEnabled = config?.modules
+    ? config.modules.some(m => (m.name || m) === 'kitchen' && m.isEnabled !== false)
+    : false;
+
   const loadKitchenDepartments = useCallback(async () => {
+    if (!isKitchenEnabled) return;
     setKitchenLoading(true);
     try {
       if (window.electronAPI?.getKitchenDepartments) {
@@ -143,7 +149,7 @@ export default function Settings() {
       }
     } catch (e) { console.warn('Could not load kitchen departments:', e); }
     finally { setKitchenLoading(false); }
-  }, []);
+  }, [isKitchenEnabled]);
 
   useEffect(() => { loadKitchenDepartments(); }, [loadKitchenDepartments]);
 
@@ -186,7 +192,7 @@ export default function Settings() {
   useEffect(() => { if (window.electronAPI?.getDatabasePath) window.electronAPI.getDatabasePath().then(setDbPath).catch(() => {}); }, []);
 
   useEffect(() => {
-    if (dbSettings && Object.keys(dbSettings).length > 0 && !loaded) {
+    if (dbSettings && Object.keys(dbSettings).length > 0) {
       setSettings(prev => ({
         ...prev,
         businessName: dbSettings.businessName ?? prev.businessName,
@@ -201,25 +207,31 @@ export default function Settings() {
         numberFormat: dbSettings.numberFormat ?? prev.numberFormat,
         language: dbSettings.language ?? prev.language,
         timezone: dbSettings.timezone ?? prev.timezone,
+        printReceipts: dbSettings.printReceipts ?? prev.printReceipts,
+        printKitchen: dbSettings.printKitchen ?? prev.printKitchen,
+        receiptPrinter: dbSettings.receiptPrinter ?? prev.receiptPrinter,
+        kitchenPrinter: dbSettings.kitchenPrinter ?? prev.kitchenPrinter,
+        paperWidth: dbSettings.paperWidth ?? prev.paperWidth,
         soundEnabled: dbSettings.soundEnabled ?? prev.soundEnabled,
-        theme: dbSettings.theme ?? prev.theme
+        theme: dbSettings.theme ?? prev.theme,
+        autoLockEnabled: dbSettings.autoLockEnabled ?? prev.autoLockEnabled,
+        autoLockTimeout: dbSettings.autoLockTimeout ?? prev.autoLockTimeout,
+        autoBackup: dbSettings.autoBackup ?? prev.autoBackup
       }));
-      setLoaded(true);
     }
-  }, [dbSettings, loaded]);
+  }, [dbSettings]);
 
   useEffect(() => {
-    if (!loaded && config) {
+    if (config) {
       setSettings(prev => ({
         ...prev,
-        businessName: config.theme?.businessName || prev.businessName,
-        currency: config.theme?.currency || prev.currency,
-        language: config.theme?.language || prev.language,
-        timezone: config.theme?.timezone || prev.timezone,
+        businessName: prev.businessName ?? config.theme?.businessName ?? '',
+        currency: prev.currency ?? config.theme?.currency ?? 'TND',
+        language: prev.language ?? config.theme?.language ?? 'fr',
+        timezone: prev.timezone ?? config.theme?.timezone ?? 'Africa/Tunis',
       }));
-      setLoaded(true);
     }
-  }, [config, loaded]);
+  }, [config]);
 
   useEffect(() => { loadVatRates(); }, []);
   const loadVatRates = async () => { try { if (window.electronAPI?.getVatRates) setVatRates(await window.electronAPI.getVatRates() || []); } catch {} };
@@ -228,7 +240,23 @@ export default function Settings() {
   const handleSave = async () => {
     for (const [key, value] of Object.entries(settings)) { const err = validateField(key, value); if (err) { toast({ title: 'Validation', description: `${key}: ${err}`, variant: 'destructive' }); return; } }
     setLoading(true);
-    try { const result = await setMultipleSettings(settings); if (result.success) { setDirty(false); toast({ title: 'Paramètres sauvegardés' }); } else { toast({ title: 'Erreur', description: result.error, variant: 'destructive' }); } }
+    try {
+      const result = await setMultipleSettings(settings);
+      if (result.success) {
+        await reload();
+        setDirty(false);
+        window.dispatchEvent(new Event('pos:settings-changed'));
+        toast({ title: 'Paramètres sauvegardés' });
+      } else {
+        if (result.failed && result.failed.length > 0) {
+          const names = result.failed.slice(0, 3).map(f => f.key).join(', ');
+          toast({ title: 'Erreur partielle', description: `${result.failed.length} paramètre(s) non sauvegardés: ${names}${result.failed.length > 3 ? '...' : ''}`, variant: 'destructive' });
+        } else {
+          toast({ title: 'Erreur', description: result.error, variant: 'destructive' });
+        }
+        await reload();
+      }
+    }
     catch (e) { toast({ title: 'Erreur', description: e.message, variant: 'destructive' }); }
     finally { setLoading(false); }
   };
@@ -268,7 +296,7 @@ export default function Settings() {
             <Input placeholder="Rechercher un paramètre..." className="pl-10 h-11" value={globalSearch} onChange={(e) => setGlobalSearch(e.target.value)} />
           </div>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {MODULES.filter(m => !globalSearch || m.title.toLowerCase().includes(globalSearch.toLowerCase()) || m.description.toLowerCase().includes(globalSearch.toLowerCase())).map(m => (
+            {MODULES.filter(m => !(m.id === 'kitchen' && !isKitchenEnabled)).filter(m => !globalSearch || m.title.toLowerCase().includes(globalSearch.toLowerCase()) || m.description.toLowerCase().includes(globalSearch.toLowerCase())).map(m => (
               <button key={m.id} onClick={() => setActiveModule(m.id)}
                 className="group text-left p-6 rounded-xl border bg-card hover:shadow-md hover:border-primary/30 transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-primary/20">
                 <div className={`w-10 h-10 rounded-lg ${m.color} flex items-center justify-center mb-4 group-hover:scale-110 transition-transform`}>
@@ -302,11 +330,11 @@ export default function Settings() {
   }
 
   // ── Sub-pages ──
-  if (activeModule === 'receipt') return <SettingsLayout active="receipt" onBack={() => setActiveModule(null)} onNavigate={setActiveModule}><ReceiptDesigner /></SettingsLayout>;
+  if (activeModule === 'receipt') return <SettingsLayout active="receipt" onBack={() => setActiveModule(null)} onNavigate={setActiveModule} isKitchenEnabled={isKitchenEnabled}><ReceiptDesigner /></SettingsLayout>;
 
   // ── General / Backup / Appearance / System pages ──
   return (
-    <SettingsLayout active={activeModule} onBack={() => setActiveModule(null)} onNavigate={setActiveModule}>
+    <SettingsLayout active={activeModule} onBack={() => setActiveModule(null)} onNavigate={setActiveModule} isKitchenEnabled={isKitchenEnabled}>
       {activeModule === 'general' && (
         <div className="space-y-8">
           <SectionHeader icon={Building2} title="Informations de l'entreprise" description="Nom, adresse et coordonnées de votre établissement" />
@@ -464,6 +492,39 @@ export default function Settings() {
               </div>
             </CardContent>
           </Card>
+
+          <SectionHeader icon={Lock} title="Verrouillage automatique" description="Configurer le verrouillage automatique de la session en cas d'inactivité" />
+          <Card>
+            <CardContent className="p-6 space-y-5">
+              <div className="flex items-center justify-between">
+                <div>
+                  <Label>Verrouillage automatique</Label>
+                  <p className="text-sm text-muted-foreground">Verrouiller l'écran après une période d'inactivité</p>
+                </div>
+                <Switch checked={!!s.autoLockEnabled} onCheckedChange={(v) => handleSettingChange('autoLockEnabled', v)} />
+              </div>
+              {s.autoLockEnabled && (
+                <>
+                  <Separator />
+                  <Field label="Délai d'inactivité (minutes)" helper="Temps sans activité avant le verrouillage automatique">
+                    <div className="flex items-center gap-3">
+                      {[5, 10, 15, 30, 60].map((mins) => (
+                        <Button
+                          key={mins}
+                          variant={Number(s.autoLockTimeout) === mins ? 'default' : 'outline'}
+                          size="sm"
+                          onClick={() => handleSettingChange('autoLockTimeout', mins)}
+                          className="h-9 px-4"
+                        >
+                          {mins} min
+                        </Button>
+                      ))}
+                    </div>
+                  </Field>
+                </>
+              )}
+            </CardContent>
+          </Card>
         </div>
       )}
 
@@ -563,7 +624,7 @@ export default function Settings() {
           <SectionHeader icon={HardDrive} title="Sauvegardes" description="Sauvegardez et restaurez vos données" />
           <Card><CardContent className="p-6 flex items-center justify-between">
             <div><Label>Sauvegarde automatique</Label><p className="text-sm text-muted-foreground">Créer des sauvegardes périodiques</p></div>
-            <Switch checked={s.autoBackup === 'true'} onCheckedChange={(v) => handleSettingChange('autoBackup', String(v))} />
+            <Switch checked={!!s.autoBackup} onCheckedChange={(v) => handleSettingChange('autoBackup', v)} />
           </CardContent></Card>
           <Card><CardContent className="p-6 space-y-4">
             <div className="flex gap-3">
@@ -654,7 +715,7 @@ export default function Settings() {
 
 // ── Shared Layout Components ──
 
-function SettingsLayout({ children, active, onBack, onNavigate }) {
+function SettingsLayout({ children, active, onBack, onNavigate, isKitchenEnabled }) {
   return (
     <div className="flex h-[calc(100vh-4rem)]">
       <aside className="w-56 shrink-0 border-r bg-muted/20 hidden md:block">
@@ -663,7 +724,7 @@ function SettingsLayout({ children, active, onBack, onNavigate }) {
             <ChevronRight className="h-4 w-4 rotate-180" /> Tous les paramètres
           </button>
           <nav className="space-y-1">
-            {SIDEBAR_ITEMS.map(item => (
+            {SIDEBAR_ITEMS.filter(item => !(item.id === 'kitchen' && !isKitchenEnabled)).map(item => (
               <button key={item.id} onClick={() => onNavigate(item.id)}
                 className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-colors ${active === item.id ? 'bg-primary/10 text-primary font-medium' : 'text-muted-foreground hover:bg-muted hover:text-foreground'}`}>
                 <item.icon className="h-4 w-4" />
