@@ -1,0 +1,146 @@
+LAST BI REPORT — CONNECTING TO METABASE
+=========================================
+Date: June 30, 2026
+Author: Senior BI Architect / Full-Stack Engineer
+
+This report documents the final enhancement phase of the CarthaPOS BI module:
+the architectural transition from custom React/Recharts dashboard generation
+to Metabase Community Edition-powered dashboard generation.
+
+1. WHAT WAS ANALYZED
+---------------------
+- Current ETL pipeline (etl-pipeline.js) — kept unchanged
+- Current warehouse schema (dim_*, fact_*) — kept unchanged
+- Current dashboard generation (bi-dashboards.js POST /generate-from-upload)
+- Current dashboard templates (bi-dashboard-templates.js — JSON section defs)
+- Current warehouse query service (warehouse-service.js)
+- Current client dashboard viewer (BIDashboardViewer.tsx — Recharts)
+- Current admin dashboard viewer (AdminDashboardViewer.jsx — Recharts)
+- Current admin dashboard manager (AdminBIDashboardManager.jsx)
+- Current Prisma schema (BiDashboard model + all BI models)
+- Current Metabase installation (metabase.jar, PostgreSQL app DB)
+- Current PostgreSQL connection (pos_system database, metabase database)
+- Frontend/Admin route configurations
+
+2. CRITICAL LIMITATIONS FOUND IN METABASE CE
+----------------------------------------------
+These are NOT implementation failures — they are inherent limitations of
+Metabase Community Edition that directly affected the architectural design:
+
+  A. NO CREATE/UPDATE DASHBOARD API
+     CE does not expose POST/PUT endpoints for dashboards or cards.
+     SOLUTION: Direct SQL inserts into Metabase's internal PostgreSQL tables
+     (report_dashboard, report_card, report_dashboardcard, etc.).
+
+  B. NO ROW-LEVEL SECURITY (SANDBOXING)
+     CE cannot restrict which rows a user sees. All Metabase users with
+     access to a data source see ALL rows.
+     SOLUTION: PostgreSQL schema-per-tenant pattern. Each tenant gets an
+     isolated schema (e.g., tenant_client_abc123) containing views that
+     filter WHERE tenantId = 'abc123'. Each schema = separate Metabase
+     data source. This is the only reliable isolation mechanism in CE.
+
+  C. NO AUTHENTICATED EMBEDDING
+     CE only supports public (unauthenticated) embedding via iframe with a
+     UUID. There is no JWT/signed embedding — that is an Enterprise Edition
+     feature.
+     SOLUTION: API proxy pattern. The CarthaPOS backend authenticates the
+     user, then fetches card data from Metabase API server-side and returns
+     JSON to the React client. Existing Recharts components render the data
+     with full CarthaPOS auth control.
+
+3. ARCHITECTURE DECISIONS
+--------------------------
+  A. Hybrid Architecture (not full replacement)
+     - Metabase becomes the admin's dashboard DESIGN tool
+     - Client viewing stays React-based but sourced from Metabase data
+     - Old React rendering path kept as fallback (graceful degradation)
+
+  B. Schema-Per-Tenant for Isolation
+     - CREATE SCHEMA tenant_client_X
+     - CREATE VIEW v_sales AS SELECT * FROM public.fact_sale WHERE tenantId = 'X'
+     - One Metabase database connection per tenant schema
+     - Acceptable for PFE scale; production would need EE sandboxing
+
+  C. Direct Metabase DB Inserts for Programmatic Creation
+     - Since CE API cannot create dashboards, we insert into Metabase's own
+       PostgreSQL database directly via Prisma
+     - Dashboard generation creates: report_dashboard → report_card →
+       report_dashboardcard rows
+     - Template cards converted to Metabase-native dataset_query JSON
+
+  D. API Proxy for Client Delivery
+     - CarthaPOS validates user session
+     - Server calls Metabase API to execute card queries
+     - Returns structured JSON (not iframe) to React frontend
+     - Existing Recharts components render line/bar/pie/table/scalar cards
+
+4. DATABASE CHANGES PROPOSED
+-----------------------------
+  New fields on BiDashboard:
+    - metabaseId (Int?) — Metabase internal dashboard ID
+    - metabaseEmbedUrl (String?) — public embed URL
+    - metabaseEmbedToken (String?) — embed secret
+    - metabaseCollectionId (Int?) — Metabase collection
+    - tenantSchemaName (String?) — e.g. "tenant_client_abc123"
+
+  New models:
+    - BiMetabaseSync — tracks sync status between CarthaPOS and Metabase
+    - BiTenantSchema — tracks per-tenant PostgreSQL schema creation
+
+  New tables (Metabase app DB — direct inserts):
+    - report_dashboard, report_card, report_dashboardcard
+
+5. FILES CREATED / MODIFIED
+-----------------------------
+  Created:
+    - D:\CARTHAPOS\metabase-integration-report.md (14 sections, ~600 lines)
+
+  To be created (next phase):
+    - backend/services/metabase-client.js — Metabase API wrapper + auth
+    - backend/services/metabase-db-sync.js — Direct DB insert functions
+    - backend/services/tenant-schema.js — Per-tenant view creation
+    - backend/routes/bi-metabase.js — New endpoints for MB integration
+    - frontend/src/pages/dashboard/MetabaseDashboardViewer.tsx — Client viewer
+
+  To be modified (next phase):
+    - backend/prisma/schema.prisma — Add new fields + models
+    - backend/routes/bi-dashboards.js — Extend generate-from-upload
+    - backend/services/bi-dashboard-templates.js — Metabase-native card defs
+    - admin/src/pages/AdminBIDashboardManager.jsx — "Open in Metabase" + Sync buttons
+
+6. TIMELINE ESTIMATE
+---------------------
+  Phase 1 — Foundation (env vars, service classes, schema changes): 3 days
+  Phase 2 — Tenant schema management (view creation, refresh): 3 days
+  Phase 3 — Metabase dashboard creation (direct DB insert, template convert): 7 days
+  Phase 4 — Admin customization (MB link, sync button, UI updates): 2 days
+  Phase 5 — Client delivery (API proxy, MetabaseDashboardViewer, fallback): 4 days
+  Phase 6 — Polish & documentation: 2 days
+  TOTAL: ~21 person-days (4 weeks for single developer)
+
+7. RISK SUMMARY
+----------------
+  - Certain: Metabase CE lacks create/update dashboard APIs (mitigated by direct DB insert)
+  - High: No RLS in CE (mitigated by schema-per-tenant pattern)
+  - High: No authenticated embedding (mitigated by API proxy pattern)
+  - Medium: Prisma migration failures (mitigated by raw SQL fallback)
+  - Low: Race conditions between ETL completion and view creation (views refreshed at generation time)
+
+8. KEY INSIGHT FOR PFE
+-----------------------
+  The final architecture is NOT a pure Metabase solution. It is a HYBRID:
+    - Admin side: Metabase native UI for dashboard design
+    - Client side: Custom React with Metabase-sourced data via proxy
+    - Data isolation: PostgreSQL schema-per-tenant
+    - Generation: Direct DB inserts into Metabase internals
+
+  This hybrid approach is the CORRECT architectural response to Metabase CE's
+  limitations. A pure Metabase CE solution would compromise either security
+  (public embedding with no auth) or user experience (forcing clients to log
+  into Metabase directly). The hybrid preserves both security and UX while
+  leveraging Metabase's strengths in dashboard design and query building.
+
+================================================================================
+END OF REPORT
+================================================================================

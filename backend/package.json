@@ -11,6 +11,7 @@
     "db:migrate": "npx prisma migrate dev",
     "db:generate": "npx prisma generate",
     "db:seed": "node prisma/seed.js",
+    "seed:bi-templates": "node scripts/seed-bi-templates.js",
     "db:reset": "npx prisma migrate reset",
     "db:studio": "npx prisma studio"
   },

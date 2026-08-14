@@ -1,0 +1,304 @@
+═══════════════════════════════════════════════════════════════════════════════════
+  POS PREVIEW SYSTEM — DEEP ARCHITECTURAL AUDIT REPORT
+═══════════════════════════════════════════════════════════════════════════════════
+  Date:      2026-07-12
+  Scope:     frontend/src/ vs admin/src/ (preview subsystem only)
+  Method:   File-by-file comparison, import tracing, prop chain analysis
+  Status:   DIAGNOSIS COMPLETE — no code changed
+═══════════════════════════════════════════════════════════════════════════════════
+
+[1] COMPLETE RENDER CHAIN DIAGRAM
+═══════════════════════════════════════════════════════════════════════════════════
+
+  Admin (WORKING)                                  Frontend (BROKEN)
+  ─────────────────────────                       ─────────────────────────
+  App.jsx                                         App.tsx
+  ├─ Route /pos-generator                         ├─ Route /pos-generator
+  │   └─ POSGeneratorPage.jsx                     │   └─ POSGeneratorPage.tsx
+  │       └─ step 3 inline:                       │       └─ step 3 inline:
+  │           POSRealtimePreview                  │           POSRealtimePreview
+  │           ├─ DragDropProvider                 │           ├─ (MISSING)
+  │           ├─ DndProvider (HTML5Backend)       │           ├─ (MISSING)
+  │           ├─ ErrorBoundary                    │           ├─ (MISSING)
+  │           ├─ POSPreviewPage                   │           └─ POSPreview (direct)
+  │           │   └─ POSWithAuth                  │               ├─ POSNavbar
+  │           │       └─ POSPreview                │               ├─ POSHeader  ← RENDERS OK
+  │           │           ├─ POSNavbar             │               └─ POSContent ← EMPTY
+  │           │           ├─ POSHeader             │
+  │           │           └─ POSContent            │
+  │           │               └─ POSComponentRegistry.getPageRenderer()
+  │           │                   → returns module component ✓
+  │           └─ ReceiptDesignerPreview            │               └─ ReceiptDesignerPreview
+  │                                                 │
+  ├─ Route /pos-preview ← EXISTS                   ├─ Route /pos-preview ← MISSING
+  │   └─ POSPreviewPage.jsx                        │   └─ POSPreviewPage.tsx ← MISSING
+  │       └─ (standalone, same chain)              │
+  └─ Route * → Navigate to /pos-generator          └─ Route * → NotFound (404)
+                                                         → "Page Not Found" ⎆
+
+[2] ROUTING COMPARISON
+═══════════════════════════════════════════════════════════════════════════════════
+
+  Admin App.jsx                              Frontend App.tsx
+  ──────────────────────────────             ──────────────────────────────
+  Route path="/pos-preview"                  → NO EQUIVALENT ROUTE
+    element={<POSPreviewPage />}               (POSPreviewPage.tsx doesn't exist)
+                                               → /pos-preview = 404 "Page Not Found"
+
+  Route path="/pos-generator"                Route path="/pos-generator"
+    element={<POSGenerator />}                 element={<DashboardLayout />}
+                                               ↓
+                                               Route index
+                                                 element={<POSGeneratorPage />}
+
+  ❌ ADMIN HAS TWO ROUTES. FRONTEND HAS ONE.
+
+[3] MISSING FILES
+═══════════════════════════════════════════════════════════════════════════════════
+
+  File                                   Admin    Frontend   Impact
+  ─────────────────────────────────────  ───────  ─────────  ──────────────────────
+  POSPreviewPage.{jsx,tsx}               ✓        ✗ MISSING  Standalone preview 404
+  ErrorBoundary.{jsx,tsx}                ✓        ✗ MISSING  No error catching
+  DraggableComponent.{jsx,tsx}           ✓        ✗ MISSING  Drag-and-drop broken
+  POSWithAuth.{jsx,tsx}                  ✓        ✗ MISSING  Auth flow in preview
+  AuthContext.{jsx,tsx}                  ✓        ✗ MISSING  Auth state in preview
+
+[4] BROKEN IMPORTS IN FRONTEND
+═══════════════════════════════════════════════════════════════════════════════════
+
+  File                             Import                    Status
+  ───────────────────────────────  ────────────────────────  ───────────────────
+  POSRealtimePreview.tsx           DragDropProvider          MISSING
+  POSRealtimePreview.tsx           DndProvider               MISSING
+  POSRealtimePreview.tsx           HTML5Backend              MISSING
+  POSRealtimePreview.tsx           ErrorBoundary             MISSING
+  POSComponentRegistry.tsx         All module components     MISSING (see §7)
+  POSComponentRegistry.tsx         init() call               MISSING (see §7)
+
+[5] MISSING ROUTES
+═══════════════════════════════════════════════════════════════════════════════════
+
+  Route            Admin     Frontend   Why needed
+  ───────────────  ────────  ─────────  ──────────────────────────────────
+  /pos-preview     ✓         ✗          Standalone preview page access
+
+[6] BROKEN STATE PROPAGATION
+═══════════════════════════════════════════════════════════════════════════════════
+
+  Chain: configHook.configuration → POSRealtimePreview → POSPreview → POSContent
+
+  Admin:  configHook.configuration → POSRealtimePreview → POSPreviewPage
+          → POSWithAuth → POSPreview → POSContent
+          ✓ Configuration reaches content via props
+
+  Frontend: configHook.configuration → POSRealtimePreview → POSPreview → POSContent
+            ✓ Configuration flows correctly through the chain
+            ✗ But POSContent calls POSComponentRegistry.getPageRenderer()
+              which returns "Page not found" fallback because registry is empty
+
+  Actual realtime updates (colors, fonts, themes) DO reach POSHeader (it renders OK),
+  but never reach the module content because no module component is ever rendered.
+
+[7] ROOT CAUSE #1: POSComponentRegistry IS EMPTY
+═══════════════════════════════════════════════════════════════════════════════════
+
+  File: frontend/src/constants/POSComponentRegistry.tsx
+
+  Problem:
+  ────────
+  • The class has register(), getComponent(), getNavigationItems(),
+    getPageRenderer(), etc. — but **register() is never called**
+  • No init() method defined
+  • No init() call at module level
+  • No import statements for any module preview components
+
+  Admin fix/reference:
+  ────────────────────
+  admin/src/constants/POSComponentRegistry.jsx:
+  • 26 import statements loading all module components
+  • init() method that calls register() 22 times
+  • POSComponentRegistry.init() at line 336 (module-level invocation)
+
+  Consequence:
+  ────────────
+  • POSComponentRegistry.components is an empty Map
+  • getPageRenderer('dashboard', modules) → undefined
+    → returns fallback: () => <div>Page not found</div>
+  • getNavigationItems(modules) → empty array
+    → sidebar/navbar has no items
+  • getAvailableComponents(modules) → empty array
+    → nothing renders
+
+[8] ROOT CAUSE #2: POSPreviewPage.tsx + Route MISSING
+═══════════════════════════════════════════════════════════════════════════════════
+
+  • POSPreviewPage.tsx does not exist in frontend/src/pages/pos/
+  • Route /pos-preview does not exist in frontend/src/App.tsx
+  → Navigating directly to /pos-preview = "Page Not Found"
+
+  The standalone preview page is used by Admin as both a standalone route
+  AND wrapped inside POSRealtimePreview. In Frontend, POSRealtimePreview
+  imports POSPreview directly instead of POSPreviewPage, skipping the
+  POSWithAuth wrapper — this is actually acceptable.
+
+[9] ROOT CAUSE #3: Missing DragDropProvider + DndProvider Wrappers
+═══════════════════════════════════════════════════════════════════════════════════
+
+  Admin POSRealtimePreview.jsx wraps content:
+    <DragDropProvider>
+      <DndProvider backend={HTML5Backend}>
+        <ErrorBoundary>
+          {viewMode === 'pos'
+            ? <POSPreviewPage ... />
+            : <ReceiptDesignerPreview ... />
+          }
+        </ErrorBoundary>
+      </DndProvider>
+    </DragDropProvider>
+
+  Frontend POSRealtimePreview.tsx:
+    {viewMode === 'pos'
+      ? <POSPreview ... />
+      : <ReceiptDesignerPreview ... />
+    }
+    → NO DragDropProvider
+    → NO DndProvider
+    → NO ErrorBoundary
+
+  Without DragDropProvider, any component calling useDragDrop() will throw:
+    "useDragDrop must be used within a DragDropProvider"
+
+  Currently POSPreview.tsx does NOT call useDragDrop() directly, but it passes
+  isVisible as a no-op function. If drag mode is enabled, components will break.
+
+[10] EXACT LIST OF FIXES REQUIRED
+═══════════════════════════════════════════════════════════════════════════════════
+
+  FIX 1 — Populate POSComponentRegistry (CRITICAL — unblocks empty preview)
+  ──────────────────────────────────────────────────────────────────────────────
+  File: frontend/src/constants/POSComponentRegistry.tsx
+
+  Add imports for all 26 module preview components (matching Admin):
+    import { POSDashboard } from '../components/pos/preview/modules/POSDashboard';
+    import { POSSales } from '../components/pos/preview/modules/POSSales';
+    ... (all 26 modules)
+
+  Add init() method matching Admin:
+    static init() {
+      this.register('dashboard', POSDashboard, { navigationItem: { label: 'Dashboard', icon: Home, order: 1 } });
+      this.register('sales', POSSales, { navigationItem: { label: 'Ventes', icon: ShoppingCart, order: 2 } });
+      ... (all 22 registrations)
+      this.register('settings', POSSettings, { navigationItem: { label: 'Paramètres', icon: Settings, order: 99 } });
+    }
+
+  Add module-level init call:
+    POSComponentRegistry.init();
+
+  Add icon imports for all navigation icons (matching Admin):
+    import { Home, ShoppingCart, Package, Users, BarChart3, Settings, ... } from 'lucide-react';
+
+  FIX 2 — Create POSPreviewPage.tsx (MEDIUM — unblocks standalone route)
+  ──────────────────────────────────────────────────────────────────────────────
+  File: frontend/src/pages/pos/POSPreviewPage.tsx
+
+  Content (matching Admin POSPreviewPage.jsx but TypeScript):
+    import POSPreview from '../../components/pos/preview/POSPreview';
+
+    interface POSPreviewPageProps {
+      configuration?: Record<string, any>;
+      modules?: string[];
+      isDragMode?: boolean;
+      onComponentSelect?: (name: string) => void;
+    }
+
+    const POSPreviewPage = ({ configuration = {}, modules = [], isDragMode = false, onComponentSelect }: POSPreviewPageProps) => (
+      <div style={{ height: '100%', width: '100%', display: 'flex', flexDirection: 'column', margin: 0, padding: 0, boxSizing: 'border-box' }}>
+        {/*
+          Admin wraps in POSWithAuth for authentication flow.
+          Frontend skips this since it uses its own AccessModeContext.
+          Render POSPreview directly inside a plain div.
+        */}
+        <POSPreview configuration={configuration} modules={modules} isDragMode={isDragMode} onComponentSelect={onComponentSelect} />
+      </div>
+    );
+    export default POSPreviewPage;
+
+  FIX 3 — Add route for /pos-preview (MEDIUM — unblocks standalone preview)
+  ──────────────────────────────────────────────────────────────────────────────
+  File: frontend/src/App.tsx
+
+  Add import:
+    import POSPreviewPage from "./pages/pos/POSPreviewPage";
+
+  Add route inside the DashboardLayout group (or beside the Generator route):
+    <Route path="/pos-preview" element={<DashboardLayout />}>
+      <Route index element={<Suspense fallback={<PageSkeleton />}><POSPreviewPage /></Suspense>} />
+    </Route>
+
+  FIX 4 — Add DragDropProvider + DndProvider to POSRealtimePreview (LOW — needed for drag)
+  ──────────────────────────────────────────────────────────────────────────────────────────
+  File: frontend/src/components/pos/preview/POSRealtimePreview.tsx
+
+  Add imports:
+    import { DndProvider } from 'react-dnd';
+    import { HTML5Backend } from 'react-dnd-html5-backend';
+    import { DragDropProvider } from '../../../contexts/DragDropContext';
+
+  Wrap the render in:
+    <DragDropProvider>
+      <DndProvider backend={HTML5Backend}>
+        ...existing content...
+      </DndProvider>
+    </DragDropProvider>
+
+  FIX 5 — Create ErrorBoundary component (LOW — nice-to-have error catching)
+  ──────────────────────────────────────────────────────────────────────────
+  File: frontend/src/components/common/ErrorBoundary.tsx
+
+  Standard React Error Boundary class component.
+
+[11] SUMMARY OF ALL ROOT CAUSES
+═══════════════════════════════════════════════════════════════════════════════════
+
+  Symptom                          Root Cause                                   Fix #
+  ───────────────────────────────  ───────────────────────────────────────────  ─────
+  Content area empty               POSComponentRegistry has no modules          FIX 1
+                                   registered → getPageRenderer returns
+                                   "Page not found" fallback
+
+  Sidebar/navigation missing       POSComponentRegistry.getNavigationItems()    FIX 1
+                                   returns empty array (no components
+                                   registered)
+
+  Header renders OK                POSHeader doesn't depend on registry         N/A
+                                   (independent component)
+
+  /pos-preview = "Page Not Found"  POSPreviewPage.tsx + route both missing      FIX 2+3
+
+  Real-time updates don't reach    Content never renders because registry       FIX 1
+  preview content                  is empty (colors/theme only update POSHeader)
+
+  Drag mode might crash            Missing DragDropProvider + DndProvider       FIX 4
+                                   wrappers
+
+[12] VERIFICATION CHECKLIST
+═══════════════════════════════════════════════════════════════════════════════════
+
+  After applying fixes, verify:
+
+  ☐ POSComponentRegistry registers all 22+ modules
+  ☐ getPageRenderer('dashboard', modules) returns POSDashboard component
+  ☐ getNavigationItems(modules) returns non-empty array
+  ☐ POSGeneratorPage step 3 shows sidebar navigation with items
+  ☐ POSGeneratorPage step 3 shows module content (dashboard by default)
+  ☐ Color/theme changes update both header and content
+  ☐ /pos-preview route loads preview page without 404
+  ☐ Device switcher (mobile/tablet/desktop) works
+  ☐ Drag-and-drop mode works (optional - needs react-dnd setup)
+  ☐ TypeScript build passes (tsc --noEmit)
+  ☐ Vite build succeeds
+
+═══════════════════════════════════════════════════════════════════════════════════
+  END OF REPORT
+═══════════════════════════════════════════════════════════════════════════════════

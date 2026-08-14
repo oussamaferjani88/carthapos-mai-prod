@@ -1,0 +1,166 @@
+================================================================================
+CARTHAPOS BI WAREHOUSE CLEAN RESET REPORT
+Date: 2026-08-02
+================================================================================
+
+SCOPE
+--------------------------------------------------------------------------------
+Clean reset of TEST DATA in the BI warehouse only. This was NOT a schema
+reset. No tables were dropped, no migrations, Prisma schema, ETL code, or
+views were modified, and no POS source data / BI management data / Metabase
+tables were touched. Only rows were DELETEd from the warehouse dimension and
+fact tables.
+
+1. TABLES CLEARED + ROWS DELETED (per table)
+--------------------------------------------------------------------------------
+  ORDER  TABLE                      DELETED
+  ----   -------------------------  -------
+   1     fact_sale_items            7,358
+   2     fact_kitchen_order_items   1,205
+   3     fact_sales                 2,500
+   4     fact_kitchen_orders          402
+   5     fact_inventory                19
+   6     fact_appointments               0
+   7     dim_customers                 14
+   8     dim_products                  19
+   9     dim_suppliers                  0
+  10     dim_clients                    1
+        --------------------------------------
+        TOTAL rows deleted         11,517
+
+2. TABLES INTENTIONALLY PRESERVED
+--------------------------------------------------------------------------------
+  Reference / shared:
+    dim_time                      KEPT (183 rows) — pure calendar reference
+                                  table (dates 2026-01-05 .. 2026-08-02), no
+                                  tenant or business data, referenced by
+                                  fact_sales / fact_sale_items /
+                                  fact_kitchen_order_items. Kept per the
+                                  "prefer keeping dim_time" rule; future ETL
+                                  loads regenerate/extend it anyway.
+
+  POS operational / source data (untouched, verified):
+    clients       3        orders           0      customers   0
+    licenses    197        order_items      0      products    0
+                                              appointments    0
+
+  BI management / pipeline data (untouched, verified):
+    bi_uploads            10    bi_analysis_requests     2
+    bi_upload_files        0    bi_dashboard_templates   0
+    bi_processing_jobs     9    bi_dashboards            6
+    bi_processing_logs    56    bi_requests              4
+
+  Metabase internal tables/schema: untouched (not in reset scope).
+
+3. FOREIGN KEY / DEPENDENCY HANDLING
+--------------------------------------------------------------------------------
+  FK dependency map confirmed before deletion:
+    fact_sale_items          -> dim_clients, dim_products, dim_time
+    fact_kitchen_order_items -> dim_clients, dim_time
+    fact_sales               -> dim_customers
+  No external (non-warehouse) table references any cleared dimension/fact.
+  Deletion order followed FK direction: all FACT rows first (children), then
+  DIMENSION rows (parents). dim_time was kept, so its fact FKs were vacated
+  by the fact deletes without any violation.
+
+4. TRANSACTION
+--------------------------------------------------------------------------------
+  BEGIN
+    -- 10 DELETEs in the order listed in section 1 (facts first, dims second)
+  COMMIT
+  Result: COMMIT OK. No errors occurred; ROLLBACK path was armed but unused.
+
+5. VERIFICATION RESULTS
+--------------------------------------------------------------------------------
+  (1) Warehouse after reset:
+        fact_sale_items 0 | fact_kitchen_order_items 0 | fact_sales 0 |
+        fact_kitchen_orders 0 | fact_inventory 0 | fact_appointments 0 |
+        dim_customers 0 | dim_products 0 | dim_suppliers 0 | dim_clients 0
+        dim_time 183 (preserved)
+      => facts = 0, client/product/customer/supplier dims = 0, dim_time KEPT.
+
+  (2) POS source tables untouched: clients 3, licenses 197, orders 0,
+        order_items 0, customers 0, products 0, appointments 0.
+
+  (3) BI management tables untouched: bi_uploads 10, bi_upload_files 0,
+        bi_processing_jobs 9, bi_processing_logs 56, bi_requests 4,
+        bi_analysis_requests 2, bi_dashboard_templates 0, bi_dashboards 6.
+
+  (4) All 14 BI views still execute and return 0 rows (empty warehouse,
+        no view errors): v_sales, v_revenue_daily, v_product_performance,
+        v_customer_analysis, v_sales_hourly, v_peak_hours, v_kitchen_orders,
+        v_kitchen_performance, v_inventory, v_inventory_status,
+        v_table_turnover, v_suppliers, v_appointments, v_dashboard_kpis.
+
+6. FINAL WAREHOUSE STATE
+--------------------------------------------------------------------------------
+  Fact tables:                empty (0 rows)
+  dim_clients/dim_products/
+  dim_suppliers/dim_customers: empty (0 rows)
+  dim_time:                   183 rows (shared calendar reference, preserved)
+  Views:                      valid, return empty
+  Schema, migrations, Prisma schema, ETL, views, POS data, BI management
+  data, Metabase:             unchanged
+
+  The warehouse is now a clean slate ready for real client POS exports.
+
+7. FOLLOW-UP NOTE (out of scope, flagged for awareness)
+--------------------------------------------------------------------------------
+  The analytics cache (analytics-cache-service) is keyed by tenant and stores
+  a ZIP-derived snapshot; it was NOT cleared (outside the reset scope). Until a
+  real export is loaded for a tenant, cache-backed analytics endpoints may
+  still reflect the previously loaded test snapshot. The cache is refreshed by
+  the normal upload -> prepare -> load -> cache-refresh flow when real data is
+  loaded; no warehouse change is required for that to occur.
+=------------------------------------------------------------------------------
+ADDENDUM — RESET #2 (2026-08-09)
+------------------------------------------------------------------------------
+A second clean reset was requested and performed on 2026-08-09 to provide a
+clean warehouse for further work. Same scope: rows only, tables preserved,
+dim_time preserved.
+
+  TABLE                      DELETED (this run)
+  -------------------------  -----------------
+  fact_sale_items            179
+  fact_kitchen_order_items   118
+  fact_sales                  49
+  fact_kitchen_orders         63
+  fact_inventory              15
+  fact_appointments            0
+  dim_customers                7
+  dim_products                19
+  dim_suppliers                0
+  dim_clients                  3
+  -------------------------  -----------------
+  TOTAL rows deleted         453
+
+Mechanism: single TRUNCATE of all 10 tables inside BEGIN/COMMIT (all
+FK-referencing tables included, no CASCADE needed).
+
+VERIFICATION (after reset):
+  Warehouse tables all 0 rows: fact_sale_items, fact_kitchen_order_items,
+    fact_sales, fact_kitchen_orders, fact_inventory, fact_appointments,
+    dim_customers, dim_products, dim_suppliers, dim_clients.
+  dim_time preserved: 187 rows (dates 2026-01-05 .. 2026-08-02+).
+  BI views still valid and returning 0 rows: v_sales, v_dashboard_kpis,
+    v_customer_analysis, v_inventory, v_inventory_status, v_kitchen_orders,
+    v_kitchen_performance, v_peak_hours, v_product_performance,
+    v_revenue_daily, v_sales_hourly, v_suppliers, v_table_turnover,
+    v_appointments.
+  POS operational tables untouched: clients 8, licenses 202, products 0,
+    customers 0, orders 0, order_items 0, appointments 0.
+  BI management tables untouched: bi_uploads 1, bi_upload_files 0,
+    bi_processing_jobs 4, bi_processing_logs 21, bi_requests 8,
+    bi_analysis_requests 7, bi_dashboards 17, bi_dashboard_assignments 2,
+    bi_dashboard_templates 7.
+  Metabase internal tables (e.g. "dimension") and system views untouched.
+
+NOTE: prior E2E test data for e2e-tenant-a / e2e-tenant-b (seeded 2026-08-09
+for the dashboarding-rework acceptance test, revenue 1000 / 2000) was removed
+by this reset. Metabase client dashboards 14 & 15 therefore now render empty
+until new warehouse data is loaded. The seed file used is preserved at
+C:\Users\WINDOW~1\AppData\Local\Temp\opencode\warehouse_seed.sql.
+
+===============================================================================
+END REPORT
+================================================================================

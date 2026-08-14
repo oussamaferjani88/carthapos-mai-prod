@@ -1,0 +1,367 @@
+================================================================================
+CARTHAPOS BI — DASHBOARDING PHASE REPORT
+================================================================================
+How the final phase of the BI flow actually works: from ETL-complete to a
+tenant-bound Metabase dashboard viewed by the client.
+--------------------------------------------------------------------------------
+
+TABLE OF CONTENTS
+  1. Scope & role of the dashboarding phase
+  2. Inputs of the phase (what it consumes)
+  3. Architecture overview
+  4. Step-by-step mechanics of the flow
+      4.1 Template registry (master dashboards)
+      4.2 Client binding / tenant isolation
+      4.3 Provisioning service (deep copy + filter baking)
+      4.4 Persistence of the Metabase dashboard id
+      4.5 Admin workflow (template select / create / preview / publish)
+      4.6 Client delivery (embed / public link)
+  5. Data model involved
+  6. API surface
+  7. Idempotency & failure handling
+  8. Verified live behaviour (Metabase v0.52.4)
+  9. Security posture (explicit non-goals)
+ 10. Known limitations
+ 11. Files involved
+ 12. End-to-end example (two tenants)
+
+================================================================================
+1. SCOPE & ROLE OF THE DASHBOARDING PHASE
+================================================================================
+
+The dashboarding phase is the LAST phase of the CarthaPOS BI flow. It runs
+AFTER:
+
+  upload  ->  data preparation  ->  ETL (warehouse load)  ->  data review
+  ->  dashboard GENERATION  ->  dashboard PROVISIONING  ->  PUBLISH  ->  client view
+
+Its job is to turn a *generic, reusable* Metabase master template into a
+*client-specific* dashboard that only ever shows that one client's data,
+while leaving the master template untouched so it stays reusable for all
+clients.
+
+The phase deliberately does NOT redesign ETL, warehouse, security or the
+existing BI pipeline. It is a thin provisioning layer on top of the already
+working Metabase instance.
+
+================================================================================
+2. INPUTS OF THE PHASE (what it consumes)
+================================================================================
+
+  - A completed ETL: warehouse fact/dim rows loaded under tenantId = clientId.
+      fact_sales, fact_sale_items, fact_kitchen_orders,
+      fact_kitchen_order_items, fact_inventory, fact_appointments
+      dim_clients, dim_customers, dim_products, dim_suppliers
+      dim_time (shared calendar, never client data)
+
+  - A BiDashboard row (DRAFT) for the client + businessType.
+      (created by the wizard / generate-from-upload step)
+
+  - A BiDashboardTemplate row keyed by businessType, pointing at the REAL
+      Metabase master dashboard id (BiDashboardTemplate.metabaseDashboardId).
+
+  - The CarthaPOS identity chain:
+      BiRequest -> clientId -> Client.name (canonical business name)
+      warehouse tenantId == CarthaPOS clientId (set by ETL)
+
+  - A live Metabase instance (v0.52.4) with session-based auth.
+
+================================================================================
+3. ARCHITECTURE OVERVIEW
+================================================================================
+
+  [ CarthaPOS backend ]
+     routes/bi-dashboards.js          -> REST endpoints
+        |  POST /api/bi/dashboards/:id/provision
+        v
+     services/bi-provisioning.js      -> orchestration (idempotent)
+        |
+        v
+     utils/metabase-client.js         -> thin Metabase REST client
+        |  session auth, collections, dashboards, cards, metadata, links
+        v
+  [ Metabase (localhost:3000) ]
+     Master template dashboard (e.g. id 3 "Restaurant Executive Dashboard")
+        -> deep-copied per client into a per-client collection
+        -> tenant filter baked into every copied card
+
+  [ Admin UI ]
+     admin/src/pages/AdminDashboardAssign.jsx  -> template-driven workflow
+     admin/src/pages/AdminRequestDetail.jsx    -> entry point
+
+================================================================================
+4. STEP-BY-STEP MECHANICS OF THE FLOW
+================================================================================
+
+--------------------------------------------------------------------------------
+4.1 TEMPLATE REGISTRY (MASTER DASHBOARDS)
+--------------------------------------------------------------------------------
+
+  - Table: bi_dashboard_templates, keyed by businessType (unique).
+  - Each row carries: metabaseDashboardId, name, description, active,
+    embedType, embedPublicUuid, plus kpis/dimensions/facts metadata for the
+    wizard.
+  - "restaurant" -> metabaseDashboardId = 3 ("Restaurant Executive Dashboard")
+    is the verified real master. Other business types still hold placeholder
+    ids (1002-1007) until real masters are created (see Known limitations).
+  - The seed script (backend/scripts/seed-bi-templates.js) upserts these rows
+    idempotently and never deletes.
+
+  MASTER TEMPLATE FACTS (verified live, dashboard id 3):
+    - 18 cards (ids 51-68), all unstructured MBQL/native cards.
+    - parameters: [] (no dashboard-level parameter).
+    - cards query database 2 "POS Warehouse" (postgres) tables:
+        fact_sales (123), dim_customers (142), fact_sale_items (147),
+        fact_kitchen_orders (native), fact_inventory (native), ...
+    - NO tenant filter on the master: it is the generic reusable template.
+
+--------------------------------------------------------------------------------
+4.2 CLIENT BINDING / TENANT ISOLATION
+--------------------------------------------------------------------------------
+
+  Isolation strategy chosen: BAKE the tenant filter into each copied card.
+
+  For every MBQL card:  filter = ["=", ["field", <tenantIdFieldId>,
+                           {"base-type": "type/Text"}], "<tenantId>"]
+  For every native SQL card:  inject  WHERE "tenantId" = '<tenantId>'
+                           right after the FROM clause.
+
+  Why not dashboard parameters / public-link params / JWT:
+    - Baked filters are deterministic, survive any embed mode, and keep the
+      master completely untouched. Verified working on v0.52.4.
+
+  Tenant field ids (database 2 metadata, discovered dynamically by the code):
+    fact_sales -> 358, dim_customers -> 1326, fact_sale_items -> 1373,
+    dim_clients -> 279, dim_products -> 291, dim_suppliers -> 295,
+    fact_appointments -> 326, fact_inventory -> 335, fact_kitchen_orders -> 347.
+  (The service does NOT hardcode these; it reads them from
+   GET /api/database/:id/metadata by looking up the field named "tenantId".)
+
+--------------------------------------------------------------------------------
+4.3 PROVISIONING SERVICE (DEEP COPY + FILTER BAKING)
+--------------------------------------------------------------------------------
+
+  File: backend/services/bi-provisioning.js
+  Entry: provisionClientDashboard({ prisma, dashboard, template, tenantId, businessName })
+
+  Steps:
+    1. Validate Metabase is configured; resolve the master id from the
+       template row; verify the master actually exists in Metabase.
+    2. Ensure the parent collection "CarthaPOS Clients" (top-level,
+       configurable via METABASE_CLIENTS_COLLECTION env).
+    3. Ensure the per-client collection named after the canonical business
+       name (BiRequest.businessName -> Client.name -> clientId).
+       Idempotent: NEVER creates a duplicate ("name 2").
+    4. Idempotency lookups (see section 7):
+         a) if BiDashboard.metabaseDashboardId already set and that Metabase
+            dashboard still exists in the client collection -> reuse.
+         b) else if a dashboard with the same target name already exists in
+            the client collection -> reuse.
+         c) else DEEP COPY the master:
+              POST /api/dashboard/:id/copy
+              { name: "<businessName> - <template.name>",
+                collection_id: <clientCollection.id>,
+                is_deep_copy: true }
+            is_deep_copy:true is REQUIRED - it creates fully independent
+            cards (new card ids) placed in the target collection. Without it
+            the copy shares the master's card ids (broken independence).
+    5. Fetch the created dashboard (the copy POST response omits dashcards),
+       then for EVERY card:
+         - read its dataset_query,
+         - compute the tenantId field id from the source table,
+         - bake the tenant filter via bakeTenantFilter(),
+         - PUT /api/card/:id with the new dataset_query.
+       Existing filters are merged with AND (e.g. Active Customers keeps
+       active=1 AND tenantId=...).
+
+  The master template is NEVER modified during provisioning.
+
+--------------------------------------------------------------------------------
+4.4 PERSISTENCE OF THE METABASE DASHBOARD ID
+--------------------------------------------------------------------------------
+
+  - After a successful provisioning, the generated Metabase dashboard id is
+    written back onto the BiDashboard row:
+        bi_dashboards.metabaseDashboardId = <new client dashboard id>
+  - This is the single source of truth linking a CarthaPOS dashboard version
+    to its live Metabase dashboard. Preview, embed and publish all read it.
+
+--------------------------------------------------------------------------------
+4.5 ADMIN WORKFLOW (template select / create / preview / publish)
+--------------------------------------------------------------------------------
+
+  Admin page: admin/src/pages/AdminDashboardAssign.jsx (route
+  /bi-dashboard/:dashboardId/assign)
+
+  Flow:
+    1. Loads the BiDashboard (client, businessType, status).
+    2. Loads registered templates from /api/bi/dashboard-templates.
+    3. Shows recommended templates (same businessType) first, then others.
+    4. Admin clicks "Créer / mettre à jour le dashboard client"
+       -> POST /api/bi/dashboards/:id/provision
+    5. On success the page shows:
+         - the created client Metabase dashboard id,
+         - the client collection name,
+         - number of tenant-filtered cards (or "existing instance reused").
+    6. Preview: GET /api/bi/dashboards/:id/embed -> iframeUrl
+       (the public link is auto-created idempotently).
+    7. Publish: POST /api/bi/dashboards/:id/publish
+       -> status PUBLISHED, prior ACTIVE assignments SUPERSEDED, new ACTIVE
+         assignment created, linked request completed.
+
+  Entry point from request detail:
+  admin/src/pages/AdminRequestDetail.jsx -> button "Provisionner le dashboard client".
+
+  Admin NEVER types a tenant/client id - the client comes from the existing
+  BiDashboard.clientId relationship.
+
+--------------------------------------------------------------------------------
+4.6 CLIENT DELIVERY (embed / public link)
+--------------------------------------------------------------------------------
+
+  - GET /api/bi/dashboards/:id/embed returns:
+      { available, enabled, metabaseDashboardId, iframeUrl, embedType, ... }
+  - When a public link does not yet exist, the backend creates it
+    idempotently via POST /api/dashboard/:id/public_link and returns the
+    iframe URL (METABASE_PUBLIC_URL/public/dashboard/<uuid>).
+  - Publishing creates the ACTIVE assignment + notification to the client;
+    the client-facing BI list (GET /api/bi/dashboards?assignedOnly=true)
+    serves only ACTIVE-assigned dashboards.
+
+================================================================================
+5. DATA MODEL INVOLVED
+================================================================================
+
+  BiDashboard            (bi_dashboards)
+    clientId, businessType, name, status, version, templateUsed,
+    metabaseDashboardId (Int?), requestId, assignedAt, ...
+
+  BiDashboardTemplate    (bi_dashboard_templates)
+    businessType (unique), metabaseDashboardId (Int), name, description,
+    active, embedType, embedPublicUuid, kpis, dimensions, facts
+
+  BiDashboardAssignment  (bi_dashboard_assignments)
+    clientId, dashboardId, version, status (ACTIVE/SUPERSEDED), assignedAt
+
+  Client / BiRequest     -> identity chain (businessName, clientId)
+
+  Warehouse facts/dims   -> tenantId column = CarthaPOS clientId (ETL-set)
+
+================================================================================
+6. API SURFACE
+================================================================================
+
+  POST   /api/bi/dashboards/:id/provision
+         body: { tenantId?, businessName? }   (both optional, server resolves)
+         -> { dashboard, provisioning:
+                { metabaseDashboardId, collectionId, collectionName,
+                  cardCount, reused, businessName } }
+
+  GET    /api/bi/dashboards/:id/embed         -> embed info + iframeUrl
+  GET    /api/bi/dashboards/:id/metabase-link -> metabase url
+  POST   /api/bi/dashboards/:id/publish       -> one-action publish
+  PATCH  /api/bi/dashboards/:id               -> update (incl. metabaseDashboardId)
+  GET    /api/bi/dashboard-templates          -> template list for admin
+  GET    /api/bi/metabase/collections         -> collection list
+  GET    /api/bi/metabase/collections/:id/dashboards -> dashboard list
+
+================================================================================
+7. IDEMPOTENCY & FAILURE HANDLING
+================================================================================
+
+  - Collection lookup reuses existing client-name collection; never creates
+    "... 2".
+  - Before deep-copying, the service checks:
+      a) BiDashboard.metabaseDashboardId already set + dashboard exists in
+         the client collection -> reuse (no A/B/C dashboards).
+      b) a same-named dashboard already exists in the client collection
+         (covers "Metabase created but CarthaPOS persist failed") -> reuse.
+  - Filter baking is idempotent: cards already carrying the tenant filter are
+    left untouched on re-provision.
+  - Partial failure retry therefore reuses the same instance instead of
+    creating duplicates.
+
+================================================================================
+8. VERIFIED LIVE BEHAVIOUR (Metabase v0.52.4)
+================================================================================
+
+  - Master dashboard 3 verified: 18 cards, no tenant filter, no parameters.
+  - Deep copy with is_deep_copy:true -> new independent cards (verified).
+  - Filter baking on a copied card -> only that tenant's rows returned
+    (verified: Total Revenue query returned tenant-specific totals).
+  - E2E with two tenants:
+      Tenant A (Restaurant A, sales 1000) -> Metabase dashboard 11,
+        collection "CarthaPOS Clients / Restaurant A".
+      Tenant B (Restaurant B, sales 2000) -> Metabase dashboard 13,
+        collection "CarthaPOS Clients / Restaurant B".
+      Both: 18 tenant-filtered cards, distinct dashboard ids, distinct
+      collections, master 3 unchanged, re-provision reuses (idempotent).
+  - Public-link auto-creation verified (getPublicLink fix: /public_link
+    returns {uuid}, not {id}).
+
+================================================================================
+9. SECURITY POSTURE (explicit non-goals, per project decision)
+================================================================================
+
+  This phase deliberately does NOT implement:
+    - JWT / signed embedding
+    - public-link security
+    - tenant-hopping protection
+    - permissions / RLS redesign
+
+  Isolation at the data level is achieved by baking tenant filters into the
+  dashboard copies. These items remain out of scope for this phase.
+
+================================================================================
+10. KNOWN LIMITATIONS
+================================================================================
+
+  - Only "restaurant" has a verified real Metabase master (id 3). The other
+    business types (cafe, bakery, retail, pharmacy, salon, hotel) still hold
+    placeholder ids 1001-1007 in bi_dashboard_templates; provisioning for
+    them fails with a clear error until real masters are created. Reported as
+    a limitation - nothing fabricated.
+  - METABASE_EMBED_SECRET is empty; signed embedding out of scope.
+  - The warehouse was reset to empty (see CARTHAPOS_BI_WAREHOUSE_CLEAN_RESET_REPORT.txt);
+    existing client dashboards (e.g. Metabase ids 11/13) now show empty data
+    until a real client ETL re-populates the warehouse and provisioning is
+    re-run.
+
+================================================================================
+11. FILES INVOLVED
+================================================================================
+
+  Backend
+    backend/utils/metabase-client.js      - Metabase REST client (extended)
+    backend/services/bi-provisioning.js   - provisioning service (NEW)
+    backend/routes/bi-dashboards.js       - provision/embed/publish endpoints
+    backend/routes/bi-dashboard-templates.js - template registry routes
+    backend/scripts/seed-bi-templates.js  - template seed (restaurant -> id 3)
+    backend/prisma/schema.prisma          - BiDashboard/BiDashboardTemplate/etc.
+
+  Admin UI
+    admin/src/pages/AdminDashboardAssign.jsx  - template-driven provisioning
+    admin/src/pages/AdminRequestDetail.jsx    - entry button + dashboard block
+
+================================================================================
+12. END-TO-END EXAMPLE (two tenants)
+================================================================================
+
+  1. ETL loads warehouse rows for clients A and B (tenantId = clientId).
+  2. BiDashboard rows exist (DRAFT) for A and B with businessType=restaurant.
+  3. Admin opens /bi-dashboard/:id/assign for client A, clicks
+     "Créer / mettre à jour le dashboard client".
+  4. Provisioning:
+       - parent collection "CarthaPOS Clients" ensured,
+       - client collection "Restaurant A" ensured,
+       - master dashboard 3 deep-copied into it (name "Restaurant A - Restaurant"),
+       - all 18 cards baked with tenantId = clientId of A.
+       - BiDashboard.metabaseDashboardId <- 11.
+  5. Same for client B -> dashboard 13 in "Restaurant B" collection.
+  6. Preview via embed (auto public link), then Publish.
+  7. Client A sees ONLY their rows (e.g. Total Revenue = 1000),
+     client B sees ONLY their rows (e.g. 2000). Master 3 unchanged.
+
+================================================================================
+END OF REPORT
+================================================================================

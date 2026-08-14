@@ -1,28 +1,93 @@
 const express = require('express');
 const router = express.Router();
 const { PrismaClient } = require('@prisma/client');
+const { resolveClientId } = require('../utils/identity');
+const metabaseClient = require('../utils/metabase-client');
+const { provisionClientDashboard } = require('../services/bi-provisioning');
 
 const prisma = new PrismaClient();
+
+const {
+  REQUEST_STATUS,
+  EVENT_TYPES,
+} = require('../utils/bi-status');
+const { recordEvent, guardTransition } = require('../utils/bi-workflow');
 
 const METABASE_BASE_URL = process.env.METABASE_BASE_URL || 'http://localhost:3000';
 const METABASE_PUBLIC_URL = process.env.METABASE_PUBLIC_URL || METABASE_BASE_URL;
 const METABASE_EMBED_ENABLED = process.env.METABASE_EMBED_ENABLED === 'true';
 
 // ─── GET /api/bi/dashboards — List dashboards ───────────────────
+// `assignedOnly=true` makes BiDashboardAssignment the authoritative source of
+// ownership: only dashboards with an ACTIVE assignment for the client are
+// returned (plan Phase 2 §1). Without it, returns the full version history
+// (DRAFT/READY_FOR_REVIEW/PUBLISHED/SUPERSEDED) for admin/legacy use.
 router.get('/', async (req, res) => {
   try {
-    const { clientId, licenseId, status, page = 1, pageSize = 50 } = req.query;
+    const { clientId, licenseId, status, assignedOnly, businessType, page = 1, pageSize = 50 } = req.query;
+    const parsedPage = Math.max(parseInt(String(page || '1'), 10) || 1, 1);
+    const parsedPageSize = Math.min(Math.max(parseInt(String(pageSize || '50'), 10) || 50, 1), 100);
+    const take = parsedPageSize;
+    const skip = (parsedPage - 1) * take;
+
+    // Identity-forced tenant scoping: an authenticated client is always
+    // scoped to their own dashboards, regardless of any clientId parameter.
+    const identityClientId = await resolveClientId(req);
+    const scopedClientId = identityClientId || clientId;
+
+    if (assignedOnly === 'true' && scopedClientId) {
+      const [active, legacyPublished, total] = await Promise.all([
+        prisma.biDashboardAssignment.findMany({
+          where: { clientId: scopedClientId, status: 'ACTIVE' },
+          include: {
+            dashboard: {
+              include: { notifications: { take: 1, orderBy: { createdAt: 'desc' } } },
+            },
+          },
+        }),
+        // Legacy dashboards published before the assignment model existed:
+        // keep them client-visible, but never mix in DRAFT/READY_FOR_REVIEW ones.
+        prisma.biDashboard.findMany({
+          where: { clientId: scopedClientId, status: 'PUBLISHED', assignments: { none: {} } },
+          include: { notifications: { take: 1, orderBy: { createdAt: 'desc' } } },
+        }),
+        prisma.biDashboardAssignment.count({ where: { clientId: scopedClientId, status: 'ACTIVE' } }),
+      ]);
+
+      const items = [
+        ...active.map((a) => ({
+          ...a.dashboard,
+          assignment: { status: a.status, version: a.version, assignedAt: a.assignedAt },
+        })),
+        ...legacyPublished.map((d) => ({
+          ...d,
+          assignment: { status: 'PUBLISHED', version: d.version, assignedAt: d.assignedAt },
+        })),
+      ]
+        .sort((a, b) => {
+          const ta = a.assignment.assignedAt || a.createdAt;
+          const tb = b.assignment.assignedAt || b.createdAt;
+          return new Date(tb) - new Date(ta);
+        })
+        .slice(skip, skip + take);
+
+      return res.json({
+        success: true,
+        data: { items, total: total + legacyPublished.length, page: parsedPage, pageSize: take, totalPages: Math.ceil((total + legacyPublished.length) / take) },
+      });
+    }
+
     const where = {};
-    if (clientId) where.clientId = clientId;
+    if (scopedClientId) where.clientId = scopedClientId;
     if (licenseId) where.licenseId = licenseId;
     if (status) where.status = status;
+    if (businessType) where.businessType = businessType;
 
-    const skip = (parseInt(page) - 1) * parseInt(pageSize);
     const [items, total] = await Promise.all([
       prisma.biDashboard.findMany({
         where,
         skip,
-        take: parseInt(pageSize),
+        take,
         orderBy: { createdAt: 'desc' },
         include: { notifications: { take: 1, orderBy: { createdAt: 'desc' } } },
       }),
@@ -31,7 +96,7 @@ router.get('/', async (req, res) => {
 
     res.json({
       success: true,
-      data: { items, total, page: parseInt(page), pageSize: parseInt(pageSize), totalPages: Math.ceil(total / parseInt(pageSize)) },
+      data: { items, total, page: parsedPage, pageSize: take, totalPages: Math.ceil(total / take) },
     });
   } catch (error) {
     console.error('[DASHBOARDS] List failed:', error);
@@ -44,9 +109,23 @@ router.get('/:id', async (req, res) => {
   try {
     const dashboard = await prisma.biDashboard.findUnique({
       where: { id: req.params.id },
-      include: { notifications: { orderBy: { createdAt: 'desc' }, take: 5 } },
+      include: {
+        notifications: { orderBy: { createdAt: 'desc' }, take: 5 },
+        request: {
+          select: { id: true, businessName: true, businessType: true, status: true },
+        },
+        upload: {
+          select: { id: true, fileName: true, status: true, totalRows: true, totalFiles: true, createdAt: true },
+        },
+      },
     });
     if (!dashboard) return res.status(404).json({ error: 'Dashboard not found' });
+
+    // Ownership guard: a client may only view their own dashboards.
+    const identityClientId = await resolveClientId(req);
+    if (identityClientId && dashboard.clientId !== identityClientId) {
+      return res.status(404).json({ error: 'Dashboard not found' });
+    }
 
     // Resolve associated template
     let template = null;
@@ -56,10 +135,28 @@ router.get('/:id', async (req, res) => {
       });
     }
 
+    // Resolve current assignment (authoritative ownership, Phase 2 §1)
+    let assignment = null;
+    const active = await prisma.biDashboardAssignment.findFirst({
+      where: { dashboardId: dashboard.id, status: 'ACTIVE' },
+      select: { status: true, version: true, assignedAt: true },
+    });
+    if (active) {
+      assignment = active;
+    } else {
+      const latest = await prisma.biDashboardAssignment.findFirst({
+        where: { dashboardId: dashboard.id },
+        orderBy: { assignedAt: 'desc' },
+        select: { status: true, version: true, assignedAt: true },
+      });
+      assignment = latest;
+    }
+
     res.json({
       success: true,
       data: {
         ...dashboard,
+        assignment,
         template: template || null,
       },
     });
@@ -69,9 +166,12 @@ router.get('/:id', async (req, res) => {
 });
 
 // ─── POST /api/bi/dashboards/generate-from-upload — Generate dashboard from completed upload ──
+// Wrapper: syncs request status + versioning metadata around the unchanged
+// dashboard-creation call. uploadId is immutable once set (refinement #11).
+
 router.post('/generate-from-upload', async (req, res) => {
   try {
-    const { uploadId } = req.body;
+    const { uploadId, metabaseDashboardId } = req.body;
     if (!uploadId) {
       return res.status(400).json({ error: 'uploadId is required' });
     }
@@ -79,7 +179,7 @@ router.post('/generate-from-upload', async (req, res) => {
     const upload = await prisma.biUpload.findUnique({
       where: { id: uploadId },
       include: {
-        biRequest: { select: { id: true, status: true, businessName: true, businessType: true, message: true } },
+        biRequest: { select: { id: true, status: true, businessName: true, businessType: true, dashboardTemplate: true, message: true } },
       },
     });
 
@@ -93,71 +193,195 @@ router.post('/generate-from-upload', async (req, res) => {
       });
     }
 
-    if (!upload.biRequest) {
-      return res.status(400).json({ error: 'Upload is not linked to any BI request.' });
-    }
-
-    if (upload.biRequest.status !== 'APPROVED') {
+    // A linked BI request (if any) must have finished ETL (DATA_REVIEW) before a
+    // dashboard can be generated; wizard uploads without a linked request are
+    // allowed to generate dashboards directly.
+    if (upload.biRequest && upload.biRequest.status !== REQUEST_STATUS.DATA_REVIEW) {
       return res.status(400).json({
-        error: `Linked BI request has status "${upload.biRequest.status}". Only APPROVED requests can generate dashboards.`,
+        error: `Linked BI request has status "${upload.biRequest.status}". Only DATA_REVIEW requests (post-ETL) can generate dashboards.`,
       });
     }
 
-    const existingDashboard = await prisma.biDashboard.findFirst({
-      where: { uploadId },
-      select: { id: true, status: true },
-    });
-
-    if (existingDashboard) {
-      return res.status(409).json({
-        error: 'A dashboard has already been generated for this upload.',
-        existingDashboardId: existingDashboard.id,
-        existingDashboardStatus: existingDashboard.status,
+    // Atomic guard: DATA_REVIEW → GENERATING_DASHBOARD (duplicate-execution
+    // protection, refinement #14). Only for request-linked uploads.
+    let requestTransitioned = false;
+    if (upload.biRequest) {
+      requestTransitioned = await guardTransition({
+        model: 'biRequest',
+        id: upload.biRequest.id,
+        allowedStatuses: [REQUEST_STATUS.DATA_REVIEW],
+        nextStatus: REQUEST_STATUS.GENERATING_DASHBOARD,
       });
+      if (!requestTransitioned) {
+        return res.status(409).json({
+          error: 'STATE_CONFLICT',
+          message: `Dashboard generation is already running for request "${upload.biRequest.id}" (current status: "${upload.biRequest.status}").`,
+        });
+      }
     }
 
-    const businessType = upload.businessType || upload.biRequest.businessType;
+    const businessType = upload.businessType || upload.biRequest?.businessType;
 
     // Look up Metabase dashboard template from registry
     const template = await prisma.biDashboardTemplate.findUnique({
       where: { businessType },
     });
 
+    // Versioning (refinement #4): always a new row, version = max(prior) + 1.
+    const aggregate = await prisma.biDashboard.aggregate({
+      where: { clientId: upload.clientId, businessType },
+      _max: { version: true },
+    });
+    const nextVersion = (aggregate._max.version || 0) + 1;
+
+    // Admin-selected Metabase dashboard takes priority; otherwise fall back to
+    // the template's registered dashboard (if any).
+    const resolvedMetabaseId = metabaseDashboardId != null
+      ? Number(metabaseDashboardId)
+      : template?.metabaseDashboardId != null
+        ? Number(template.metabaseDashboardId)
+        : null;
+
     const dashboard = await prisma.biDashboard.create({
       data: {
         clientId: upload.clientId,
         uploadId: upload.id,
+        requestId: upload.requestId || null,
         businessType,
+        version: nextVersion,
+        templateUsed: template ? template.businessType : upload.biRequest?.dashboardTemplate || businessType,
+        metabaseDashboardId: resolvedMetabaseId,
+        generator: 'wizard',
+        generatedAt: new Date(),
         name: template ? template.name : `${businessType.charAt(0).toUpperCase() + businessType.slice(1)} Dashboard`,
         description: template ? (template.description || '') : '',
         status: 'DRAFT',
-        metabaseDashboardId: template ? template.metabaseDashboardId : null,
       },
     });
 
-    if (template) {
-      console.log(`[DASHBOARDS] Generated dashboardId=${dashboard.id} linked to Metabase dashboard ${template.metabaseDashboardId}`);
+    if (resolvedMetabaseId) {
+      console.log(`[DASHBOARDS] Generated dashboardId=${dashboard.id} (v${nextVersion}) linked to Metabase dashboard ${resolvedMetabaseId}`);
     } else {
-      console.log(`[DASHBOARDS] Generated dashboardId=${dashboard.id} (no Metabase template registered for "${businessType}")`);
+      console.log(`[DASHBOARDS] Generated dashboardId=${dashboard.id} (v${nextVersion}) (no Metabase dashboard selected)`);
     }
 
-    try {
-      await prisma.biNotification.create({
-        data: {
-          type: 'DASHBOARD_GENERATED',
-          title: 'Dashboard Draft Ready',
-          message: template
-            ? `Dashboard "${template.name}" has been created and linked to Metabase dashboard #${template.metabaseDashboardId}.`
-            : `Dashboard created in DRAFT. No Metabase template is registered for "${businessType}". Register one in Dashboard Templates to link it.`,
-        },
+    // Request → READY_FOR_REVIEW + timeline event + notifications
+    if (upload.biRequest) {
+      await guardTransition({
+        model: 'biRequest',
+        id: upload.biRequest.id,
+        allowedStatuses: [REQUEST_STATUS.GENERATING_DASHBOARD],
+        nextStatus: REQUEST_STATUS.READY_FOR_REVIEW,
       });
-    } catch (notifErr) {
-      console.error('[DASHBOARDS] Admin notification failed:', notifErr.message);
+      await recordEvent({
+        requestId: upload.biRequest.id,
+        type: EVENT_TYPES.DASHBOARD_GENERATED,
+        metadata: { uploadId: upload.id, dashboardId: dashboard.id, version: nextVersion },
+        performedByRole: 'system',
+      });
     }
 
     res.status(201).json({ success: true, data: dashboard });
   } catch (error) {
     console.error('[DASHBOARDS] Generate from upload failed:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ─── POST /api/bi/dashboards/:id/publish — ONE-ACTION PUBLISH ────
+// Validates DRAFT/READY_FOR_REVIEW, sets PUBLISHED, archives prior ACTIVE
+// assignments, completes the linked request (plan refinement #5, #14).
+
+router.post('/:id/publish', async (req, res) => {
+  try {
+    const dashboard = await prisma.biDashboard.findUnique({
+      where: { id: req.params.id },
+      include: { request: { select: { id: true, clientId: true, status: true } } },
+    });
+    if (!dashboard) return res.status(404).json({ error: 'Dashboard not found' });
+
+    if (!['DRAFT', 'READY_FOR_REVIEW'].includes(dashboard.status)) {
+      return res.status(400).json({
+        error: `Cannot publish dashboard with status "${dashboard.status}". Only DRAFT / READY_FOR_REVIEW can be published.`,
+      });
+    }
+
+    // Atomic guard: only the winning publisher proceeds.
+    const published = await prisma.biDashboard.updateMany({
+      where: { id: dashboard.id, status: { in: ['DRAFT', 'READY_FOR_REVIEW'] } },
+      data: { status: 'PUBLISHED', assignedAt: new Date() },
+    });
+    if (published.count !== 1) {
+      return res.status(409).json({
+        error: 'STATE_CONFLICT',
+        message: `Dashboard is no longer in a publishable state (current: "${dashboard.status}").`,
+      });
+    }
+
+    // Archive prior ACTIVE assignments for this client, then assign the new
+    // version — atomically so a failure never leaves a client with multiple
+    // ACTIVE assignments.
+    await prisma.$transaction([
+      prisma.biDashboardAssignment.updateMany({
+        where: { clientId: dashboard.clientId, status: 'ACTIVE' },
+        data: { status: 'SUPERSEDED' },
+      }),
+      prisma.biDashboardAssignment.create({
+        data: {
+          clientId: dashboard.clientId,
+          dashboardId: dashboard.id,
+          version: dashboard.version || 1,
+          status: 'ACTIVE',
+          assignedAt: new Date(),
+        },
+      }),
+    ]);
+
+    // Complete the linked request (if any): READY_FOR_REVIEW/PUBLISHED → COMPLETED.
+    if (dashboard.request) {
+      await prisma.biRequest.updateMany({
+        where: { id: dashboard.request.id, status: { in: [REQUEST_STATUS.READY_FOR_REVIEW, REQUEST_STATUS.PUBLISHED] } },
+        data: { status: REQUEST_STATUS.COMPLETED },
+      });
+      await recordEvent({
+        requestId: dashboard.request.id,
+        type: EVENT_TYPES.DASHBOARD_PUBLISHED,
+        metadata: { dashboardId: dashboard.id, version: dashboard.version || 1 },
+        performedByRole: 'ADMIN',
+      });
+      await recordEvent({
+        requestId: dashboard.request.id,
+        type: EVENT_TYPES.REQUEST_COMPLETED,
+        metadata: { dashboardId: dashboard.id },
+        performedByRole: 'ADMIN',
+      });
+    } else {
+      // Standalone dashboard (no linked request): notify the client directly.
+      await prisma.biNotification.create({
+        data: {
+          clientId: dashboard.clientId,
+          dashboardId: dashboard.id,
+          type: 'DASHBOARD_READY',
+          category: 'DASHBOARD',
+          title: 'Votre tableau de bord est disponible',
+          message: `Votre tableau de bord "${dashboard.name}" a été publié.`,
+          role: 'CLIENT',
+        },
+      });
+    }
+
+    res.json({
+      success: true,
+      data: {
+        ...dashboard,
+        status: 'PUBLISHED',
+        assignedAt: new Date(),
+        assignment: { status: 'ACTIVE', version: dashboard.version || 1 },
+      },
+      message: 'Dashboard published successfully',
+    });
+  } catch (error) {
+    console.error('[DASHBOARDS] Publish failed:', error);
     res.status(500).json({ error: error.message });
   }
 });
@@ -186,15 +410,13 @@ router.post('/', async (req, res) => {
       }
     }
 
-    // If no metabaseDashboardId provided, try looking up from template registry
-    let resolvedMbId = metabaseDashboardId;
-    if (!resolvedMbId) {
+    // If no name provided, try looking up default from template registry
+    if (!name || !description) {
       const template = await prisma.biDashboardTemplate.findUnique({
         where: { businessType },
-        select: { metabaseDashboardId: true, name: true, description: true },
+        select: { name: true, description: true },
       });
       if (template) {
-        resolvedMbId = template.metabaseDashboardId;
         if (!name) name = template.name;
         if (!description) description = template.description;
       }
@@ -209,7 +431,6 @@ router.post('/', async (req, res) => {
         name: name || `${businessType.charAt(0).toUpperCase() + businessType.slice(1)} Dashboard`,
         description: description || '',
         status: 'DRAFT',
-        metabaseDashboardId: resolvedMbId || null,
         createdBy: createdBy || null,
       },
     });
@@ -232,7 +453,7 @@ router.patch('/:id', async (req, res) => {
     const data = {};
     if (name !== undefined) data.name = name;
     if (description !== undefined) data.description = description;
-    if (metabaseDashboardId !== undefined) data.metabaseDashboardId = parseInt(metabaseDashboardId);
+    if (metabaseDashboardId !== undefined) data.metabaseDashboardId = metabaseDashboardId == null ? null : Number(metabaseDashboardId);
     if (status !== undefined) {
       const validTransitions = {
         'DRAFT': ['IN_PROGRESS'],
@@ -264,6 +485,7 @@ router.patch('/:id', async (req, res) => {
             clientId: updated.clientId,
             dashboardId: updated.id,
             type: 'DASHBOARD_READY',
+            category: 'DASHBOARD',
             title: 'Your BI Dashboard Is Ready',
             message: `Your business dashboard "${updated.name}" has been reviewed and published. View it in your CarthaPOS account.`,
           },
@@ -337,20 +559,38 @@ router.get('/:id/embed', async (req, res) => {
       });
     }
 
-    const metabaseDashboardId = dashboard.metabaseDashboardId;
+    // Admin-assigned dashboard takes priority; fall back to template's
+    // registered dashboard. This is what the collection-based assignment flow
+    // stamps during generation.
+    const metabaseDashboardId =
+      dashboard.metabaseDashboardId ?? template?.metabaseDashboardId ?? null;
     const hasMetabaseLink = !!metabaseDashboardId;
 
-    // Determine embed availability
+    // Determine embed availability. A dashboard is embeddable when it has a
+    // Metabase link AND (the template declares a public embed OR we can resolve
+    // a public link from Metabase at runtime — covers collection-assigned dashboards).
     const hasEmbedConfig = template && template.embedType !== 'none' && template.embedPublicUuid;
-    const embedAvailable = hasMetabaseLink && hasEmbedConfig;
+    const embedAvailable = hasMetabaseLink && (hasEmbedConfig || metabaseClient.isConfigured());
     const embedEnabled = embedAvailable && METABASE_EMBED_ENABLED;
 
-    // Build embed URL from public UUID (Metabase CE public sharing)
+    // Build embed URL. Prefer the template's configured public UUID; otherwise
+    // fetch/create the dashboard's public link from Metabase so a
+    // collection-selected dashboard is embeddable without extra setup.
     let iframeUrl = null;
     let embedType = null;
-    if (embedEnabled && template.embedType === 'public' && template.embedPublicUuid) {
-      iframeUrl = `${METABASE_PUBLIC_URL}/public/dashboard/${template.embedPublicUuid}`;
-      embedType = 'public';
+    if (embedEnabled) {
+      let publicUuid = template?.embedType === 'public' ? template.embedPublicUuid : null;
+      if (!publicUuid) {
+        try {
+          publicUuid = await metabaseClient.getPublicLink(metabaseDashboardId);
+        } catch (err) {
+          console.error(`[DASHBOARDS] Failed to resolve public link for Metabase dashboard ${metabaseDashboardId}:`, err.message);
+        }
+      }
+      if (publicUuid) {
+        iframeUrl = `${METABASE_PUBLIC_URL}/public/dashboard/${publicUuid}`;
+        embedType = 'public';
+      }
     }
 
     res.json({
@@ -391,6 +631,74 @@ router.get('/:id/embed', async (req, res) => {
   } catch (error) {
     console.error('[DASHBOARDS] Embed info failed:', error);
     res.status(500).json({ error: error.message });
+  }
+});
+
+// ─── POST /api/bi/dashboards/:id/provision — Provision client dashboard ──
+// Deep-copies the master dashboard into a per-client collection INSIDE the
+// business-type collection, bakes the tenant filter into each copied card, and
+// persists the resulting Metabase dashboard id on the BiDashboard.
+// Body: { collectionId (business-type collection), metabaseDashboardId (master),
+//         tenantId, businessName }. Master/collection fall back to the registered
+// template + discovery. Idempotent: re-running reuses the existing instance.
+router.post('/:id/provision', async (req, res) => {
+  try {
+    const dashboard = await prisma.biDashboard.findUnique({
+      where: { id: req.params.id },
+      include: {
+        client: { select: { id: true, name: true } },
+        request: { select: { id: true, businessName: true, businessType: true, status: true } },
+      },
+    });
+    if (!dashboard) return res.status(404).json({ error: 'Dashboard not found' });
+
+    if (!dashboard.businessType) {
+      return res.status(400).json({ error: 'Dashboard has no businessType — cannot resolve a template.' });
+    }
+
+    const template = await prisma.biDashboardTemplate.findUnique({
+      where: { businessType: dashboard.businessType },
+    });
+    if (!template || template.metabaseDashboardId == null) {
+      return res.status(409).json({
+        error: `No registered Metabase master template for businessType "${dashboard.businessType}".`,
+      });
+    }
+
+    const result = await provisionClientDashboard({
+      prisma,
+      dashboard,
+      template,
+      masterDashboardId: req.body?.metabaseDashboardId != null ? Number(req.body.metabaseDashboardId) : null,
+      businessCollectionId: req.body?.collectionId != null ? Number(req.body.collectionId) : null,
+      tenantId: req.body?.tenantId || null,
+      businessName: req.body?.businessName || null,
+    });
+
+    // Persist the generated client Metabase dashboard id.
+    const updated = await prisma.biDashboard.update({
+      where: { id: dashboard.id },
+      data: {
+        metabaseDashboardId: result.metabaseDashboardId,
+        templateUsed: dashboard.businessType,
+        generatedAt: dashboard.generatedAt || new Date(),
+      },
+    });
+
+    res.json({
+      success: true,
+      data: {
+        dashboard: updated,
+        provisioning: result,
+      },
+      message: result.reused
+        ? `Provisioning reused existing client dashboard (Metabase #${result.metabaseDashboardId}).`
+        : `Client dashboard created (Metabase #${result.metabaseDashboardId}) with ${result.cardCount} tenant-filtered cards.`,
+    });
+  } catch (error) {
+    console.error('[DASHBOARDS] Provision failed:', error.message);
+    const status = /template|master|not found|not configured|collection/i.test(error.message) ? 400 : 500;
+    res.status(status).json({ error: error.message });
   }
 });
 

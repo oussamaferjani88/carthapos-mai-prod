@@ -1,0 +1,249 @@
+BI ANALYTICS PLATFORM - IMPLEMENTATION REPORT
+==============================================
+
+Date: 2026-08-02
+Scope: Hybrid Analytics Cache Architecture (enrichment cache + REST API + admin workspace)
+
+
+1. ARCHITECTURE (approved plan)
+-------------------------------
+The analytics platform uses a hybrid approach:
+  - Warehouse (Prisma, frozen/sealed) = official truth for aggregates
+  - Enrichment cache service = single owner of ZIP access, loads granular
+    datasets absent from the warehouse (sale_items, customers, products,
+    kitchen orders, shifts, tables, reservations, z_reports, cash drawer)
+  - Analytics API = additive REST endpoints combining warehouse + cache
+  - Admin workspace = French UI with KPI cards, charts, filters, tabs, insights
+
+ETL / upload wizard / warehouse remain frozen. All changes are additive.
+
+
+2. WHAT WAS DONE (Step 1: enrichment cache service)
+---------------------------------------------------
+File: backend/services/analytics-cache-service.js
+
+  - Reads the latest COMPLETED upload ZIP in backend/uploads/bi-zips/
+  - Extracts CSVs purely in Node via adm-zip (single owner of ZIP access;
+    no external unzip), reusing BiSchemaRegistry.parseCsvRow
+  - Handles UTF-8 BOM on the first column (via trim / parseCsvRow)
+  - Builds a JSON cache at backend/analytics-cache/<uploadId>.json plus a
+    meta.json mapping clientId -> uploadId
+  - Rebuilds only when the uploadId changes, the file is missing, or a
+    force refresh is requested (POST /refresh)
+  - In-memory LRU (max 32 clients) on top of the disk cache
+
+  Real data used for verification:
+    backend/uploads/bi-zips/1785676118650_bi_export.zip
+    uploadId   : cmsbtgfbf0001f7cz88jnolkl
+    clientId   : cmoogzf95000xt2l5hk9yax74
+    build time : ~409 ms (first), subsequent reads from memory/disk
+
+  Verified dataset counts:
+    sales              2500
+    sale_items         7358
+    customers            14
+    products             19
+    product_families      6
+    kitchen_orders      402
+    kitchen_order_items 1205
+    shifts               30
+    tables               20
+    reservations         40
+    z_reports            30
+    cash_drawer_events   20
+    suppliers/services/appointments/stock_movements = 0 (not present in this
+    restaurant export)
+
+  Actual CSV headers verified in the export (for future reference):
+    - sales.csv:
+        sale_id,total,tax,discount,subtotal,payment_method,customer_id,
+        table_id,user_id,shift_id,status,receipt_number,kitchen_status,notes,
+        customer_name,customer_email,cashier_name,cashier_full_name,created_at
+    - sale_items.csv:
+        sale_item_id,sale_id,product_id,quantity,unit_price,line_total,
+        vat_rate,vat_amount,payment_method,product_name,category,family,sale_date
+    - kitchen_order_items.csv, z_reports.csv, cash_drawer_events.csv, etc.
+    - table_reservations.csv uses reservation_date + reservation_time
+
+
+3. WHAT WAS DONE (Step 2: analytics API)
+----------------------------------------
+File: backend/routes/bi-analytics.js
+Mounted at: /api/bi/analytics (additive require + app.use in server.js,
+            inserted between bi-analysis and bi-reviews)
+
+  Endpoints (all verified HTTP 200 on real data):
+    GET  /overview      - KPIs (revenue, orders, ticket moyen, clients actifs,
+                          articles vendus, paiements) with change vs previous period
+    GET  /trend         - revenue/orders per day or month (groupBy=day|month)
+    GET  /payment-mix   - by payment method + byHour + byHourPerMethod
+    GET  /weekday       - revenue/orders by day of week
+    GET  /peak-hours    - orders by hour of day
+    GET  /categories    - revenue by category
+    GET  /products      - top products (sort revenue|units|profit|orders)
+    GET  /customers     - top customers (sort revenue|orders|points)
+    GET  /employees     - revenue per employee + byDate
+    GET  /tables        - performance + reservations + utilization
+    GET  /kitchen       - status / priority / departments / timings / cancelled
+    GET  /inventory     - warehouse truth + reorder thresholds (minStock)
+    GET  /shifts        - cash drawer closings
+    GET  /reservations  - by status / by date
+    GET  /insights      - 9 auto-generated recommendations
+    GET  /filters       - available filter values + date range
+    GET  /status        - cache status (builtAt, reason MEMORY|DISK)
+    POST /refresh       - force rebuild of the cache
+    GET  /drilldown     - per-sale / per-product / per-customer / per-employee
+                          detail (Step 4, see section 6)
+
+  Key implementation notes:
+    - Warehouse date math always uses dimTimeId (never createdAt)
+    - Product id derived as dimProductId.split('_').pop()
+    - Response envelope: { success: true, data: {...} }
+    - Errors: 400 "clientId is required", 500 on failure
+
+  Sample verified numbers (2026-07-01 .. 2026-08-01):
+    revenue total      : 25095.17  (+2.1% vs previous period)
+    orders             : 459
+    payment cash       : 11686.67 / 215 orders
+    payment mobile     : 6910.35  / 117 orders
+    payment card       : 6498.15  / 127 orders
+
+
+4. WHAT WAS DONE (Step 3: admin workspace UI)
+---------------------------------------------
+  New files under admin/src/pages/analytics/:
+    - AnalyticsWorkspace.jsx   main shell (client selector, date presets +
+                               custom range, 3 global filter selects, cache
+                               status badge, refresh + print buttons, 8 tabs)
+    - hooks/useAnalytics.js    fetch hook (AbortController, JSON params key)
+    - components/KpiCard.jsx   animated KPI card (framer-motion)
+    - components/ChartCard.jsx chart card shell with loading/actions
+    - components/EmptyState.jsx + ErrorState
+    - components/DrillDownModal.jsx  (Step 4)
+    - tabs/ExecutiveTab.jsx    KPI cards, CA evolution, payment mix,
+                               peak hours, top products, insights teaser
+    - tabs/SalesTab.jsx        trend (day/month), payment mix, weekday,
+                               peak hours, categories
+    - tabs/ProductsTab.jsx     top products table + sort, CA by category
+    - tabs/CustomersTab.jsx    top customers + sort + loyalty chart
+    - tabs/EmployeesTab.jsx    performance table + chart
+    - tabs/InventoryTab.jsx    stock levels, reorder thresholds, top movers
+    - tabs/OperationsTab.jsx   tables, kitchen, shifts, reservations
+    - tabs/InsightsTab.jsx     full insight list + .txt export
+    - lib/analytics.js         API wrapper (analyticsApi), date presets,
+                               format helpers, CSV export helper
+
+  Routing / navigation (additive):
+    - Route /analytics added in admin/src/App.jsx
+    - Nav item "Analytics" (icon ChartNoAxesColumnIncreasing) added to the
+      BI ANALYTICS group in admin/src/components/layout/Layout.jsx
+
+  Verification:
+    - eslint clean on all analytics files
+    - `vite build` passes (only pre-existing chunk-size warning)
+    - Vite dev server served all workspace modules HTTP 200
+
+
+5. WHAT WAS DONE (Step 4: drill-down, export, polish)
+----------------------------------------------------
+  Backend:
+    - GET /drilldown implemented with dimension=product|customer|employee|sale
+      and optional id. dimension=product/customer/employee/id resolves a
+      single entity; dimension=sale without id returns the global breakdown
+      ("Toutes les ventes").
+    - Returns totals (revenue, orders, units, averageTicket), daily series,
+      breakdown list, and payment-method split.
+    - Bug fixed: dimension/id now read directly from req.query (parseQuery
+      previously could not carry them).
+
+  Frontend:
+    - DrillDownModal.jsx: totals cards + trend area chart + breakdown +
+      payment split + CSV export; opened by clicking any KPI card
+      (global sales), top products, and table rows in Products / Customers /
+      Employees tabs.
+    - CSV export (BOM-safe exportCsv helper) added to: Sales (ventes),
+      Executive (evolution CA), Products, Customers, Employees, Inventory,
+      Operations (tables + shifts). Insights already had .txt export.
+    - Print / PDF button in the workspace header + @media print CSS in
+      admin/src/index.css to hide app chrome (sidebar, header, filter bar,
+      tab bar) so only the active tab content prints.
+
+  Bug fix:
+    - Client list fetch in AnalyticsWorkspace.jsx now calls
+      api.get('/bi-uploads/clients/list') directly; previously the
+      analyticsApi.get('/bi-uploads/...') wrapper prefixed /bi/analytics and
+      produced a wrong URL (404).
+
+  Verification:
+    - eslint clean, vite build passes
+    - Backend smoke tests:
+        drilldown?dimension=sale            -> revenue 25095.17, 459 orders
+        drilldown product id=6 (Grillade Mixte) -> 2645.5 / 62 orders / 143 units
+        drilldown customer id=1             -> 1483.25 / 24 orders
+        drilldown employee id=1             -> 5638.62 / 101 orders
+        drilldown sale id=1115              -> 82.71
+
+
+6. REMAINING GAP (known, not blocking)
+--------------------------------------
+  Global filters in the filter bar are currently INERT.
+
+  The workspace renders three filter selects (Catégorie / Employé / Paiement)
+  and forwards their values as query parameters (category, employee,
+  paymentMethod) to the analytics endpoints, but the backend parseQuery()
+  only consumes clientId / from / to / limit / sort / groupBy. As a result:
+
+    - Selecting a category / employee / payment method changes the URL
+      parameters but does not change the numbers shown.
+    - No server-side filtering happens on the cache aggregates (sales and
+      sale_items are aggregated without any filter conditions).
+
+  Options to close the gap:
+    a) Implement server-side filtering in bi-analytics.js: accept category,
+       employee, paymentMethod on the endpoints that aggregate sales /
+       sale_items (overview, trend, payment-mix, products, customers,
+       employees, drilldown, ...) and filter the cache records before
+       aggregation. Most correct; touches several endpoints.
+    b) Restrict the global filter to the endpoints where it is cheap to add
+       (e.g. products, employees, drilldown) and label the controls as
+       scoped to those tabs.
+    c) Remove the three selects until the filtering is implemented (avoids
+       showing controls that do nothing).
+
+  Recommendation: option (a).
+
+  Minor known limitation (non-blocking): the currency shown in charts falls
+  back to "TND" because the clients list endpoint does not return a currency
+  field per client; the warehouse metadata does contain currency (TND).
+
+
+7. RUNNING STATE
+----------------
+  - QA backend running on :3001 via `npm run dev` (nodemon watches
+    routes/, middleware/, utils/, src/ so edits auto-reload)
+  - Vite dev server running on :5173
+  - QA harness in C:/Users/WINDOW~1/AppData/Local/Temp/opencode/bi-qa/
+    (run with NODE_PATH="D:/Carthapos/backend/node_modules")
+
+
+8. RELEVANT FILES
+-----------------
+  Backend:
+    backend/services/analytics-cache-service.js   (cache, Step 1)
+    backend/routes/bi-analytics.js                (API, Step 2 + drilldown)
+    backend/server.js                             (additive mount)
+    backend/uploads/bi-zips/1785676118650_bi_export.zip (source ZIP)
+
+  Frontend:
+    admin/src/pages/analytics/AnalyticsWorkspace.jsx
+    admin/src/pages/analytics/hooks/useAnalytics.js
+    admin/src/pages/analytics/components/{KpiCard,ChartCard,EmptyState,DrillDownModal}.jsx
+    admin/src/pages/analytics/tabs/{Executive,Sales,Products,Customers,Employees,Inventory,Operations,Insights}Tab.jsx
+    admin/src/lib/analytics.js
+    admin/src/App.jsx                            (route /analytics)
+    admin/src/components/layout/Layout.jsx       (nav item)
+    admin/src/index.css                          (print CSS)
+
+  Unchanged / frozen by design:
+    backend/services/warehouse-service.js  (still bugged: groups by createdAt;
+    do NOT patch - analytics routes bypass it)

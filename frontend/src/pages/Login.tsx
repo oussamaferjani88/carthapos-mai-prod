@@ -11,6 +11,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Eye, EyeOff, Lock, Mail, ArrowLeft, Building, LogIn, Github, Chrome } from "lucide-react";
 import AuthSkeleton from "@/components/skeletons/AuthSkeleton";
 import LanguageSwitcher from "@/components/LanguageSwitcher";
+import { apiLogin, saveAuthSession, clearAccessModeIdentity } from "@/lib/auth";
 
 const Login = () => {
   const { t } = useTranslation();
@@ -49,35 +50,13 @@ const Login = () => {
     setError("");
 
     try {
-      // TODO: Replace with actual API call
-      // const response = await fetch('/api/auth/login', {
-      //   method: 'POST',
-      //   headers: { 'Content-Type': 'application/json' },
-      //   body: JSON.stringify(formData),
-      // });
-      
-      // Simulate API call
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      
-      const derivedName = formData.email.split("@")[0] || "POS User";
-      const userProfile = {
-        id: `user-${Date.now()}`,
-        name: derivedName,
-        email: formData.email,
-        companyName: derivedName,
-      };
-
-      localStorage.setItem("user", JSON.stringify(userProfile));
-      localStorage.setItem("isAuthenticated", "true");
-
-      if (!rememberMe) {
-        sessionStorage.setItem("user", JSON.stringify(userProfile));
-        sessionStorage.setItem("isAuthenticated", "true");
-      }
+      const session = await apiLogin(formData.email.trim(), formData.password);
+      saveAuthSession(session);
+      clearAccessModeIdentity();
 
       navigate("/dashboard");
-    } catch (err) {
-      setError(t("auth.loginError") || "Failed to login. Please try again.");
+    } catch (err: any) {
+      setError(err?.message || t("auth.loginError") || "Failed to login. Please try again.");
     } finally {
       setLoading(false);
     }

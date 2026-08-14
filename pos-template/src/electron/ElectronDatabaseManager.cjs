@@ -837,7 +837,7 @@ class ElectronDatabaseManager {
           timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
           user_id INTEGER NOT NULL,
           user_name TEXT NOT NULL,
-          action TEXT NOT NULL CHECK(action IN ('open', 'close', 'count')),
+          action TEXT NOT NULL CHECK(action IN ('shift_open', 'shift_close', 'drawer_open', 'cash_count', 'cash_adjustment')),
           reason TEXT,
           amount_expected DECIMAL(10,2),
           amount_actual DECIMAL(10,2),
@@ -1862,6 +1862,67 @@ class ElectronDatabaseManager {
       console.log('✅ Migration: products.image_settings added');
     } catch (e) {
       if (!e.message?.includes('duplicate column')) console.warn(`⚠️ Migration (products.image_settings): ${e.message}`);
+    }
+
+    // ── Cash drawer events CHECK constraint migration ──
+    try {
+      await this.runQuery(
+        `INSERT INTO cash_drawer_events (user_id, user_name, action) VALUES (-1, '_migrate_test', 'shift_open')`
+      );
+      await this.runQuery(`DELETE FROM cash_drawer_events WHERE user_id = -1`);
+      console.log('✅ cash_drawer_events CHECK constraint already supports new actions');
+    } catch (e) {
+      if (e.message?.includes('CHECK') || e.message?.includes('constraint')) {
+        console.log('🔄 Migrating cash_drawer_events CHECK constraint...');
+        await this.runQuery(`CREATE TABLE IF NOT EXISTS cash_drawer_events_new (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+          user_id INTEGER NOT NULL,
+          user_name TEXT NOT NULL,
+          action TEXT NOT NULL CHECK(action IN ('shift_open', 'shift_close', 'drawer_open', 'cash_count', 'cash_adjustment')),
+          reason TEXT,
+          amount_expected DECIMAL(10,2),
+          amount_actual DECIMAL(10,2),
+          difference DECIMAL(10,2),
+          notes TEXT,
+          FOREIGN KEY (user_id) REFERENCES users(id)
+        )`);
+        await this.runQuery(`INSERT INTO cash_drawer_events_new SELECT * FROM cash_drawer_events`);
+        await this.runQuery(`DROP TABLE cash_drawer_events`);
+        await this.runQuery(`ALTER TABLE cash_drawer_events_new RENAME TO cash_drawer_events`);
+        await this.runQuery('CREATE INDEX IF NOT EXISTS idx_cash_drawer_timestamp ON cash_drawer_events(timestamp)');
+        await this.runQuery('CREATE INDEX IF NOT EXISTS idx_cash_drawer_user ON cash_drawer_events(user_id)');
+        console.log('✅ cash_drawer_events CHECK constraint migrated successfully');
+      } else {
+        console.warn(`⚠️ Migration (cash_drawer_events CHECK): ${e.message}`);
+      }
+    }
+
+    // ── Backfill shift_id for legacy sales ──
+    try {
+      const result = await this.runQuery(
+        `UPDATE sales SET shift_id = (
+          SELECT id FROM shifts
+          WHERE shifts.user_id = sales.user_id
+            AND strftime('%s', shifts.opened_at) <= strftime('%s', sales.created_at)
+            AND (shifts.closed_at IS NULL OR strftime('%s', shifts.closed_at) >= strftime('%s', sales.created_at))
+          ORDER BY shifts.opened_at DESC
+          LIMIT 1
+        ) WHERE shift_id IS NULL
+          AND EXISTS (
+            SELECT 1 FROM shifts
+            WHERE shifts.user_id = sales.user_id
+              AND strftime('%s', shifts.opened_at) <= strftime('%s', sales.created_at)
+              AND (shifts.closed_at IS NULL OR strftime('%s', shifts.closed_at) >= strftime('%s', sales.created_at))
+          )`
+      );
+      if (result.changes > 0) {
+        console.log(`✅ Backfill: Linked ${result.changes} legacy sale(s) to their shifts`);
+      } else {
+        console.log('ℹ️ No legacy sales needed shift_id backfill');
+      }
+    } catch (e) {
+      console.warn(`⚠️ Migration (backfill shift_id): ${e.message}`);
     }
 
     console.log('✅ Database tables and indexes created successfully');

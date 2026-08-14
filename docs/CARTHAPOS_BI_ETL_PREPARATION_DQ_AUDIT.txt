@@ -1,0 +1,605 @@
+════════════════════════════════════════════════════════════════════════════════
+ CARTHAPOS BI — ETL PIPELINE: DATA PREPARATION & DATA-QUALITY PROFESSIONAL AUDIT
+════════════════════════════════════════════════════════════════════════════════
+ Report ID   : CARTHAPOS_BI_ETL_PREPARATION_DQ_AUDIT
+ Date        : 2026-08-02
+ Scope       : READ-ONLY audit of the ETL "data preparation / data-quality"
+              stage — transformations, cleaning, missing-value handling,
+              business rules, referential integrity, dimension/fact prep,
+              standardization, outlier detection, profiling, warehouse &
+              dashboard readiness.
+ Constraint  : No code changes, no fixes, no schema/DB modifications.
+ Method      : (1) Full source review of etl-pipeline.js (1080 lines),
+              bi-schema-registry.js (268), data-preparation-service.js (250),
+              routes/bi-uploads.js (1012), prisma/schema.prisma;
+              (2) empirical edge-case execution against the live ETL code
+              (pure-function tests, no DB writes) — results in Appendix A.
+ Benchmark  : Professional BI tooling class (Power BI / Fabric Dataflows /
+              SSIS / Talend Data Quality).
+════════════════════════════════════════════════════════════════════════════════
+
+TABLE OF CONTENTS
+  1.  Executive Summary
+  2.  Pipeline Under Audit (Code Inventory)
+  3.  Data-Cleaning Checklist (~40 items) — Evidence Table
+  4.  Missing-Value Handling
+  5.  Business-Rules Validation
+  6.  Referential Integrity
+  7.  Dimension & Fact Preparation
+  8.  Standardization
+  9.  Outlier Detection
+  10. Data Profiling
+  11. Warehouse & Dashboard Readiness
+  12. Professional Comparison Scores (0–10, 10 categories)
+  13. Missing Features — Critical / Recommended / Optional
+  14. Final Verdict (5 questions, with code evidence)
+  Appendix A. Empirical Edge-Case Test Results
+  Appendix B. Evidence Index (file:line)
+
+════════════════════════════════════════════════════════════════════════════════
+1. EXECUTIVE SUMMARY
+════════════════════════════════════════════════════════════════════════════════
+The CarthaPOS BI ETL is architecturally sound at the extremes and weak in the
+middle. What it does well: strict column-schema governance (single schema
+registry, version-gated), faithful grain preservation (sale and item grains
+stored as-is), a replace-not-append snapshot policy, and a manual-review wizard
+that can block bad loads. What it does not do: real data cleaning in the sense
+of Power BI/Talend class tooling — there is no case/value standardization, no
+reconciliation or cross-field business-rule validation, no outlier detection,
+no data profiling, and two live code paths with different quality behavior.
+
+Headline findings (all empirically verified — see Appendix A):
+
+  F1. Integer type validation is effectively broken.
+      bi-schema-registry.js:233 — `if (!/^-?\d+$/.test(val) && !/\d+/.test(val))`
+      accepts "12.5", "abc123", "1,200", "1e3", "--12", "+12", " 12 " as VALID
+      integers. A `quantity` of "1.5" passes schema validation, then load-time
+      `parseInt(row.quantity) || 0` (etl-pipeline.js:650) silently truncates it
+      to 1. Real data corruption path.
+
+  F2. Real (decimal) validation is inversely too strict.
+      bi-schema-registry.js:239 — rejects scientific notation "1e3", thousand
+      separators "1,200.50", "12.", ".5", "+12.5", and padded " 12.5 ". In the
+      legacy run() path (strict mode) any such value FAILS the whole upload.
+
+  F3. Datetime validation via Date.parse is extremely lenient.
+      bi-schema-registry.js:245 — "2026-02-30", "02/08/2026" (US mm/dd),
+      "2026-8-2", "2026-08-02 24:00:00" all PASS. The preparation engine's
+      strict parseDate (data-preparation-service.js:21) then rejects them —
+      but only in the WIZARD path, and only for columns listed in DATASET_RULES.
+
+  F4. Impossible dates silently roll over in the timestamps path.
+      etl-pipeline.js:733 `_toDate()` uses `new Date(...)`. Empirically
+      "2026-02-30 00:00:00" becomes 2026-03-01T23:00:00Z (rolled into March)
+      and is stored. Affects kitchen started_at/ready_at/completed_at and
+      customer last_visit_date — no parseDate guard.
+
+  F5. Two live quality paths. start-etl (routes/bi-uploads.js:529) fires the
+      legacy `run()` (etl-pipeline.js:23) which performs NO data preparation:
+      no dedup, no text normalization, no null-out of bad values, no ERROR
+      gating. Only the wizard path (validate→prepare→preview→correct→confirm)
+      uses data-preparation-service.js. Same file, two quality contracts.
+
+  F6. Silent numeric coercion at load. etl-pipeline.js:574 `parseFloat(row.total)
+      || 0`, :650 `parseInt(row.quantity) || 0`, :593 `parseInt(row.stock) || 0`
+      convert null/invalid numerics to 0 with no flag. `tax: row.tax ? ... : null`
+      (:575) maps a legitimate tax of 0 to NULL (falsy check). A unit_price of
+      "x" can reach the warehouse as NaN in the run() path (:651).
+
+  F7. Fact- and dimension-level reviewer corrections are silently discarded.
+      POST /correct (bi-uploads.js:829) lets reviewers edit 'cleaned',
+      'dimensions' OR 'facts' sections, but confirm-load re-derives every fact
+      and dimension from cleanedDatasets via _loadDimensions/_loadFacts
+      (etl-pipeline.js:1051,1054). Only edits to cleaned-dataset rows persist.
+
+  F8. Referential-integrity handling is binary: hard-fail or silent null.
+      fact_sale_items/fact_inventory FK to dim_products (schema.prisma:648-650,
+      670); an item referencing a product absent from products.csv throws an FK
+      violation inside the $transaction and FAILS the entire upload. An orphan
+      sales.customer_id (schema.prisma:653) silently becomes NULL via
+      `dimCustomerIds.get(...) || null` (etl-pipeline.js:573). No skip+warn.
+
+  F9. dim_time is seeded ONLY from sales.created_at (etl-pipeline.js:388-416,
+      and prepareWarehouse :786-808). Any kitchen_order, appointment, or
+      sale_item date on a day with no sales breaks the dim_time FK and fails
+      the whole load. (Passed in the test data only because all dates overlapped.)
+
+  F10. No outlier detection, no data profiling, no cross-field reconciliation.
+      Only four business checks exist in the entire engine
+      (data-preparation-service.js:43-48): NEGATIVE_TOTAL, NEGATIVE_STOCK,
+      NEGATIVE_PRICE, INVALID_QUANTITY. The known source anomaly — sale_items
+      line-total grain (119,854.00) does not reconcile with the sales-total
+      grain (139,869.52) — is stored faithfully but never surfaced or checked.
+
+  F11. BOM/whitespace/CRLF handled correctly (verified). String.prototype.trim()
+       strips the UTF-8 BOM, so a "\ufeffsale_id" header is matched cleanly.
+       The only CSV-format risk is unescaped quotes / multiline fields, which
+       the char-scanner parser (bi-schema-registry.js:176) does not support.
+
+  F12. Duplicate business keys are handled only by DB constraints, silently.
+      Exact duplicate ROWS are removed and counted by the preparation engine
+      (data-preparation-service.js:167-173). Duplicate business KEYS (two rows
+      with the same sale_id) rely on `@@unique([exportId, saleId])`
+      (schema.prisma:653) + createMany `skipDuplicates:true` (etl-pipeline.js:697)
+      — the second row is silently skipped and the inserted count diverges from
+      the source row count with no user-facing warning.
+
+════════════════════════════════════════════════════════════════════════════════
+2. PIPELINE UNDER AUDIT (CODE INVENTORY)
+════════════════════════════════════════════════════════════════════════════════
+POS Export (ZIP) → Upload → Validation → Preparation → Transformation Preview
+→ Corrections → Confirm Load → Warehouse → Dashboard Generation → Metabase
+Template → Embedded Dashboard.
+
+Path A — Legacy / start-etl (one-shot, no review gate)
+  POST /api/bi-uploads/:id/start-etl            bi-uploads.js:469
+    → etlPipeline.run(uploadId, zipPath)        etl-pipeline.js:23
+        extract (unzip)                          :224
+        inspect                                  :203
+        metadata (client_id/business_name/…)     :247
+        clientId override from upload            :52-63
+        strict schema-version gate               :69-74  (v2.2.0)
+        _validateDatasets (strict)               :266 → throws on type errors :320
+        _loadDimensions (dim_time/dim_client/
+                         dim_customer/dim_product/dim_supplier)  :383
+        _loadFacts (6 fact tables)               :546
+        auto-create BiAnalysisRequest            :144-162
+  NOTE: run() performs NO data preparation at all — raw parsed rows flow into
+  dimensions/facts. See §3/F5.
+
+Path B — Wizard (reviewed, gated)
+  POST /:id/validate        bi-uploads.js:571 → extractAndValidate (lenient) etl-pipeline.js:745
+  POST /:id/prepare         bi-uploads.js:675 → prepareWarehouse           etl-pipeline.js:763
+      dataPreparationService.prepare()          data-preparation-service.js:146
+      builds in-memory dims/facts               etl-pipeline.js:784-1004
+  GET  /:id/transformation-preview bi-uploads.js:728 (raw|cleaned|dims|facts)
+  POST /:id/correct          bi-uploads.js:802 (Object.assign any section)
+  POST /:id/confirm-load     bi-uploads.js:858 → loadIntoWarehouse etl-pipeline.js:1019
+      blocks on unresolved ERROR issues on LOADED_DATASETS  :870-878
+      re-loads from cleanedDatasets (dims + facts)           :1051-1054
+      marks upload COMPLETED, deletes preview file           :1065-1067, 884
+
+Schema contract (single source of truth)
+  bi-schema-registry.js:9  BI_SCHEMA_VERSION = '2.2.0'
+  SCHEMAS (11 datasets, typed columns, required flags)       :11-148
+  REQUIRED_DATASETS = sales, products, customers, inventory   :150
+  parseCsvRow (char scanner, quote-aware, trim)               :176
+  validateCsvColumns (required-column check)                  :160
+  validateCsvTypes (integer/real/datetime)                    :208
+
+Preparation engine
+  DATASET_RULES (per-dataset: required/numeric/date/text/optionalDefaults/
+                 unknownDefaults/checks)      data-preparation-service.js:54-138
+  prepare()  dedup → per-column normalize/parse → business checks → stats
+                                              :146-248
+
+Warehouse (prisma/schema.prisma)
+  Dim tables: DimClient(tenantId unique), DimProduct, DimSupplier,
+              DimCustomer, DimTime(date unique)
+  Fact tables: FactSale @@unique([exportId, saleId]); FactSaleItem
+              @@unique([exportId, saleItemId]); FactInventory/Appointment/
+              KitchenOrder @@unique([exportId, rowIndex]); FKs to dims.
+
+════════════════════════════════════════════════════════════════════════════════
+3. DATA-CLEANING CHECKLIST (~40 ITEMS) — EVIDENCE TABLE
+════════════════════════════════════════════════════════════════════════════════
+Legend: PASS = handled & verified · PARTIAL = handled in one path or with gaps ·
+        FAIL = not handled.
+
+ID  CHECK ITEM                                          STATUS  EVIDENCE (file:line) / NOTE
+─── ────────────────────────────────────────────────── ─────── ─────────────────────────────────────
+S1  Trim leading/trailing whitespace                   PASS    parseCsvRow trims values :185-191; normalizeText :8
+S2  Collapse internal whitespace                       PASS    normalizeText \s+→' ' :7 (verified 'Pizza   Margherita')
+S3  Strip UTF-8 BOM / encoding artifacts               PASS    trim() removes U+FEFF (verified; header matched)
+S4  Handle CRLF line endings                           PASS    parseCsvRow trim strips \r (verified); split('\n') :292
+S5  Standardize character case (lower/upper)           FAIL    no case folding; 'CASH' vs 'cash' both preserved (verified)
+S6  Standardize punctuation / unicode                  FAIL    none
+S7  Locale number format (1,200.50)                    FAIL    real regex rejects comma thousands :239 (verified)
+S8  Scientific notation (1e3)                          FAIL    real regex rejects :239 (verified)
+S9  Leading '+' sign                                   FAIL    real regex rejects '+12.5' :239 (verified)
+S10 Decimal edge forms ('.5', '12.')                   FAIL    real regex rejects :239 (verified)
+S11 Preserve ID leading zeros                          PASS    ids stored as String() :571, :644
+S12 Standardize date format to ISO                     PARTIAL strict parseDate :25 ISO-only in wizard; Date.parse in validate :245 accepts US/other (verified)
+S13 Reject impossible dates (2026-02-30)               PARTIAL parseDate catches :36-38 (wizard); _toDate rolls silently :733 (F4, verified)
+S14 Timezone semantics consistent                      FAIL    naive-local ' ' timestamps vs absolute 'Z' mixed under one day grain :737
+M15 Empty-string vs NULL distinction                   PARTIAL ''→null in parser :199; whitespace-only kept as '' then handled by isEmpty :1-3
+M16 Missing required field flagged                     PASS    MISSING_REQUIRED_* ERROR :189-192 (verified)
+M17 Missing optional field defaulted                   PASS    optionalDefaults tax/discount 0 :60; unknownDefaults :72,84,93,113,123 (verified)
+M18 Null imputation for analytics                      FAIL    none; nulls flow through, numerics → 0 only at load :574
+M19 'N/A'/'n/a'/'-' placeholder recognition            FAIL    treated as free text, not null
+M20 0-vs-null semantics                                PARTIAL tax 0 → NULL via falsy check :575 (F6)
+D21 Exact duplicate rows removed                       PASS    fingerprint dedup :167-173, count surfaced :238 (verified)
+D22 Duplicate business keys (sale_id)                  PARTIAL DB @@unique + skipDuplicates :697 — silent, count drift, no report (F12)
+D23 Near/fuzzy duplicate detection                     FAIL    none
+T24 Integer type validation                           FAIL    regex accepts 12.5/abc123/1e3 :233 (F1, verified)
+T25 Decimal/real validation                            PARTIAL strict regex, rejects valid formats :239 (F2)
+T26 Boolean/flag conversion                            PARTIAL is_active parseInt :460,836; no named mapping
+T27 Enum/whitelist validation                         FAIL    payment_method/status/priority free text (verified no case map)
+T28 Silent type coercion at load (qty 1.5→1)           FAIL    parseInt||0 at :650, :593, :677 (F1/F6)
+R29 Negative totals/prices/stock flagged               PARTIAL WARN only, value still loaded :63,74-75,95 (verified stock -5, total -10)
+R30 Zero/negative quantity                             PARTIAL sale_items ERROR (blocks) :124; kitchen_order_items WARN (loads) :135
+R31 Impossible quantity / huge values                  FAIL    no upper bound
+R32 Outlier detection (z-score / IQR)                 FAIL    none
+R33 Date-range sanity (future dates)                  FAIL    format only, no horizon check
+B34 line_total = qty × unit_price                      FAIL    no cross-field check (known: not always true in source)
+B35 item grain vs sale grain reconcile                 FAIL    known 119,854 vs 139,869.52 unaddressed (F10)
+B36 total = subtotal + tax − discount                  FAIL    no check
+B37 VAT amount vs rate × base                          FAIL    no check
+B38 Referential: sale_items→products                   FAIL    orphan ⇒ whole load FK failure (F8); no skip+warn
+B39 Referential: sales.customer_id→customers           FAIL    silent NULL :573 (F8)
+B40 Payment-method / status consistency                FAIL    free text, no canonical map
+P41 Missing-% per column profile                       FAIL    none
+P42 Distinct / cardinality profile                     FAIL    none
+P43 Min/max/mean/skew distribution                     FAIL    none
+P44 Row-count delta vs source reported                 PARTIAL validation rows :329-333; inserted count drifts on skip :697
+
+Result: 12 PASS · 10 PARTIAL · 22 FAIL  →  ~27% clean-pass rate against a
+professional data-quality checklist. The PASS/PARTIAL items are concentrated in
+format & missing-value handling; the FAIL items are concentrated in the areas
+that define professional-grade data quality (business rules, reference
+integrity, profiling, outliers, standardization).
+
+════════════════════════════════════════════════════════════════════════════════
+4. MISSING-VALUE HANDLING
+════════════════════════════════════════════════════════════════════════════════
+Strengths:
+  • Empty/whitespace/null are centralized in isEmpty() (data-preparation-service.js:1).
+  • Required-field gaps produce structured ERROR issues that BLOCK load until a
+    reviewer resolves them (bi-uploads.js:870-878).
+  • Sensible defaults exist (tax/discount → 0; name/category → 'Unknown …').
+
+Gaps:
+  • Missing values are never imputed for analytics; the engine's contract is
+    "flag, don't fix". That is defensible, but the LOAD layer then silently
+    converts null numerics to 0 (F6), which contradicts the flag-don't-fix
+    contract and hides the problem from dashboards.
+  • Non-standard "N/A", "n/a", "-" placeholders are not recognized as null
+    (M19); they flow in as free text and break numeric parsing downstream.
+  • The falsy check on tax/discount/price (`row.tax ? parseFloat : null`)
+    destroys a legitimate zero (M20).
+  • There is no null policy for the item/kitchen facts (unit_price, vat_rate,
+    line_total can be NULL with no KPI-level default).
+
+════════════════════════════════════════════════════════════════════════════════
+5. BUSINESS-RULES VALIDATION
+════════════════════════════════════════════════════════════════════════════════
+Total rule set in the engine: FOUR (data-preparation-service.js:43-48)
+  • NEGATIVE_TOTAL  (sales.total < 0)              WARN
+  • NEGATIVE_STOCK  (products/inventory.stock<0)   WARN
+  • NEGATIVE_PRICE  (products.price < 0)           WARN
+  • INVALID_QUANTITY (sale_items/kitchen qty ≤ 0)  ERROR/WARN
+All are single-column, range-style checks. None are cross-field, cross-row, or
+cross-dataset. No reconciliation of: line_total vs qty×price (B34), item grain
+vs sale grain (B35 — a real 119,854 vs 139,869.52 discrepancy exists in the
+T1 snapshot), total vs tax+discount arithmetic (B36), VAT math (B37), duplicate
+receipts by table+time, negative prep-time (started_at==ready_at ~66% of kitchen
+rows), or inventory-stock-vs-times_sold sanity. Compare: Power BI/Fabric data
+flows and Talend Data Quality ship catalogs of 100+ built-in rule templates and
+a rule-evaluation scoring layer. The wizard's ERROR gate (bi-uploads.js:870)
+is an excellent enforcement mechanism — it is just fed too few rules.
+
+════════════════════════════════════════════════════════════════════════════════
+6. REFERENTIAL INTEGRITY
+════════════════════════════════════════════════════════════════════════════════
+The DB layer enforces FKs (schema.prisma:648-650, 670, 743, etc.), but the ETL
+layer does no proactive referential checking. Consequences (all traced to code):
+
+  • sale_items.product_id → dim_products FK (schema.prisma:742): if the POS
+    export contains an item whose product is absent from products.csv, the
+    createMany throws, the $transaction (etl-pipeline.js:1037) rolls back, and
+    the ENTIRE upload fails. One orphan line kills the load (F8).
+  • inventory.product_id → dim_products: same failure mode (schema.prisma:670).
+  • sales.customer_id → dim_customers: handled in reverse — the FK column is
+    silently NULLed (`dimCustomerIds.get(...) || null`, etl-pipeline.js:573),
+    so orphan customer references are invisible in the warehouse.
+  • sale_items.sale_id → fact_sales: NO FK at all (just a string column
+    schema.prisma:745). Orphan items load without a parent sale — no check.
+  • dim_time.date → any fact dimTimeId (schema.prisma:649,670,690,713,743,769):
+    dim_time is seeded only from sales.created_at (F9), so a kitchen/appointment/
+    item date on a sales-free day violates the FK and fails the load.
+  Professional ETLs implement "graceful handling": skip-and-log orphans, or
+  auto-create placeholder dimension rows, or quarantine a bad batch. CarthaPOS
+  currently has hard-fail and silent-null only.
+
+════════════════════════════════════════════════════════════════════════════════
+7. DIMENSION & FACT PREPARATION
+════════════════════════════════════════════════════════════════════════════════
+Dimensions:
+  • Surrogate keys are deterministic (`prod_<client>_<product_id>`) —
+    good for re-imports (etl-pipeline.js:444,477,514).
+  • DimClient upsert is idempotent per tenant (:424-436) and uses the friendly
+    business_name from metadata (:422) — good.
+  • DimTime is derived at day grain with integer id YYYYMMDD (:713-719) and is
+    correctly populated only from sales (:388-416) — the F9 gap above.
+  • No attribute standardization on dimension columns (category/family/barcode
+    kept verbatim — see §8).
+
+Facts:
+  • Grain fidelity is a real strength: sale grain (fact_sales) and item grain
+    (fact_sale_items) are both stored with their own measures, and the known
+    grain-level mismatch (119,854 vs 139,869.52) is preserved faithfully
+    rather than "fixed" by fudging numbers. This is the correct ETL instinct;
+    the missing piece is surfacing the gap to the analyst (F10).
+  • Measure coercion is inconsistent with the flag-don't-fix contract (F6):
+    `parseFloat(x)||0`, `parseInt(x)||0`, and `x ? parseFloat(x) : null`.
+  • Wizard fact rows set dimClientId: null (etl-pipeline.js:962,989) while the
+    run() path sets it (:570) — inconsistent link to DimClient.
+  • transactionHour extraction is robust (guarded 0-23, :725-731, verified).
+
+════════════════════════════════════════════════════════════════════════════════
+8. STANDARDIZATION
+════════════════════════════════════════════════════════════════════════════════
+  • Text: whitespace normalization only (:8). Case is NEVER folded. Empirically
+    'CASH' and 'cash' both survive into fact_sales.payment_method. The same
+    applies to status ('pending','Pending','PENDING'), priority, category,
+    family, department, table_number, product_name. A payment-mix pie chart on
+    this warehouse would show two "Cash" slices.
+  • Dates: normalized to naive ISO YYYY-MM-DD[ HH:MM:SS] in the wizard (:25-40),
+    but mixed ' ' and 'Z' timestamps are not converted to one timezone (S14).
+  • Numbers: normalized to plain decimal (parseNumber) — but only for columns
+    declared `numeric` in DATASET_RULES; a price arriving as "1,200.50" or "1e3"
+    is flagged invalid rather than converted (F2). Currency/unit conversion: none.
+  • Enums: no canonical value maps anywhere (M27/B40). Talend Data Quality /
+    Power BI Dataflow "Replace values" & domain-rule normalization are absent.
+  Impact on BI: any GROUP BY categorical dimension (payment, category, status)
+  will silently split a single logical value into case variants.
+
+════════════════════════════════════════════════════════════════════════════════
+9. OUTLIER DETECTION
+════════════════════════════════════════════════════════════════════════════════
+None. There is no z-score/IQR/MAD computation, no min/max band, no zero-price
+sale, no huge-quantity, no negative-preparation-time, no midnight-shift check.
+The only guards are the four column-range checks of §5, and three of them are
+WARN-only (they still load). The observable anomalies in the archived T1 data —
+stock=0 across every product, started_at==ready_at on ~66% of kitchen rows
+(prep_minutes≈0), the item-vs-sale revenue gap — would be invisible to any
+automated quality gate and are not flagged to the reviewer at confirm-load.
+
+════════════════════════════════════════════════════════════════════════════════
+10. DATA PROFILING
+════════════════════════════════════════════════════════════════════════════════
+None in the ETL. The validation report contains only row counts, per-dataset
+status, and a duplicate-row count (etl-pipeline.js:329-333, 361-363). There is
+no missing-%, no distinct/cardinality, no min/max/mean/stddev, no null-rate per
+column, no skew, no source-vs-staged delta. Post-load KPI extraction exists
+(bi-insight-generator.js) but that is analytics, not profiling, and it only runs
+on data that already passed the (weak) ETL gate. Professional tools generate a
+Data Quality/Profiling Scorecard before load; CarthaPOS has no equivalent.
+
+════════════════════════════════════════════════════════════════════════════════
+11. WAREHOUSE & DASHBOARD READINESS
+════════════════════════════════════════════════════════════════════════════════
+Already-strong (validated in the prior warehouse-readiness audit):
+  • Correct star schema (dims + 6 facts), int surrogate ids for dim_time,
+    @@unique guards against intra-upload duplicate keys, snapshot replacement
+    policy (deleteMany per tenant, etl-pipeline.js:552-557) prevents
+    accumulation across re-imports.
+  • 14 BI views are valid and the analytics/cache/dashboard layers consume the
+    warehouse contract cleanly; dim_time (183 rows) was preserved intact.
+
+Readiness caveats this audit adds:
+  1. Categorical case-splits (§8) will produce misleading charts.
+  2. Silent null→0 coercion (§4/F6) makes dashboards over-state sales for
+     rows with bad totals (verified: total 'abc' → prepared null → loaded 0).
+  3. Grain mismatch (§7/F10) must be documented on the revenue cards, or
+     item-based revenue and sale-based revenue will disagree.
+  4. FK fragility (F8/F9) means a single bad row can leave the warehouse
+     EMPTY (rollback) instead of partially loaded — safe but operationally
+     abrupt, and no alert reaches the operator.
+  5. Fact/dimension corrections made in the preview UI are discarded (F7) —
+     a reviewer can spend time fixing a fact row and have it silently vanish.
+
+Verdict: the warehouse is safe for dashboard consumption on the happy path
+(schema, FKs, views, load semantics are sound), but it is not yet trustworthy
+for unsupervised professional BI because cleaning/rules/profiling gaps let
+unclean values reach dashboards without any flag.
+
+════════════════════════════════════════════════════════════════════════════════
+12. PROFESSIONAL COMPARISON SCORES (0–10)
+════════════════════════════════════════════════════════════════════════════════
+Scored against professional-grade BI ETL behavior (Power BI/Fabric, SSIS,
+Talend Data Quality). Score = capability × reliability × governance observed.
+
+  CATEGORY                         SCORE   KEY BASIS
+  ──────────────────────────────── ──────  ──────────────────────────────────────
+  1. Validation & schema control    6/10   Strong registry + version gate + required
+                                           columns; broken integer regex (F1), lenient
+                                           Date.parse (F3), strict real regex (F2).
+  2. Data cleaning                 5/10    Whitespace/dedup/BOM solid; no case,
+                                           placeholder, or encoding standardization.
+  3. Data preparation              6/10    Robust parseNumber/parseDate with ERROR
+                                           flags; silent 0-coercion + falsy-tax (F6).
+  4. Transformation                7/10    Grain fidelity, deterministic surrogate
+                                           keys, hour extraction; fact-edit discard (F7),
+                                           dim_time seed gap (F9).
+  5. Normalization                 4/10    Date only; no case/enum/unit/currency/phone.
+  6. Data quality (proactive)      3/10    No profiling, no reconciliation, no DQ
+                                           scorecard; only 4 range checks.
+  7. Business rules                2/10    4 single-column rules; zero cross-field/
+                                           cross-dataset rules (§5).
+  8. Warehouse readiness           8/10    Correct star, snapshot replacement, unique
+                                           keys, valid views; FK hard-fail/silent-null (F8).
+  9. Maintainability               7/10    Single schema registry, versioned, small
+                                           clean helpers; dual live paths (F5) + vestigial
+                                           code raise divergence risk.
+  10. Production readiness         5/10    Background job, DB logs, FAILED marking,
+                                           transaction; no retries, no dead-letter,
+                                           in-memory preview JSON unbounded, single-host
+                                           unzip via shell (etl-pipeline.js:230).
+  ──────────────────────────────── ──────  ──────────────────────────────────────
+  OVERALL ETL QUALITY               5.3/10
+  Strengths: architecture/governance/grain-fidelity/review-gate.
+  Weaknesses: cleaning depth, rules, profiling, standardization, robustness.
+
+════════════════════════════════════════════════════════════════════════════════
+13. MISSING FEATURES
+════════════════════════════════════════════════════════════════════════════════
+CRITICAL (must fix before unsupervised production BI)
+  C1. Fix integer type validation regex — use /^-?\d+$/ (F1). Currently
+      "12.5"/"abc123" pass; quantities are silently truncated at load.
+  C2. Impossible-date guard on the _toDate() timestamp path (F4) — reuse
+      the range-checked parseDate instead of new Date().
+  C3. Single quality path — route run()/start-etl through the preparation
+      engine so both paths dedup, normalize, and gate on ERRORs (F5).
+  C4. Referential-integrity strategy — skip+warn (or auto-create placeholder
+      dims) for orphan sale_items/inventory products and missing dim_time
+      dates instead of failing the whole load (F8/F9).
+  C5. Fact/dimension correction persistence — either load corrected fact/dim
+      rows or disable editing those sections (F7).
+  C6. Categorical standardization — case-fold + canonical value maps for
+      payment_method, status, priority, category, family; flag unknown values
+      (M27/B40).
+  C7. Reconciliation rules — line_total vs qty×price, item-grain vs sale-grain,
+      total = subtotal+tax−discount, VAT math; surface the known 119,854 vs
+      139,869.52 gap to reviewers (B34-B37, F10).
+
+RECOMMENDED (high value, moderate effort)
+  R1. Data-profiling report pre-load: missing%, distinct/cardinality, min/max/
+      mean/stddev per column, DQ score (§10).
+  R2. Outlier detection (z-score/IQR bands) with explicit report + optional
+      block (R29-R33).
+  R3. Duplicate business-key detection + user-facing warning with count drift
+      instead of silent skipDuplicates (D22).
+  R4. Accept + normalize locale/scientific numbers (1,200.50 / 1e3 / +12.5 /
+      .5) in parsing (F2/S7-S10).
+  R5. seed dim_time from ALL date-bearing datasets (sales, sale_items,
+      kitchen_orders, appointments), not sales alone (F9).
+  R6. Type-revalidate reviewer corrections (run corrected cells back through
+      parseNumber/parseDate; currently Object.assign is unvalidated, bi-uploads.js:829).
+  R7. Enum whitelists in the schema registry (validate payment/status/priority
+      against known domains; unknown → ERROR + review).
+  R8. Graceful per-chunk error isolation in _insertChunked so one bad row is
+      quarantined, not the whole transaction (etl-pipeline.js:693).
+  R9. Null policy consistency: replace `x ? parseFloat : null` and
+      `parseFloat||0` with an explicit prepared-null flow (F6).
+  R10. Timezone policy: convert all timestamps to one zone before writing
+       dim_time/hour (S14).
+
+OPTIONAL (nice-to-have)
+  O1. PII masking/redaction policies for customer email/phone in previews.
+  O2. Phone-number/address normalization rules.
+  O3. Multi-currency normalization.
+  O4. Imputation strategies (mean/median) for KPI nulls, opt-in.
+  O5. Auto-generated DQ scorecard delivered with the success report.
+  O6. Fuzzy/near-duplicate detection for customer/product names.
+  O7. Data dictionary / semantic-layer documentation auto-generation.
+  O8. Incremental/CDC import (exportId-based) + snapshot archive before replace.
+
+════════════════════════════════════════════════════════════════════════════════
+14. FINAL VERDICT (5 QUESTIONS)
+════════════════════════════════════════════════════════════════════════════════
+Q1. Is the ETL production-ready for unsupervised professional BI?
+   NO. The gaps are in the layers that define professional data quality:
+   cleaning depth, business rules, referential handling, profiling, and outlier
+   detection (13-CRITICAL list). The wizard's manual review gate
+   (bi-uploads.js:858) is a partial mitigation, but it only sees the four
+   existing rule types and its corrections are partially discarded (F7).
+
+Q2. How close is it to Power BI / SSIS / Talend-class preparation?
+   Roughly half-way (5.3/10 overall). At its strengths (schema governance,
+   version gating, grain fidelity, snapshot replacement, review gate) it
+   matches or exceeds typical Power Query implementations. At cleaning,
+   rules, and profiling it is materially below them.
+
+Q3. Is the warehouse safe to build dashboards on TODAY?
+   Yes for the happy path (star schema, FKs, views, load semantics validated),
+   with four documented caveats: case-variant categorical splits (§8),
+   silent null→0 totals (F6), item-vs-sale grain mismatch (F10), and FK
+   fragility that can empty the warehouse on one bad row (F8/F9).
+
+Q4. What is the single highest-impact fix?
+   C4 + C7 (referential integrity + reconciliation rules) — they convert the
+   two most dangerous failure modes (whole-load rollback on one orphan row;
+   silent revenue divergence between grains) into visible, reviewable issues.
+   C1 (integer regex) is the cheapest and should be done in the same pass.
+
+Q5. Recommended path forward.
+   Make the wizard the single production path (C3), land the CRITICAL list
+   (C1-C7) first — they are additive and non-breaking — then add profiling +
+   outlier detection (R1-R2). The architecture already rewards this investment:
+   the schema registry, preparation engine, change-issue model, ERROR gate, and
+   star-schema warehouse are all sound foundations that simply need deeper
+   cleaning rules plugged in.
+
+════════════════════════════════════════════════════════════════════════════════
+APPENDIX A — EMPIRICAL EDGE-CASE TEST RESULTS (live ETL code, no DB writes)
+════════════════════════════════════════════════════════════════════════════════
+Type validation — validateCsvTypes() (bi-schema-registry.js:208)
+  integer (products.product_id): VALID for "12","-12","12.5","abc123","1,200",
+    "1e3"," 12 ","--12","+12","0","12.0" — i.e. ANY value containing a digit.
+    Only fully-non-numeric strings are rejected.  → F1 confirmed.
+  real (products.price): VALID "12.5","-0.5","12.50"; INVALID ".5","1,200.50",
+    "1e3","12.","NaN","+12.5"," 12.5 ".  → F2 confirmed.
+  datetime (sales.created_at): VALID "2026-08-02","2026-08-02 06:05:22",
+    "2026-02-30","02/08/2026","2026-08-02T06:05:22Z","2026-8-2",
+    "2026-08-02 24:00:00"; INVALID only "2026-13-99".  → F3 confirmed.
+BOM header: parseCsvRow of ["\ufeffsale_id","total"] yields keys sale_id,total;
+  validateCsvColumns('sales',…) reports only the genuinely-missing created_at.
+  → F11 confirmed (BOM handled by trim()).
+Preparation engine — prepare() (data-preparation-service.js:146)
+  sales: '  CASH  '→'CASH' (INFO AUTO_FIXED); 'cash' untouched → case split;
+    total '-10' → WARN NEGATIVE_TOTAL, kept -10; total 'abc' → null ERROR
+    INVALID_NUMBER_TOTAL; '2026-02-30 00:00:00' → null ERROR INVALID_DATE;
+    total '' → null ERROR MISSING_REQUIRED_TOTAL; sale_id '' → null ERROR
+    MISSING_REQUIRED_SALE_ID; exact duplicate row removed (duplicatesRemoved=1).
+  products: 'Pizza    Margherita'→'Pizza Margherita'; stock '-5'→WARN kept -5;
+    price 'abc' → null ERROR; name '   ' → 'Unknown Product' AUTO_FIXED.
+  Summary: status NEEDS_CORRECTION; 10 rows processed, 4 auto-fixes, 2 WARN,
+    5 ERROR, 1 dup removed.  → §3/F6 confirmed.
+Helpers
+  _extractHour: '2026-08-02 06:05:22'→6; '2026-08-02T18:05:22'→18;
+    '2026-08-02 30:05:00'→null (guarded); garbage→null.  → robust.
+  _dateToInt: new Date('2026-08-02')→20260802; invalid→0.
+  _toDate (kitchen/appointment/last_visit path): '2026-02-30 00:00:00'
+    → 2026-03-01T23:00:00Z (rolled into March); 'garbage'→null.
+    → F4 confirmed (impossible dates silently roll).
+Load-time coercion (simulated per etl-pipeline.js:574-594,650-651)
+  total null → 0; tax null → null; discount '-5' → -5; stock 'abc' → 0;
+  quantity null → 0; unit_price 'x' → NaN (raw-path only, prepared path nulls it).
+
+════════════════════════════════════════════════════════════════════════════════
+APPENDIX B — EVIDENCE INDEX (file:line)
+════════════════════════════════════════════════════════════════════════════════
+etl-pipeline.js
+  23    run() legacy full pipeline           266  _validateDatasets (strict)
+  320   strict type-error throw               388-416 dim_time from sales only
+  424-436 DimClient upsert                    444,477,514 surrogate keys
+  546   _loadFacts                            552-557 snapshot replacement
+  570-580 FactSale coercion                   574   parseFloat(total)||0
+  575   tax falsy check                       591-596 FactInventory (parseInt||0)
+  603-615 FactAppointment                     617-636 FactKitchenOrder
+  638-662 FactSaleItem (parseInt||0 qty)      664-685 FactKitchenOrderItem
+  693   _insertChunked (skipDuplicates)       713-719 _dateToInt
+  725-731 _extractHour                        733-739 _toDate (Date.parse roll)
+  745   extractAndValidate (lenient)          763   prepareWarehouse
+  786-808 wizard DimTime (sales only)         880-1004 wizard in-memory facts
+  962,989 wizard dimClientId=null             1019  loadIntoWarehouse
+  1051-1054 re-derives dims/facts from cleanedDatasets (F7)
+bi-schema-registry.js
+  9     BI_SCHEMA_VERSION '2.2.0'             11-148 SCHEMAS
+  160   validateCsvColumns                    176   parseCsvRow (BOM handled by trim)
+  208   validateCsvTypes                      233   integer regex BUG (F1)
+  239   real regex (F2)                       245   Date.parse datetime (F3)
+data-preparation-service.js
+  1     isEmpty                               5     normalizeText
+  10    parseNumber                           21    parseDate (strict, range-checked)
+  43-48 the ONLY four business checks         54-138 DATASET_RULES
+  146   prepare()                             167-173 dup-row dedup
+  182-193 missing-value handling              196-221 per-type normalize/parse
+  224-228 business checks                     238-247 statistics + status
+routes/bi-uploads.js
+  469   start-etl → run()                     529   etlPipeline.run() fired
+  571   validate                              675   prepare
+  728   transformation-preview                802   /correct (Object.assign)
+  829   correction unvalidated                833   resolves ERROR only for 'cleaned'
+  858   confirm-load                          870-878 ERROR gate (LOADED_DATASETS)
+  884   preview file cleanup
+prisma/schema.prisma
+  541-627 DimClient/DimProduct/DimSupplier/DimCustomer/DimTime
+  631-655 FactSale (@@unique [exportId,saleId] :653; FKs :648-651)
+  657-675 FactInventory (FK :670)             677-694 FactAppointment
+  696-717 FactKitchenOrder                    719-747 FactSaleItem (FKs :741-743)
+  749-771 FactKitchenOrderItem
+════════════════════════════════════════════════════════════════════════════════
+ END OF AUDIT — READ-ONLY; NO CODE WAS MODIFIED.
+════════════════════════════════════════════════════════════════════════════════

@@ -1,0 +1,988 @@
+{
+  "generatedAt": "2026-08-02T16:20:15.257Z",
+  "tables": {
+    "dim_clients": {
+      "purpose": "",
+      "rowCount": 1,
+      "columns": [
+        "id:text:NOTNULL",
+        "tenantId:text",
+        "exportId:text",
+        "name:text:NOTNULL",
+        "businessType:text",
+        "createdAt:timestamp without time zone:NOTNULL"
+      ],
+      "primaryKey": [
+        "id"
+      ],
+      "foreignKeys": [],
+      "indexes": [
+        "CREATE UNIQUE INDEX dim_clients_pkey ON public.dim_clients USING btree (id)"
+      ],
+      "tenantIsolationField": "tenantId",
+      "distinctTenants": 1,
+      "lastUpdated": "2026-06-07T15:49:36.264Z"
+    },
+    "dim_products": {
+      "purpose": "",
+      "rowCount": 19,
+      "columns": [
+        "id:text:NOTNULL",
+        "tenantId:text",
+        "exportId:text",
+        "productId:text",
+        "name:text:NOTNULL",
+        "category:text",
+        "family:text",
+        "barcode:text",
+        "createdAt:timestamp without time zone:NOTNULL"
+      ],
+      "primaryKey": [
+        "id"
+      ],
+      "foreignKeys": [],
+      "indexes": [
+        "CREATE UNIQUE INDEX dim_products_pkey ON public.dim_products USING btree (id)",
+        "CREATE INDEX idx_dim_products_tenantid ON public.dim_products USING btree (\"tenantId\")"
+      ],
+      "tenantIsolationField": "tenantId",
+      "distinctTenants": 1,
+      "lastUpdated": "2026-07-31T19:12:13.603Z"
+    },
+    "dim_suppliers": {
+      "purpose": "",
+      "rowCount": 0,
+      "columns": [
+        "id:text:NOTNULL",
+        "tenantId:text",
+        "exportId:text",
+        "supplierId:text",
+        "name:text:NOTNULL",
+        "contact:text",
+        "phone:text",
+        "email:text",
+        "createdAt:timestamp without time zone:NOTNULL"
+      ],
+      "primaryKey": [
+        "id"
+      ],
+      "foreignKeys": [],
+      "indexes": [
+        "CREATE UNIQUE INDEX dim_suppliers_pkey ON public.dim_suppliers USING btree (id)",
+        "CREATE INDEX idx_dim_suppliers_tenantid ON public.dim_suppliers USING btree (\"tenantId\")"
+      ],
+      "tenantIsolationField": "tenantId",
+      "distinctTenants": 0,
+      "lastUpdated": null
+    },
+    "dim_time": {
+      "purpose": "",
+      "rowCount": 183,
+      "columns": [
+        "id:integer:NOTNULL",
+        "date:timestamp without time zone:NOTNULL",
+        "year:integer:NOTNULL",
+        "quarter:integer:NOTNULL",
+        "month:integer:NOTNULL",
+        "day:integer:NOTNULL",
+        "dayOfWeek:integer",
+        "isWeekend:boolean",
+        "createdAt:timestamp without time zone:NOTNULL"
+      ],
+      "primaryKey": [
+        "id"
+      ],
+      "foreignKeys": [],
+      "indexes": [
+        "CREATE UNIQUE INDEX dim_time_pkey ON public.dim_time USING btree (id)",
+        "CREATE UNIQUE INDEX dim_time_date_key ON public.dim_time USING btree (date)"
+      ],
+      "tenantIsolationField": null,
+      "distinctTenants": null,
+      "lastUpdated": "2026-08-02T16:03:23.439Z"
+    },
+    "fact_sales": {
+      "purpose": "",
+      "rowCount": 2500,
+      "columns": [
+        "id:text:NOTNULL",
+        "tenantId:text",
+        "exportId:text",
+        "dimClientId:text",
+        "dimProductId:text",
+        "dimTimeId:integer",
+        "saleId:text",
+        "total:double precision:NOTNULL",
+        "tax:double precision",
+        "discount:double precision",
+        "paymentMethod:text",
+        "createdAt:timestamp without time zone:NOTNULL"
+      ],
+      "primaryKey": [
+        "id"
+      ],
+      "foreignKeys": [],
+      "indexes": [
+        "CREATE UNIQUE INDEX fact_sales_pkey ON public.fact_sales USING btree (id)",
+        "CREATE INDEX idx_fact_sales_tenantid ON public.fact_sales USING btree (\"tenantId\")"
+      ],
+      "tenantIsolationField": "tenantId",
+      "distinctTenants": 1,
+      "lastUpdated": "2026-08-02T12:08:40.045Z"
+    },
+    "fact_inventory": {
+      "purpose": "",
+      "rowCount": 19,
+      "columns": [
+        "id:text:NOTNULL",
+        "tenantId:text",
+        "exportId:text",
+        "dimProductId:text",
+        "dimTimeId:integer",
+        "productName:text",
+        "stock:integer:NOTNULL",
+        "price:double precision",
+        "timesSold:integer",
+        "createdAt:timestamp without time zone:NOTNULL",
+        "rowIndex:integer"
+      ],
+      "primaryKey": [
+        "id"
+      ],
+      "foreignKeys": [],
+      "indexes": [
+        "CREATE UNIQUE INDEX fact_inventory_pkey ON public.fact_inventory USING btree (id)",
+        "CREATE INDEX idx_fact_inventory_tenantid ON public.fact_inventory USING btree (\"tenantId\")"
+      ],
+      "tenantIsolationField": "tenantId",
+      "distinctTenants": 1,
+      "lastUpdated": "2026-08-02T12:08:40.084Z"
+    },
+    "fact_kitchen_orders": {
+      "purpose": "",
+      "rowCount": 402,
+      "columns": [
+        "id:text:NOTNULL",
+        "tenantId:text:NOTNULL",
+        "exportId:text:NOTNULL",
+        "dimTimeId:integer",
+        "tableNumber:integer",
+        "items:text",
+        "priority:text",
+        "status:text:NOTNULL",
+        "createdAt:timestamp without time zone:NOTNULL",
+        "rowIndex:integer:NOTNULL"
+      ],
+      "primaryKey": [
+        "id"
+      ],
+      "foreignKeys": [],
+      "indexes": [
+        "CREATE UNIQUE INDEX fact_kitchen_orders_pkey ON public.fact_kitchen_orders USING btree (id)",
+        "CREATE INDEX idx_fact_kitchen_orders_tenantid ON public.fact_kitchen_orders USING btree (\"tenantId\")"
+      ],
+      "tenantIsolationField": "tenantId",
+      "distinctTenants": 1,
+      "lastUpdated": "2026-08-02T12:08:40.100Z"
+    },
+    "fact_appointments": {
+      "purpose": "",
+      "rowCount": 0,
+      "columns": [
+        "id:text:NOTNULL",
+        "tenantId:text:NOTNULL",
+        "exportId:text:NOTNULL",
+        "dimTimeId:integer",
+        "customerName:text:NOTNULL",
+        "customerPhone:text",
+        "serviceId:text",
+        "duration:integer",
+        "status:text:NOTNULL",
+        "createdAt:timestamp without time zone:NOTNULL",
+        "rowIndex:integer:NOTNULL"
+      ],
+      "primaryKey": [
+        "id"
+      ],
+      "foreignKeys": [],
+      "indexes": [
+        "CREATE UNIQUE INDEX fact_appointments_pkey ON public.fact_appointments USING btree (id)",
+        "CREATE INDEX idx_fact_appointments_tenantid ON public.fact_appointments USING btree (\"tenantId\")"
+      ],
+      "tenantIsolationField": "tenantId",
+      "distinctTenants": 0,
+      "lastUpdated": null
+    },
+    "bi_uploads": {
+      "purpose": "",
+      "rowCount": 10,
+      "columns": [
+        "id:text:NOTNULL",
+        "status:text:NOTNULL",
+        "bischemaversion:text",
+        "businesstype:text",
+        "clientid:text",
+        "createdat:timestamp without time zone:NOTNULL",
+        "errormessage:text",
+        "filehash:text",
+        "filename:text",
+        "filepath:text",
+        "filesize:integer",
+        "totalfiles:integer:NOTNULL",
+        "totalrows:integer:NOTNULL",
+        "updatedat:timestamp without time zone",
+        "requestid:text"
+      ],
+      "primaryKey": [
+        "id"
+      ],
+      "foreignKeys": [],
+      "indexes": [
+        "CREATE UNIQUE INDEX bi_uploads_pkey ON public.bi_uploads USING btree (id)",
+        "CREATE INDEX bi_uploads_requestid_idx ON public.bi_uploads USING btree (requestid)"
+      ],
+      "tenantIsolationField": null,
+      "distinctTenants": null,
+      "lastUpdated": null
+    },
+    "bi_upload_files": {
+      "purpose": "",
+      "rowCount": 0,
+      "columns": [
+        "id:text:NOTNULL",
+        "status:text:NOTNULL",
+        "createdat:timestamp without time zone:NOTNULL",
+        "errormessage:text",
+        "filename:text",
+        "filesize:integer:NOTNULL",
+        "rowcount:integer:NOTNULL",
+        "uploadid:text"
+      ],
+      "primaryKey": [
+        "id"
+      ],
+      "foreignKeys": [],
+      "indexes": [
+        "CREATE UNIQUE INDEX bi_upload_files_pkey ON public.bi_upload_files USING btree (id)"
+      ],
+      "tenantIsolationField": null,
+      "distinctTenants": null,
+      "lastUpdated": null
+    },
+    "bi_processing_jobs": {
+      "purpose": "",
+      "rowCount": 9,
+      "columns": [
+        "id:text:NOTNULL",
+        "status:text:NOTNULL",
+        "completedat:timestamp without time zone",
+        "createdat:timestamp without time zone:NOTNULL",
+        "errormessage:text",
+        "recordsloaded:integer:NOTNULL",
+        "startedat:timestamp without time zone",
+        "updatedat:timestamp without time zone",
+        "uploadid:text"
+      ],
+      "primaryKey": [
+        "id"
+      ],
+      "foreignKeys": [],
+      "indexes": [
+        "CREATE UNIQUE INDEX bi_processing_jobs_pkey ON public.bi_processing_jobs USING btree (id)"
+      ],
+      "tenantIsolationField": null,
+      "distinctTenants": null,
+      "lastUpdated": null
+    },
+    "bi_processing_logs": {
+      "purpose": "",
+      "rowCount": 47,
+      "columns": [
+        "id:text:NOTNULL",
+        "level:text:NOTNULL",
+        "step:text:NOTNULL",
+        "message:text:NOTNULL",
+        "details:jsonb",
+        "createdat:timestamp without time zone:NOTNULL",
+        "jobid:text"
+      ],
+      "primaryKey": [
+        "id"
+      ],
+      "foreignKeys": [],
+      "indexes": [
+        "CREATE UNIQUE INDEX bi_processing_logs_pkey ON public.bi_processing_logs USING btree (id)"
+      ],
+      "tenantIsolationField": null,
+      "distinctTenants": null,
+      "lastUpdated": null
+    },
+    "bi_requests": {
+      "purpose": "",
+      "rowCount": 4,
+      "columns": [
+        "id:text:NOTNULL",
+        "clientid:text:NOTNULL",
+        "licenseid:text",
+        "businesstype:text:NOTNULL",
+        "businessname:text",
+        "message:text:NOTNULL",
+        "objectives:jsonb",
+        "kpis:jsonb",
+        "dashboardrequirements:text",
+        "dashboardtype:text",
+        "userid:text",
+        "useremail:text",
+        "status:text:NOTNULL",
+        "paymentStatus:text:NOTNULL",
+        "paymentmethod:text",
+        "paymentnotes:text",
+        "adminnotes:text",
+        "specialistNotes:text",
+        "files:jsonb",
+        "createdat:timestamp without time zone:NOTNULL",
+        "updatedat:timestamp without time zone:NOTNULL"
+      ],
+      "primaryKey": [
+        "id"
+      ],
+      "foreignKeys": [],
+      "indexes": [
+        "CREATE UNIQUE INDEX bi_requests_pkey ON public.bi_requests USING btree (id)",
+        "CREATE INDEX bi_requests_clientid_idx ON public.bi_requests USING btree (clientid)",
+        "CREATE INDEX bi_requests_licenseid_idx ON public.bi_requests USING btree (licenseid)",
+        "CREATE INDEX bi_requests_status_idx ON public.bi_requests USING btree (status)",
+        "CREATE INDEX bi_requests_paymentstatus_idx ON public.bi_requests USING btree (\"paymentStatus\")"
+      ],
+      "tenantIsolationField": null,
+      "distinctTenants": null,
+      "lastUpdated": null
+    },
+    "bi_analysis_requests": {
+      "purpose": "",
+      "rowCount": 1,
+      "columns": [
+        "id:text:NOTNULL",
+        "status:text:NOTNULL",
+        "notes:text",
+        "insights:jsonb",
+        "analysissummary:jsonb",
+        "assignedto:text",
+        "businesstype:text:NOTNULL",
+        "clientid:text:NOTNULL",
+        "completedat:timestamp without time zone",
+        "createdat:timestamp without time zone:NOTNULL",
+        "licenseid:text",
+        "updatedat:timestamp without time zone:NOTNULL",
+        "uploadid:text"
+      ],
+      "primaryKey": [
+        "id"
+      ],
+      "foreignKeys": [],
+      "indexes": [
+        "CREATE UNIQUE INDEX bi_analysis_requests_pkey ON public.bi_analysis_requests USING btree (id)",
+        "CREATE INDEX bi_analysis_requests_status_idx ON public.bi_analysis_requests USING btree (status)"
+      ],
+      "tenantIsolationField": null,
+      "distinctTenants": null,
+      "lastUpdated": null
+    },
+    "bi_dashboard_templates": {
+      "purpose": "",
+      "rowCount": 0,
+      "columns": [
+        "id:text:NOTNULL",
+        "businesstype:text:NOTNULL",
+        "metabasedashboardid:integer:NOTNULL",
+        "name:text:NOTNULL",
+        "description:text",
+        "active:boolean:NOTNULL",
+        "embedtype:text:NOTNULL",
+        "embedpublicuuid:text",
+        "createdat:timestamp with time zone:NOTNULL",
+        "updatedat:timestamp with time zone:NOTNULL"
+      ],
+      "primaryKey": [
+        "id"
+      ],
+      "foreignKeys": [],
+      "indexes": [
+        "CREATE UNIQUE INDEX bi_dashboard_templates_pkey ON public.bi_dashboard_templates USING btree (id)",
+        "CREATE UNIQUE INDEX bi_dashboard_templates_businesstype_key ON public.bi_dashboard_templates USING btree (businesstype)"
+      ],
+      "tenantIsolationField": null,
+      "distinctTenants": null,
+      "lastUpdated": null
+    },
+    "bi_dashboards": {
+      "purpose": "",
+      "rowCount": 6,
+      "columns": [
+        "id:text:NOTNULL",
+        "name:text:NOTNULL",
+        "description:text",
+        "status:text:NOTNULL",
+        "assignedat:timestamp without time zone",
+        "businesstype:text:NOTNULL",
+        "clientid:text:NOTNULL",
+        "createdat:timestamp without time zone:NOTNULL",
+        "createdby:text",
+        "dashboardconfig:jsonb",
+        "dashboardtype:text:NOTNULL",
+        "licenseid:text",
+        "updatedat:timestamp without time zone:NOTNULL",
+        "uploadid:text",
+        "generationsteps:jsonb"
+      ],
+      "primaryKey": [
+        "id"
+      ],
+      "foreignKeys": [],
+      "indexes": [
+        "CREATE UNIQUE INDEX bi_dashboards_pkey ON public.bi_dashboards USING btree (id)"
+      ],
+      "tenantIsolationField": null,
+      "distinctTenants": null,
+      "lastUpdated": null
+    },
+    "bi_notifications": {
+      "purpose": "",
+      "rowCount": 15,
+      "columns": [
+        "id:text:NOTNULL",
+        "title:text:NOTNULL",
+        "message:text:NOTNULL",
+        "type:text:NOTNULL",
+        "clientid:text",
+        "createdat:timestamp without time zone:NOTNULL",
+        "dashboardid:text",
+        "isread:boolean:NOTNULL"
+      ],
+      "primaryKey": [
+        "id"
+      ],
+      "foreignKeys": [],
+      "indexes": [
+        "CREATE UNIQUE INDEX bi_notifications_pkey ON public.bi_notifications USING btree (id)"
+      ],
+      "tenantIsolationField": null,
+      "distinctTenants": null,
+      "lastUpdated": null
+    }
+  },
+  "views": {
+    "v_sales": " SELECT fs.id,\n    fs.\"tenantId\" AS client_id,\n    dc.name AS client_name,\n    dc.\"businessType\" AS business_type,\n    fs.\"saleId\" AS sale_id,\n    fs.total,\n    fs.tax,\n    fs.discount,\n    fs.\"paymentMethod\" AS payment_method,\n    fs.\"createdAt\" AS etl_loaded_at,\n    dt.date AS sale_date,\n    dt.year,\n    dt.quarter,\n    dt.month,\n    dt.day,\n    dt.\"dayOfWeek\" AS day_of_week,\n    dt.\"isWeekend\" AS is_weekend\n   FROM fact_sales fs\n     LEFT JOIN dim_clients dc ON fs.\"tenantId\" = dc.\"tenantId\"\n     LEFT JOIN dim_time dt ON fs.\"dimTimeId\" = dt.id;",
+    "v_revenue_daily": " SELECT fs.\"tenantId\" AS client_id,\n    dc.name AS client_name,\n    dc.\"businessType\" AS business_type,\n    dt.date,\n    dt.year,\n    dt.month,\n    dt.day,\n    dt.\"dayOfWeek\" AS day_of_week,\n    count(*) AS transaction_count,\n    sum(fs.total) AS revenue,\n    avg(fs.total) AS avg_ticket\n   FROM fact_sales fs\n     LEFT JOIN dim_clients dc ON fs.\"tenantId\" = dc.\"tenantId\"\n     LEFT JOIN dim_time dt ON fs.\"dimTimeId\" = dt.id\n  GROUP BY fs.\"tenantId\", dc.name, dc.\"businessType\", dt.date, dt.year, dt.month, dt.day, dt.\"dayOfWeek\";",
+    "v_inventory": " SELECT fi.id,\n    fi.\"tenantId\" AS client_id,\n    fi.\"productName\" AS product_name,\n    dp.category,\n    dp.family,\n    dp.barcode,\n    fi.stock,\n    fi.price,\n    fi.\"timesSold\" AS times_sold,\n        CASE\n            WHEN fi.stock > 0 THEN round(fi.\"timesSold\"::numeric * 1.0 / fi.stock::numeric, 2)\n            ELSE 0::numeric\n        END AS turnover_ratio,\n    fi.\"createdAt\" AS snapshot_date\n   FROM fact_inventory fi\n     LEFT JOIN dim_products dp ON fi.\"dimProductId\" = dp.id;",
+    "v_product_performance": " SELECT fi.\"tenantId\" AS client_id,\n    fi.\"productName\" AS product_name,\n    dp.category,\n    dp.family,\n    sum(fi.\"timesSold\") AS total_sold,\n    max(fi.stock) AS current_stock,\n    max(fi.price) AS unit_price,\n    sum(fi.price * fi.\"timesSold\"::double precision) AS estimated_revenue,\n        CASE\n            WHEN max(fi.stock) > 0 THEN round(sum(fi.\"timesSold\")::numeric * 1.0 / GREATEST(max(fi.stock), 1)::numeric, 2)\n            ELSE 0::numeric\n        END AS turnover_ratio\n   FROM fact_inventory fi\n     LEFT JOIN dim_products dp ON fi.\"dimProductId\" = dp.id\n  GROUP BY fi.\"tenantId\", fi.\"productName\", dp.category, dp.family;",
+    "v_kitchen_orders": " SELECT fko.id,\n    fko.\"tenantId\" AS client_id,\n    fko.\"tableNumber\" AS table_number,\n    fko.items,\n    fko.priority,\n    fko.status,\n    fko.\"createdAt\" AS etl_loaded_at,\n    dt.date AS order_date,\n    dt.year,\n    dt.month,\n    dt.day,\n    dt.\"dayOfWeek\" AS day_of_week,\n    dt.\"isWeekend\" AS is_weekend\n   FROM fact_kitchen_orders fko\n     LEFT JOIN dim_time dt ON fko.\"dimTimeId\" = dt.id;",
+    "v_table_turnover": " SELECT fko.\"tenantId\" AS client_id,\n    fko.\"tableNumber\" AS table_number,\n    count(*) AS order_count,\n    min(dt.date) AS first_order_date,\n    max(dt.date) AS last_order_date\n   FROM fact_kitchen_orders fko\n     LEFT JOIN dim_time dt ON fko.\"dimTimeId\" = dt.id\n  WHERE fko.\"tableNumber\" IS NOT NULL\n  GROUP BY fko.\"tenantId\", fko.\"tableNumber\";",
+    "v_peak_hours": " SELECT fs.\"tenantId\" AS client_id,\n    dt.date AS sale_date,\n    count(*) AS order_count,\n    sum(fs.total) AS revenue\n   FROM fact_sales fs\n     LEFT JOIN dim_time dt ON fs.\"dimTimeId\" = dt.id\n  GROUP BY fs.\"tenantId\", dt.date\n  ORDER BY fs.\"tenantId\", dt.date;",
+    "v_appointments": " SELECT fa.id,\n    fa.\"tenantId\" AS client_id,\n    fa.\"customerName\" AS customer_name,\n    fa.\"customerPhone\" AS customer_phone,\n    fa.\"serviceId\" AS service_id,\n    fa.duration AS duration_minutes,\n    fa.status,\n    fa.\"createdAt\" AS etl_loaded_at,\n    dt.date AS appointment_date,\n    dt.year,\n    dt.month,\n    dt.day\n   FROM fact_appointments fa\n     LEFT JOIN dim_time dt ON fa.\"dimTimeId\" = dt.id;",
+    "v_suppliers": " SELECT id,\n    \"tenantId\" AS client_id,\n    name AS supplier_name,\n    contact AS contact_person,\n    phone,\n    email\n   FROM dim_suppliers ds;",
+    "v_dashboard_kpis": " SELECT dc.\"tenantId\" AS client_id,\n    dc.name AS client_name,\n    dc.\"businessType\" AS business_type,\n    count(DISTINCT fs.id) AS total_sales,\n    COALESCE(sum(fs.total), 0::double precision) AS total_revenue,\n    COALESCE(avg(fs.total), 0::double precision) AS avg_ticket,\n    count(DISTINCT dp.id) AS total_products,\n    count(DISTINCT fko.id) AS total_kitchen_orders,\n    count(DISTINCT fa.id) AS total_appointments,\n    count(DISTINCT dsup.id) AS total_suppliers,\n    max(dt.date) AS last_sale_date\n   FROM dim_clients dc\n     LEFT JOIN fact_sales fs ON dc.\"tenantId\" = fs.\"tenantId\"\n     LEFT JOIN dim_time dt ON fs.\"dimTimeId\" = dt.id\n     LEFT JOIN dim_products dp ON dc.\"tenantId\" = dp.\"tenantId\"\n     LEFT JOIN fact_kitchen_orders fko ON dc.\"tenantId\" = fko.\"tenantId\"\n     LEFT JOIN fact_appointments fa ON dc.\"tenantId\" = fa.\"tenantId\"\n     LEFT JOIN dim_suppliers dsup ON dc.\"tenantId\" = dsup.\"tenantId\"\n  GROUP BY dc.\"tenantId\", dc.name, dc.\"businessType\";"
+  },
+  "starSchema": [
+    {
+      "dim": "dim_time",
+      "total": "2500",
+      "filled": "2500",
+      "missing": "0",
+      "orphan": "0"
+    },
+    {
+      "dim": "dim_products",
+      "total": "2500",
+      "filled": "0",
+      "missing": "2500",
+      "orphan": "0"
+    },
+    {
+      "dim": "dim_clients",
+      "total": "2500",
+      "filled": "0",
+      "missing": "2500",
+      "orphan": "0"
+    }
+  ],
+  "factInventoryProduct": [
+    {
+      "total": "19",
+      "missing": "0",
+      "orphan": "0"
+    }
+  ],
+  "dimTime": {
+    "rows": null,
+    "minId": {
+      "min": 20260105,
+      "max": 20260802
+    },
+    "nullDates": null,
+    "zeroDay": null
+  },
+  "dimTimeCoverage": [
+    {
+      "src": "sales",
+      "covered": "181",
+      "withkey": "181"
+    },
+    {
+      "src": "kitchen",
+      "covered": "169",
+      "withkey": "169"
+    },
+    {
+      "src": "appointments",
+      "covered": "0",
+      "withkey": "0"
+    }
+  ],
+  "dimTimeMissingKeys": [
+    {
+      "sales_orphan_dates": "0",
+      "kitchen_orphan_dates": "0",
+      "appt_orphan_dates": "0"
+    }
+  ],
+  "dimProduct": {
+    "rows": null,
+    "emptyName": null,
+    "emptyCategory": null,
+    "emptyFamily": null,
+    "missingBarcode": null,
+    "duplicateBusinessKeys": 0,
+    "nullProductId": null,
+    "examples": [
+      {
+        "productId": "4",
+        "name": "Brik à l'Œuf",
+        "category": "Entrée"
+      },
+      {
+        "productId": "5",
+        "name": "Brochette d'Agneau",
+        "category": "Plat"
+      },
+      {
+        "productId": "14",
+        "name": "Tiramisu",
+        "category": "Dessert"
+      },
+      {
+        "productId": "12",
+        "name": "Café Tunisien",
+        "category": "Boisson"
+      },
+      {
+        "productId": "17",
+        "name": "Chorba Frik",
+        "category": "Entrée"
+      }
+    ]
+  },
+  "dimClient": {
+    "rows": null,
+    "dupTenant": 0,
+    "missingBusinessType": null,
+    "businessTypes": [
+      {
+        "businessType": "restaurant",
+        "count": "1"
+      }
+    ],
+    "rowsDetail": [
+      {
+        "tenantId": "cmoogzf95000xt2l5hk9yax74",
+        "name": "cmoogzf95000xt2l5hk9yax74",
+        "businessType": "restaurant"
+      }
+    ]
+  },
+  "dimSupplier": {
+    "rows": null,
+    "emptyName": null,
+    "dupKeys": 0
+  },
+  "factSales": {
+    "rows": null,
+    "byTenant": [
+      {
+        "tenantId": "cmoogzf95000xt2l5hk9yax74",
+        "n": "2500",
+        "rev": 139869.51999999996
+      }
+    ],
+    "byPayment": [
+      {
+        "m": "cash",
+        "n": "1211",
+        "rev": 69438.16999999991
+      },
+      {
+        "m": "card",
+        "n": "665",
+        "rev": 34537.829999999965
+      },
+      {
+        "m": "mobile",
+        "n": "624",
+        "rev": 35893.52
+      }
+    ],
+    "nulls": [
+      {
+        "total_null": "0",
+        "tax_null": "0",
+        "discount_null": "0",
+        "pm_null": "0",
+        "time_null": "0",
+        "saleid_null": "0"
+      }
+    ],
+    "negativeTotal": null,
+    "zeroTotal": null,
+    "negativeTax": null,
+    "duplicateSaleIds": 0,
+    "revenueTotal": [
+      {
+        "rev": 139869.52000000005,
+        "avg": 55.947808000000016,
+        "mn": 1.01,
+        "mx": 226.1,
+        "days": "181"
+      }
+    ],
+    "byDayRecent": [
+      {
+        "d": 20260801,
+        "n": "6",
+        "rev": "378.42"
+      },
+      {
+        "d": 20260731,
+        "n": "16",
+        "rev": "796.93"
+      },
+      {
+        "d": 20260730,
+        "n": "15",
+        "rev": "655.19"
+      },
+      {
+        "d": 20260729,
+        "n": "15",
+        "rev": "1009.73"
+      },
+      {
+        "d": 20260728,
+        "n": "16",
+        "rev": "990.93"
+      },
+      {
+        "d": 20260727,
+        "n": "14",
+        "rev": "736.04"
+      },
+      {
+        "d": 20260726,
+        "n": "7",
+        "rev": "411.95"
+      },
+      {
+        "d": 20260725,
+        "n": "25",
+        "rev": "1498.58"
+      },
+      {
+        "d": 20260724,
+        "n": "11",
+        "rev": "563.01"
+      },
+      {
+        "d": 20260723,
+        "n": "26",
+        "rev": "1445.22"
+      }
+    ]
+  },
+  "factInventory": {
+    "rows": null,
+    "byTenant": [
+      {
+        "tenantId": "cmoogzf95000xt2l5hk9yax74",
+        "n": "19"
+      }
+    ],
+    "nulls": [
+      {
+        "stock_null": "0",
+        "price_null": "0",
+        "name_empty": "0",
+        "prod_null": "0"
+      }
+    ],
+    "negativeStock": null,
+    "zeroStock": null,
+    "negativePrice": null,
+    "zeroPrice": null,
+    "stockValue": [
+      {
+        "stock_value": 0,
+        "units": "0",
+        "skus": "19"
+      }
+    ],
+    "lowStock": [
+      {
+        "n": "0"
+      }
+    ],
+    "byProduct": [
+      {
+        "productName": "Brochette d'Agneau",
+        "stock": 0,
+        "price": 12,
+        "timesSold": 807
+      },
+      {
+        "productName": "Café Tunisien",
+        "stock": 0,
+        "price": 2,
+        "timesSold": 756
+      },
+      {
+        "productName": "Chorba Frik",
+        "stock": 0,
+        "price": 5,
+        "timesSold": 772
+      },
+      {
+        "productName": "Coca-Cola 33cl",
+        "stock": 0,
+        "price": 2.5,
+        "timesSold": 788
+      },
+      {
+        "productName": "Brik à l'Œuf",
+        "stock": 0,
+        "price": 4,
+        "timesSold": 785
+      }
+    ]
+  },
+  "factKitchen": {
+    "rows": null,
+    "byTenant": [
+      {
+        "tenantId": "cmoogzf95000xt2l5hk9yax74",
+        "n": "402"
+      }
+    ],
+    "byStatus": [
+      {
+        "s": "preparing",
+        "count": "97"
+      },
+      {
+        "s": "pending",
+        "count": "82"
+      },
+      {
+        "s": "served",
+        "count": "78"
+      },
+      {
+        "s": "ready",
+        "count": "74"
+      },
+      {
+        "s": "completed",
+        "count": "71"
+      }
+    ],
+    "byPriority": [
+      {
+        "s": "normal",
+        "count": "198"
+      },
+      {
+        "s": "high",
+        "count": "109"
+      },
+      {
+        "s": "low",
+        "count": "95"
+      }
+    ],
+    "nulls": [
+      {
+        "time_null": "0",
+        "status_null": "0",
+        "table_null": "0",
+        "items_empty": "402"
+      }
+    ],
+    "byDay": [
+      {
+        "d": 20260801,
+        "n": "1"
+      },
+      {
+        "d": 20260731,
+        "n": "3"
+      },
+      {
+        "d": 20260730,
+        "n": "3"
+      },
+      {
+        "d": 20260728,
+        "n": "2"
+      },
+      {
+        "d": 20260727,
+        "n": "4"
+      },
+      {
+        "d": 20260726,
+        "n": "2"
+      },
+      {
+        "d": 20260725,
+        "n": "3"
+      },
+      {
+        "d": 20260724,
+        "n": "3"
+      }
+    ]
+  },
+  "factAppointments": {
+    "rows": null,
+    "byTenant": [],
+    "byStatus": [],
+    "nulls": [
+      {
+        "time_null": "0",
+        "name_empty": "0",
+        "service_null": "0",
+        "dur_null": "0"
+      }
+    ]
+  },
+  "duplicateSalesAcrossExports": [],
+  "tenantIsolation": {
+    "factsWithTenant": [
+      {
+        "t": "fact_sales",
+        "nulls": "0",
+        "tenants": "1"
+      },
+      {
+        "t": "fact_inventory",
+        "nulls": "0",
+        "tenants": "1"
+      },
+      {
+        "t": "fact_kitchen_orders",
+        "nulls": "0",
+        "tenants": "1"
+      },
+      {
+        "t": "fact_appointments",
+        "nulls": "0",
+        "tenants": "0"
+      }
+    ],
+    "dimsWithTenant": [
+      {
+        "t": "dim_clients",
+        "nulls": "0",
+        "tenants": "1"
+      },
+      {
+        "t": "dim_products",
+        "nulls": "0",
+        "tenants": "1"
+      },
+      {
+        "t": "dim_suppliers",
+        "nulls": "0",
+        "tenants": "0"
+      }
+    ]
+  },
+  "biUploads": {
+    "rows": null,
+    "byStatus": [
+      {
+        "status": "COMPLETED",
+        "count": "7",
+        "last": "2026-08-02T12:08:38.663Z"
+      },
+      {
+        "status": "LOAD_CONFIRMED",
+        "count": "2",
+        "last": "2026-07-31T19:34:14.219Z"
+      },
+      {
+        "status": "PREPARED",
+        "count": "1",
+        "last": "2026-07-31T19:26:16.046Z"
+      }
+    ],
+    "byClient": [
+      {
+        "c": "cmoogzf95000xt2l5hk9yax74",
+        "count": "8",
+        "last": "2026-08-02T12:08:38.663Z"
+      },
+      {
+        "c": "cmpb0pfd00000k2bm903auzi1",
+        "count": "2",
+        "last": "2026-06-29T16:03:46.419Z"
+      }
+    ],
+    "businessTypes": [
+      {
+        "bt": "restaurant",
+        "count": "10"
+      }
+    ]
+  },
+  "biTemplates": {
+    "rows": null,
+    "detail": []
+  },
+  "biDashboards": {
+    "rows": null,
+    "byStatus": [
+      {
+        "status": "DRAFT",
+        "count": "5"
+      },
+      {
+        "status": "READY_FOR_REVIEW",
+        "count": "1"
+      }
+    ]
+  },
+  "biRequests": {
+    "rows": null,
+    "byStatus": [
+      {
+        "status": "APPROVED",
+        "count": "4"
+      }
+    ]
+  },
+  "biJobs": [
+    {
+      "status": "COMPLETED",
+      "count": "9",
+      "records": "26849"
+    }
+  ]
+}

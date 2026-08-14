@@ -1,0 +1,163 @@
+================================================================================
+ CARTHA POS — BI WAREHOUSE "DASHBOARD-TEMPLATE READINESS" IMPLEMENTATION REPORT
+ Date: 2026-08-02   |   Schema version: POS BiSchemaContract v2.2.0 (2.2.0)
+================================================================================
+
+1. MISSION
+--------------------------------------------------------------------------------
+Complete the BI warehouse so it is ready for dashboard templates:
+materialize the missing granular datasets, add hour-of-day support, fix the
+dim_clients name, fix product-performance / peak-hours / dashboard-KPIs views,
+and prove the full pipeline (ZIP -> validate -> prepare -> preview -> load ->
+warehouse -> API) end-to-end.
+
+Constraints honored:
+  - No ETL redesign, no preparation-engine replacement, no POS export changes.
+  - Wizard flow untouched (validate -> prepare -> preview -> corrections -> load).
+  - analytics-cache-service.js NOT modified (architecture rule).
+  - No dashboard UI implemented (out of scope).
+  - Views created with CREATE OR REPLACE (matches 20260802000000 precedent);
+    DROP + CREATE used only where view output columns change name.
+
+2. FILES CHANGED
+--------------------------------------------------------------------------------
+  backend/prisma/schema.prisma
+      + models DimCustomer, FactSaleItem, FactKitchenOrderItem
+      + FactSale: customerId, dimCustomerId, transactionHour + dimCustomer rel
+      + FactKitchenOrder: orderId, transactionHour, startedAt, readyAt,
+        completedAt
+      + back-relations on DimClient / DimProduct / DimTime
+      prisma validate OK.
+
+  backend/services/bi-schema-registry.js
+      + sale_items and kitchen_order_items schemas; both added to
+        OPTIONAL_DATASETS (server-side mirror of the BiSchemaContract v2.2.0
+        datasets).
+
+  backend/services/data-preparation-service.js
+      + kitchen_order_items preparation rules (coerce + default department /
+        preparation time / timestamps).
+
+  backend/services/etl-pipeline.js
+      + metadata.businessName -> dim_clients.name (real name, e.g.
+        "Restaurant Le Gourmet" instead of the tenant clientId).
+      + _loadDimensions -> upserts DimCustomer, returns { dimClientId,
+        dimCustomerIds }.
+      + _loadFacts -> takes dims; deletes + reloads all 6 facts incl.
+        FactSaleItem / FactKitchenOrderItem; writes transactionHour,
+        customerId/dimCustomerId, kitchen orderId + startedAt/readyAt/completedAt.
+      + _extractHour / _toDate helpers.
+      + prepareWarehouse / loadIntoWarehouse thread the dims through.
+
+  backend/routes/bi-uploads.js
+      + LOADED_DATASETS now includes sale_items and kitchen_order_items
+        (confirm-load summary shows the new materialized datasets).
+
+  backend/prisma/migrations/20260803000000_add_bi_missing_datasets/migration.sql  (NEW, applied)
+  backend/prisma/migrations/20260803100000_fix_bi_dashboard_kpis_performance/migration.sql (NEW, applied)
+
+3. MIGRATIONS
+--------------------------------------------------------------------------------
+  20260803000000_add_bi_missing_datasets
+    Tables:        dim_customers, fact_sale_items, fact_kitchen_order_items
+    ALTERs:        fact_sales  + customerId, dimCustomerId, transactionHour
+                   fact_kitchen_orders + orderId, transactionHour, startedAt,
+                   readyAt, completedAt
+    Indexes:       tenant-id + join-key indexes on the new columns
+    FKs:           fact_sale_items -> dim_clients / dim_products / dim_time
+                   fact_kitchen_order_items -> dim_clients / dim_time
+                   fact_sales -> dim_customers
+    New views:     v_sales_hourly, v_customer_analysis, v_kitchen_performance,
+                   v_inventory_status
+    Fixed views:   v_product_performance (real sale lines instead of the
+                   inventory point-in-time snapshot)
+                   v_peak_hours (buckets by transactionHour, not load date)
+
+  20260803100000_fix_bi_dashboard_kpis_performance
+    Rewrites v_dashboard_kpis (columns unchanged) — replaces the ~19M-row
+    multiplicative cross join with indexed scalar subqueries per tenant.
+    Adds tenantId indexes on fact_sales, fact_kitchen_orders,
+    fact_appointments, fact_inventory, dim_products, dim_suppliers.
+    Measured: 74 ms (was >120 s timeouts).
+
+  Apply: npx prisma migrate deploy (25 migrations total, clean apply).
+
+4. WAREHOUSE CONTENTS — BEFORE / AFTER
+--------------------------------------------------------------------------------
+  Dataset                    Before          After (tenant T1 = Restaurant Le Gourmet)
+  -------------------------  --------------  ------------------------------
+  dim_clients                1 (name=id)     1 (name="Restaurant Le Gourmet")
+  dim_products               19              19
+  dim_customers              0              14
+  fact_sales                 2,500           2,500 (2,500 dimClientId; 2,172
+                                               customerId/dimCustomerId;
+                                               11 distinct transactionHour)
+  fact_sale_items            0               7,358 (2,500 sales, 19 products,
+                                               14,614 qty, revenue 119,854)
+  fact_kitchen_orders        402             402 (402 orderId; 320 startedAt;
+                                               223 readyAt; 71 completedAt;
+                                               transactionHour populated)
+  fact_kitchen_order_items   0               1,205 (402 orders)
+  fact_inventory             19              19 (stock=0 across source — see 7)
+  fact_appointments          0               0 (no appointments in export)
+  Total rows loaded          2,921           11,484
+
+5. BI VIEWS — RESULTS CHECK (all return correct, tenant-filtered data)
+--------------------------------------------------------------------------------
+  v_sales                2,500 rows   |  v_revenue_daily         181 rows
+  v_inventory               19 rows   |  v_kitchen_orders        402 rows
+  v_table_turnover          20 rows   |  v_appointments            0 rows
+  v_suppliers                0 rows   |  v_sales_hourly         1,424 rows
+  v_customer_analysis        14 rows   |  v_kitchen_performance   402 rows
+  v_inventory_status         19 rows   |  v_product_performance    19 rows
+  v_peak_hours               11 rows   |  v_dashboard_kpis          1 row
+
+  Spot-checks:
+   - v_product_performance top: Grillade Mixte — 822 sold, 383 orders,
+     18.5 unit price, revenue 15,207 (real line-item revenue, was inventory
+     snapshot).
+   - v_customer_analysis top: Walid Haddad — 182 sales, 10,599.83 spent.
+   - v_peak_hours spans hours 0-23 (11 occupied) — hour-of-day, not load date.
+   - v_inventory_status flags data_warning=INVENTORY_DATA_NOT_AVAILABLE when
+     max(stock)=0 (source limitation, surfaced honestly).
+
+6. PIPELINE PROOF (end-to-end)
+--------------------------------------------------------------------------------
+  - Fresh full ETL on 2026-08-02 ZIP: 11,484 rows loaded, status COMPLETED.
+  - ZIP <-> warehouse reconciliation: sales.csv totals and sale_items.csv
+    line totals match the warehouse exactly (ETL is lossless on the CSV values).
+  - Wizard regression: validate -> prepare -> preview (accept corrections) ->
+    confirm-load -> refresh cache, all green on the same ZIP.
+  - Tenant isolation: T2 (cmpb0pfd...) has uploads (25 / 0 rows) but 0 warehouse
+    rows; no NULL-tenant rows exist; views surface T1 only.
+  - API regression: GET /api/bi-uploads/:id/summary returns revenue(30d),
+    topProducts, peakHours, averageTicket, kitchenPerformance, tableTurnover.
+  - analytics-cache service unchanged; cache snapshot still resolves to the
+    same upload and matches warehouse revenue (139,869.52).
+  - Backend + admin dev servers restarted and healthy (backend :3001 health
+    200, admin vite :5173 200).
+
+7. KNOWN LIMITATIONS (source-data, not ETL defects)
+--------------------------------------------------------------------------------
+  - products.csv stock = 0 everywhere -> inventory is a point-in-time snapshot;
+    v_inventory_status surfaces INVENTORY_DATA_NOT_AVAILABLE. Not an ETL bug.
+  - kitchen_orders.csv has started_at == ready_at on ~66% of rows (fabricated
+    test data) -> prep_minutes ~ 0; ETL stores timestamps faithfully.
+  - sale_items.csv line totals (119,854) do not reconcile to sales.csv totals
+    (139,869.52): line_total is exactly unit_price * quantity and the sale
+    totals carry extra (VAT/fees/discounts) not present at item level. This
+    exists in the source CSVs; ETL stores both grains faithfully. Per-product
+    revenue (v_product_performance) reflects the honest item grain.
+  - Hour-of-day is stored as an integer transactionHour (11 distinct hours
+    used). Naive POS timestamps are not timezone-converted.
+  - suppliers.csv is empty and no appointments are exported for the restaurant
+    business type -> v_suppliers / v_appointments stay empty by design.
+
+8. CONCLUSION
+--------------------------------------------------------------------------------
+The warehouse is dashboard-template ready: all granular datasets are
+materialized, dim_clients carries the real business name, hour-of-day analytics
+are supported, product-performance / peak-hours / dashboard-KPIs views are
+fixed, and the full pipeline is proven end-to-end with per-view and API checks.
+Remaining items are source-data quality notes only.
+================================================================================

@@ -31,6 +31,11 @@ class POSService {
     }
   }
 
+  /** Regenerate an existing POS project from its saved configuration. */
+  async generateAgain(licenseId: string) {
+    return this.generatePOS({ licenseId });
+  }
+
   async buildPOS(data: any) {
     try {
       const response = await posApi.build(data);

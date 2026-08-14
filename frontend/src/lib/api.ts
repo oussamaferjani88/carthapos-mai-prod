@@ -1,4 +1,5 @@
 import axios from 'axios';
+import { getToken, getAuthUser, getAuthClient } from '@/lib/auth';
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001/api';
 
@@ -17,12 +18,26 @@ api.interceptors.response.use(
 
 api.interceptors.request.use(
   (config) => {
+    const token = getToken();
+    if (token) {
+      config.headers['Authorization'] = `Bearer ${token}`;
+    }
+
+    // AccessMode testing override — only active when explicitly set via URL params.
     const accessMode = localStorage.getItem('accessMode');
     const currentUserId = localStorage.getItem('currentUserId');
     if (accessMode === 'user' && currentUserId) {
       config.params = { ...config.params, userId: currentUserId };
       config.headers['X-User-Id'] = currentUserId;
       config.headers['X-Access-Mode'] = 'user';
+    } else {
+      // Fall back to the authenticated client's real id for legacy endpoints.
+      const authClient = getAuthClient();
+      const authUser = getAuthUser();
+      const identityId = authClient?.id || authUser?.id;
+      if (identityId) {
+        config.headers['X-User-Id'] = identityId;
+      }
     }
     return config;
   },

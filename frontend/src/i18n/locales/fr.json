@@ -466,8 +466,10 @@
     "nav": {
       "dashboard": "Tableau de Bord",
       "generator": "Générateur POS",
+      "projects": "Mes Projets",
       "settings": "Paramètres",
-      "logout": "Déconnexion"
+      "logout": "Déconnexion",
+      "bi": "Mon espace BI"
     }
   },
   "generator": {

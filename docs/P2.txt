@@ -1,0 +1,235 @@
+### Why This Order Is Better
+
+1. **Sector first** -- grounds user, pre-fills everything.
+2. **Brand before theme** -- business name/logo are most personal, come first.
+3. **Theme before details** -- user sees complete POS quickly, then refines.
+4. **Progressive disclosure** -- each step reveals only what's relevant.
+5. **Linear progression** -- steps 1-8. No 2.5 or 2.7.
+6. **Receipt near end** -- depends on brand info from Step 2.
+7. **Preview always visible** -- real-time updates as user adjusts.
+
+### UX Rules
+
+- Preview panel on the right every step
+- Changes appear instantly (no Apply button)
+- Persistent header: Step name, Return to Step X, Save Draft
+- User can click any step in progress bar to jump back
+- Generate only on Step 8
+- All settings auto-save debounced 500ms
+
+---
+
+## 3. Option Classification
+
+### Every Current Property
+
+| Property | Verdict | Reason |
+|----------|---------|--------|
+| primaryColor | KEEP | Works end-to-end |
+| secondaryColor | KEEP | Works end-to-end |
+| accentColor | KEEP | Works end-to-end |
+| backgroundColor | KEEP | Works end-to-end |
+| textColor | KEEP | Works end-to-end |
+| textMutedColor | KEEP | Works (Layout footer, POSNavbar) |
+| cardBackgroundColor | KEEP | Partially works -- needs runtime fix |
+| cardBorderColor | KEEP | Works in Layout -- add UI control |
+| borderColor | RENAME | Merge with cardBorderColor |
+| fontFamily | KEEP | Works with Google Font loading |
+| fontSize | KEEP | Works |
+| fontWeight | KEEP | Works |
+| navbarPosition | KEEP | Works (left/top) |
+| navbarWidth | KEEP | Partially works |
+| navbarHeight | MERGE | Into navbarPosition config |
+| navbarStyle | REMOVE | Not consumed by POSNavbar |
+| navbarCollapsible | REMOVE | Not consumed |
+| sidebarCollapsible | REMOVE | POSNavbar always collapsible |
+| animations | KEEP | Works |
+| animationType | KEEP | Works for nav items |
+| animationSpeed | KEEP | Works for nav items |
+| shadows | KEEP | Works |
+| shadowIntensity | KEEP | Works via useThemeApplier |
+| borderRadius | KEEP | Works via useThemeApplier |
+| gradientBackgrounds | REMOVE | No consumer |
+| glassEffect | REMOVE | No consumer |
+| cardAnimations | REMOVE | No consumer |
+| cardAnimationType | REMOVE | No consumer |
+| cardAnimationSpeed | REMOVE | No consumer |
+| compactMode | REMOVE | Not consumed |
+| spacingScale | REMOVE | CSS var set, never referenced |
+| maxWidth | REMOVE | CSS var set, POSContent ignores |
+| showBreadcrumbs | REMOVE | No breadcrumb component |
+| businessName | KEEP | Works end-to-end |
+| appTitle | KEEP | Works |
+| logo | KEEP | Works (path fix needed) |
+| favicon | REMOVE | Always auto-generated |
+| footerText | KEEP | Works in Layout footer |
+| welcomeText | REMOVE | Not consumed |
+| currency | KEEP | Works in Sales.jsx |
+| currencyPosition | KEEP | Works in formatPrice |
+| taxRate | KEEP | Need to wire to Sales.jsx |
+| language | POSTPONE | No i18n -- V2 |
+| timezone | REMOVE | Not consumed |
+| dateFormat | POSTPONE | V2 |
+| timeFormat | POSTPONE | V2 |
+| businessAddress | POSTPONE | V2 |
+| businessPhone | POSTPONE | V2 |
+| businessEmail | REMOVE | No use |
+| businessWebsite | REMOVE | No use |
+| businessTaxId | POSTPONE | V2 |
+| dashboardLayout | REMOVE | Hardcoded |
+| showQuickStats | REMOVE | Hardcoded |
+| showRecentOrders | REMOVE | Hardcoded |
+| showTopProducts | REMOVE | Hardcoded |
+| enable* features (16) | REMOVE | Module system handles |
+| components.cards.* | MERGE | Merge with top-level |
+| components.buttons.* | KEEP/MERGE | Works, needs adoption |
+| components.grid.* | KEEP | Works |
+| components.forms.* | KEEP/MERGE | Works, needs adoption |
+| brandWatermark | REMOVE | DB-only |
+| buttonStyle | REMOVE | DB-only |
+| cardStyle | REMOVE | DB-only |
+| customCSS | POSTPONE | V3 |
+| hoverEffects | REMOVE | DB-only |
+| modalStyle | REMOVE | DB-only |
+| responsiveMode | REMOVE | DB-only |
+| showModuleBadges | REMOVE | DB-only |
+| showModuleIcons | REMOVE | DB-only |
+| showQuickActions | REMOVE | DB-only |
+| splashScreen | REMOVE | DB-only |
+| tableStyle | REMOVE | DB-only |
+| widgetSizes | REMOVE | DB-only |
+| autoModeSwitch | REMOVE | DB-only |
+| autoSave | REMOVE | DB-only |
+| backdropBlur | REMOVE | DB-only |
+| opacity | REMOVE | DB-only |
+| theme (dark/light) | POSTPONE | V2 |
+| receipt options (9) | POSTPONE | V2 |
+
+### Summary
+
+| Verdict | Count |
+|---------|-------|
+| KEEP | 30 |
+| MERGE | 3 |
+| REMOVE | 48 |
+| POSTPONE | 14 |
+
+---
+
+## 4. New Personalization Features
+
+### V1 -- Essential (Must Have)
+
+| # | Feature | Description | Why |
+|---|---------|-------------|-----|
+| 1 | Brand Logo | Upload logo, auto-favicon | Identity |
+| 2 | Business Name | Displayed everywhere | Core |
+| 3 | Primary Color | Buttons, sidebar, states | Recognition |
+| 4 | Color Palette | 6-8 customizable colors | Brand alignment |
+| 5 | Font Selection | 6+ Google Fonts with preview | Professional |
+| 6 | Sidebar Style | Left/Top/Collapsed | Workflow |
+| 7 | Card Style | Border radius + shadow | Visual feel |
+| 8 | Button Style | Rounded/Square/Pill + size | Interaction |
+| 9 | Module Selection | Enable/disable features | Relevance |
+| 10 | Sector Presets | Pre-configured per industry | Fast setup |
+| 11 | Dark/Light Mode | Theme switch | Modern expectation |
+| 12 | Currency & Tax | Localized display | Legal |
+| 13 | Receipt Branding | Header text, footer | Professional |
+| 14 | Compact Mode | Dense spacing | High volume |
+
+### V2 -- Professional
+
+| # | Feature |
+|---|---------|
+| 15 | Receipt Designer |
+| 16 | Custom Fonts (TTF/OTF) |
+| 17 | Icon Packs (Lucide, Phosphor, Tabler) |
+| 18 | Dashboard Layout |
+| 19 | Login Page Branding |
+| 20 | Loading Screen |
+| 21 | Status Badge Colors |
+| 22 | Table Density |
+| 23 | Navigation Labels |
+| 24 | Header Style |
+| 25 | Business Details |
+| 26 | Keyboard Shortcuts |
+| 27 | Notification Style |
+| 28 | Date/Time Format |
+| 29 | Language (FR/EN/AR) |
+
+### V3 -- Enterprise
+
+| # | Feature |
+|---|---------|
+| 30 | Custom CSS |
+| 31 | Custom JS |
+| 32 | Multi-Location |
+| 33 | Theme Versioning |
+| 34 | Theme Marketplace |
+| 35 | White-Label |
+| 36 | Window Appearance |
+| 37 | Business Wallpaper |
+| 38 | Kiosk Mode |
+| 39 | Hardware Profiles |
+| 40 | A/B Theme Testing |
+
+---
+
+## 5. Preview Redesign
+
+### Current Problems
+
+1. Admin preview uses Tailwind v4, generated POS uses v3
+2. Different POSConfiguration files, different defaults
+3. useThemeApplier absent from preview
+4. CSS variables on inline style vs :root
+5. Demo data instead of realistic
+6. Missing features
+
+### Preview Redesign: Share Components
+
+The preview MUST render the exact same components as the generated POS.
+
+```
+Admin Preview -> Import from pos-template:
+  POSNavbar.jsx, POSHeader.jsx, POSContent.jsx, POSWithAuth.jsx
+  POSConfiguration.js, useThemeApplier.js, useAppConfig.js (mocked)
+  Same Tailwind config (v4 everywhere)
+  Same CSS variables (set on :root)
+  Same POSConfiguration (single file)
+  Same component tree
+```
+
+### Preview Features
+
+| Feature | Description | Priority |
+|---------|-------------|----------|
+| Device switching | Desktop/Tablet/Mobile | V1 |
+| Page tabs | Dashboard, Sales, Products, Settings | V1 |
+| Live theme update | Instant changes | V1 |
+| Sector preset | Realistic demo data | V1 |
+| Full-screen toggle | Expand preview | V1 |
+| Before/After | Side-by-side | V2 |
+| Dark/Light toggle | Preview both modes | V2 |
+| Zoom | 50%-150% | V2 |
+| Undo/Redo | Ctrl+Z/Ctrl+Y | V2 |
+| Screenshot | Export PNG | V2 |
+| Receipt preview | In preview panel | V2 |
+| Login screen | Branded login | V2 |
+| Multi-page | Simultaneous pages | V3 |
+| Preset comparison | Side-by-side | V3 |
+
+### Preview UX
+
+```
++--------------------------------------------------+
+| [Dashboard] [Sales] [Products] [Settings]        |
+|                                                    |
+| +----------------------------------------------+ |
+| |            LIVE POS PREVIEW                   | |
+| |   Changes apply instantly as user edits       | |
+| +----------------------------------------------+ |
+|                                                    |
+| [Desktop] [Tablet] [Mobile]  [Full Screen]        |
++--------------------------------------------------+
+```

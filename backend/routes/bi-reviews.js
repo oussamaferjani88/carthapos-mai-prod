@@ -16,12 +16,14 @@ router.get('/', async (req, res) => {
       where.status = { in: ['READY_FOR_REVIEW', 'PUBLISHED'] };
     }
 
-    const skip = (parseInt(page) - 1) * parseInt(pageSize);
+    const parsedPage = Math.max(parseInt(String(page || '1'), 10) || 1, 1);
+    const parsedPageSize = Math.min(Math.max(parseInt(String(pageSize || '50'), 10) || 50, 1), 100);
+    const skip = (parsedPage - 1) * parsedPageSize;
     const [items, total] = await Promise.all([
       prisma.biDashboard.findMany({
         where,
         skip,
-        take: parseInt(pageSize),
+        take: parsedPageSize,
         orderBy: { updatedAt: 'desc' },
         include: {
           notifications: { take: 1, orderBy: { createdAt: 'desc' } },
@@ -32,7 +34,7 @@ router.get('/', async (req, res) => {
 
     res.json({
       success: true,
-      data: { items, total, page: parseInt(page), pageSize: parseInt(pageSize), totalPages: Math.ceil(total / parseInt(pageSize)) },
+      data: { items, total, page: parsedPage, pageSize: parsedPageSize, totalPages: Math.ceil(total / parsedPageSize) },
     });
   } catch (error) {
     console.error('[REVIEWS] List failed:', error);
@@ -60,6 +62,7 @@ router.patch('/:id/approve', async (req, res) => {
         clientId: updated.clientId,
         dashboardId: updated.id,
         type: 'DASHBOARD_READY',
+        category: 'DASHBOARD',
         title: 'Your Dashboard Has Been Published',
         message: `Your business dashboard "${updated.name}" has been reviewed and published. View it in your CarthaPOS account.`,
       },

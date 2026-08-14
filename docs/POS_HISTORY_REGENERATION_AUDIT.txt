@@ -1,0 +1,374 @@
+================================================================================
+AUDIT: CLIENT POS HISTORY & REGENERATION — CURRENT STATE
+================================================================================
+Date: 2026-08-06
+Status: AUDIT COMPLETE — implementation NOT started (awaiting approval)
+
+================================================================================
+EXECUTIVE SUMMARY
+================================================================================
+The core "generate a POS from a config" flow exists and works end-to-end.
+What is MISSING is the "save the generator state permanently + reload it into
+the wizard + regenerate/modify/version" layer.
+
+KEY FINDING: The generator config IS already persisted in the database, but
+through a LOSSY typed-column whitelist (backend/routes/licenses.js
+filterValidConfigurationFields). Every field not in the LicenseConfiguration
+schema is silently dropped at license-creation time. So "save the full
+generator state" does NOT currently work for ~50% of the wizard options.
+
+There is NO PosProject / BuildHistory / Version model. "Regenerate" exists as
+a one-shot dashboard action (POST /pos/generate with a licenseId) but there is
+no way to reload a saved config into the wizard, no versioning, no "My POS
+Projects" page, no drafts.
+
+================================================================================
+1. CURRENT ARCHITECTURE
+================================================================================
+Flow: Client opens /pos-generator (POSGeneratorPage.tsx) → completes a
+5-step wizard → Generate → creates a License row in DB → POST /pos/generate
+→ generator engine copies pos-template/ → patches config/theme/modules →
+optional .exe build → download.
+
+Frontend wizard (frontend/src/pages/pos/POSGeneratorPage.tsx):
+  Step 1      Basic config (client + sector)
+  Step 2      Module selection (grid of modules)
+  Step 2.5    Template vs custom choice
+  Step 2.7    Template gallery (4 hardcoded: café, restaurant, retail, pharmacy)
+  Step 3      POSCustomizer (design studio, full-screen or inline)
+  Step 4      License config (type, binding, USB)
+  Step 5      Results / download (polls /pos/build-status/:licenseId)
+
+State hooks (all React-memory only, NOT persisted):
+  usePOSGenerator.ts   step, status, generationResult {license, licenseFile, posApplication}
+  usePOSConfiguration.ts  configuration (Record<string,any>, ~95 fields)
+  usePOSModules.ts     selectedModules: string[] (module ids)
+  page-local formData  clientId, sector, licenseType, bindingType, expirationDate, selectedUSB, forcePortableMode
+
+Generation trigger (usePOSGenerator.ts:84-177):
+  1. POST /licenses            -> creates License + LicenseModule rows +
+                                 LicenseConfiguration row (whitelist-filtered)
+  2. POST /pos/generate        -> backend reloads license + modules +
+                                 configuration, runs generatePOSApplication()
+  3. optional USB write
+  4. result set -> step 5
+
+Backend generator engine (backend/utils/generators/*):
+  index.js generatePOSApplication(license, outputPath, options)
+    -> ProjectBuilder (copy template into generated-pos/pos-<client>-<key>)
+    -> AssetManager (config files, asset refs)
+    -> ModuleFilter (comment-out disabled module nav/routes)
+    -> DependencyManager / BuildSystemManager (robocopy node_modules, vite +
+       electron-builder -> .exe)
+    -> ThemeCustomizer, FilePatcher
+  POST /pos/generate (routes/pos.js:19) RELOADS the license from DB each time,
+  so regeneration-from-DB already works mechanically.
+
+Download: GET /pos/download?path=&licenseId= (routes/pos.js:415) serves the
+.exe, or a source zip fallback when not built locally.
+
+================================================================================
+2. EXISTING PERSISTENCE
+================================================================================
+Database (the ONLY durable persistence):
+  License              row per generated POS (licenseKey, sector, buildStatus,
+                       buildProjectPath, buildProjectName, buildRunId, ...)
+  LicenseModule        M:N License<->Module (isEnabled)
+  LicenseConfiguration 1:1 typed config columns (~55 fields)
+  Client               owner (clientId FK), Client.userId -> User
+
+LocalStorage/sessionStorage: NOTHING persists generator state. No drafts, no
+saved configs. Only auth keys + AccessMode keys + UI theme + a dead posLayout
+key exist.
+
+There is NO storage of:
+  - the complete wizard state object
+  - build history per license (only last buildStatus/path on the License)
+  - versions of a configuration
+  - a "project" concept
+
+UserPosConfiguration model EXISTS in schema.prisma:316-329 but is DEAD CODE —
+not referenced anywhere in backend JS. It only holds businessName/sector/
+outputPath/buildStatus/lastBuiltAt (not the full config). It was partially
+dropped by the BI migration (buildStatus column). Do NOT revive blindly.
+
+================================================================================
+3. EXISTING DATABASE MODELS
+================================================================================
+Relevant models (backend/prisma/schema.prisma):
+  Client             id, userId?, name, email, ... (Client.userId -> User)
+  License            id, clientId FK, licenseKey, sector, licenseType,
+                     isActive, buildStatus/buildProjectPath/buildProjectName/
+                     buildRunId, bindingType, usbSerialNumber, ...
+                     relations: configuration, modules, client, biDashboards,
+                     biRequests, biAnalysisRequests, UserPosConfiguration?
+  Module             id, name, required, category, ...
+  LicenseModule      licenseId, moduleId, isEnabled
+  LicenseConfiguration 1:1 typed config (see section 6) with ~55 columns
+  User               id, username, email, role, client?, businessInfo Json
+  UserPosConfiguration DEAD model (section 2)
+
+MISSING MODELS (none exist):
+  PosProject            (a named client-facing project wrapper)
+  GeneratorConfigSnapshot / full-config JSON snapshot
+  BuildHistory / GeneratedPos / BuildLog
+  ConfigVersion (V1/V2 links)
+
+There are NO Json columns on License/LicenseConfiguration. The only Json
+columns in the schema belong to User.businessInfo and BI models.
+
+================================================================================
+4. EXISTING APIs
+================================================================================
+Endpoint                              State      Notes
+--------------------------------------------------------------------------------
+POST /api/licenses                    COMPLETE   Creates License + LicenseModule +
+                                                  LicenseConfiguration. BUT config is
+                                                  filtered by whitelist (LOSES fields).
+GET  /api/licenses                    COMPLETE   Per-user history feed: ?userId=&userEmail=.
+                                                  Returns license + modules + configuration.
+                                                  USED by Dashboard "My POS Systems".
+GET  /api/licenses/:id                COMPLETE   Returns license + modules + configuration.
+                                                  USED by Dashboard details dialog.
+PUT  /api/licenses/:id                COMPLETE   Upserts LicenseConfiguration (also filtered).
+POST /api/licenses/admin-create       COMPLETE   Admin create (same filtering).
+POST /api/pos/generate                COMPLETE   Requires licenseId only. Reloads license +
+                                                  config + modules from DB, regenerates.
+                                                  THE regenerate endpoint already exists.
+GET  /api/pos/build-status/:licenseId COMPLETE   Build polling (GitHub Actions / local).
+GET  /api/pos/download                COMPLETE   Serves .exe (or source zip fallback).
+DELETE /api/pos/cleanup/:licenseId    COMPLETE   Deletes buildProjectPath from disk.
+POST /api/pos/build                   COMPLETE   Rebuilds an existing project path.
+GET  /api/pos/templates               COMPLETE   Lists pos-template/*/template.json.
+GET  /api/pos/sectors                 COMPLETE   Sector list.
+GET  /api/modules                     COMPLETE   Module registry (used to prefill module grid).
+POST /api/usb/write-license           COMPLETE   USB write (optional path).
+
+DEAD / UNUSED:
+  GET /api/pos/templates — frontend uses 4 HARDCODED template cards, does NOT
+    call this endpoint. Reusable when building the project page.
+  src/routes/pos.js (v1) — only mounted when running server-v2.js; unused by
+    the deployed server.js.
+
+MISSING endpoints:
+  - None strictly required to REGENERATE (POST /pos/generate already works
+    with just licenseId). Required additions are for SAVING the FULL config
+    and loading it back (a raw-config JSON column + returning it).
+
+================================================================================
+5. EXISTING FRONTEND
+================================================================================
+Dashboard "My POS Systems" card (frontend/src/pages/dashboard/Dashboard.tsx:463):
+  - Lists licenses from GET /licenses?userId=&userEmail=
+  - Actions: View (details dialog), Download (GET /pos/download), Regenerate
+    (POST /pos/generate {licenseId} — EXISTS), Module upgrade quote/purchase.
+  - This is the closest thing to "My POS Projects" today.
+
+Generator shims (DEAD/LEGACY — do not build on them):
+  Generator.tsx       /dashboard/generator — iframe into ADMIN app generator
+  UserPOSGenerator.tsx — hard redirect to admin generator (never routed)
+
+MISSING frontend:
+  - "My POS Projects" page (dedicated, richer than the dashboard card)
+  - "Modify configuration" — open wizard PRE-FILLED from a saved license
+  - "Generate Again" as a first-class action (works, but no page)
+  - "Duplicate" / "Delete" project
+  - Draft autosave / continue
+  - Loading a saved config back into usePOSConfiguration / usePOSModules /
+    formData
+
+Reusable frontend pieces:
+  - usePOSConfiguration already accepts initialConfig (hooks/usePOSConfiguration.ts:102)
+  - usePOSModules accepts initialModules (hooks/usePOSModules.ts:6)
+  - POSGeneratorPage formData could be seeded from a licenseId query param
+  - Step5Results resetGenerator already exists for "new POS"
+  - posService.generatePOS / getDownloadUrl already exist
+
+Routing (App.tsx): /pos-generator (real wizard), /dashboard (Dashboard),
+/dashboard/generator (shim), /dashboard/bi* (BI). NO /projects route.
+
+================================================================================
+6. EXISTING GENERATOR CONFIGURATION — SERIALIZABILITY
+================================================================================
+The full configuration object = { clientId, sector, licenseType, bindingType,
+expirationDate, selectedModules: string[], configuration: {...} }.
+
+It IS JSON-serializable (plain object; logo/favicon are base64 data-URL
+strings). Proof: POSCustomizer already exports/imports the config as
+pos-config.json via JSON.stringify/parse.
+
+Restorability gap — THE CORE PROBLEM:
+  backend/routes/licenses.js:137 filterValidConfigurationFields uses a whitelist
+  of ~55 valid fields matching LicenseConfiguration columns. On license create/
+  update, the config is reduced to ONLY those keys.
+
+Fields the wizard has but that are DROPPED (never persisted):
+  businessAddress/Phone/Email/Website/TaxId (present in ensureStringFields but
+  NOT in validFields), footerText, receiptHeader/receiptFooter/receiptShowLogo/
+  receiptShowQR, requireLogin, sessionTimeout, showUserInfo, allowGuestMode,
+  allowRefunds, allowDiscounts, allowPriceOverride, requireManagerApproval,
+  currencyPosition, dateFormat, timeFormat, numberFormat, cardBorderColor,
+  headingFontSize, spacing, cardPadding, navbarWidth, navbarHeight, showNavbarBrand,
+  contentMaxWidth, sidebarCollapsible, animationsDuration, buttonSize,
+  buttonHoverEffect, cardCornerRadius, cardShadow, tableRowHover,
+  tableCompactMode, statsCardStyle, highContrast, largeText, reduceMotion,
+  lazyLoading, imageOptimization, cacheData, sales{}, inventory{}, reports{},
+  previewDevice, features, businessLogo, forcePortableMode, requireUSBLicense,
+  customFont, components, receipt* ...
+
+Result: if a client toggles "Require login", sets receipt footer, uploads a
+logo, chooses date/number formats, enables refunds, etc., then logs out and
+logs back in — NONE of that survives. The generator engine even reads several
+of these keys at build time (AssetManager/ThemeCustomizer reference features,
+businessLogo, forcePortableMode, requireUSBLicense, customFont, receipt*), so
+regenerating today reproduces only the ~55 whitelisted fields and everything
+else silently falls back to defaults.
+
+What must change (minimal):
+  Persist the FULL config as a JSON snapshot alongside the typed row, e.g.
+  add LicenseConfiguration.rawConfig Json? (or a small PosConfigSnapshot
+  table) that stores the complete configuration + selectedModules + sector +
+  licenseType + bindingType + expirationDate WITHOUT whitelist filtering, and
+  include it in GET /licenses responses. Then the wizard can prefill by
+  spreading that snapshot (usePOSConfiguration initialConfig already merges).
+
+================================================================================
+7. VERSIONING
+================================================================================
+Current architecture does NOT support versions. One License = one config.
+Regenerate overwrites buildStatus/buildProjectPath on the SAME License; the
+config is not versioned. Creating a modified config today = creating a NEW
+License (duplicate).
+
+Natural options (analysis only, NO implementation):
+  A) New License per generate-from-modified config (each saved config =
+     a new License row). Pros: zero schema change for versioning, every
+     version already has its own download/build path, dashboard card already
+     lists all licenses as separate rows. Cons: licenseKey proliferation,
+     need a display grouping ("versions of same project").
+  B) Add version + parentProjectId to License (or a PosProject parent table).
+     Pros: proper project grouping. Cons: new model/migration, dashboard
+     changes.
+  RECOMMENDED for minimal change: Option A — treat each saved configuration +
+  generate as its own License, and group them in the UI by businessName. Add a
+  ConfigVersion counter only if strict V1/V2 labeling is required. Versioning
+  can be decided after the audit as the task allows.
+
+================================================================================
+8. MINIMAL REQUIRED CHANGES (PLAN — NOT IMPLEMENTED)
+================================================================================
+P0 — Persist the full config (unblocks everything):
+  1. backend/prisma/schema.prisma: add LicenseConfiguration.rawConfig Json?
+     (and optionally posConfigVersion Int @default(1)).
+  2. backend/routes/licenses.js: in the whitelist filter path, ALSO store the
+     unfiltered snapshot { configuration, selectedModules, sector,
+     licenseType, bindingType, expirationDate } into rawConfig on create +
+     update. Keep existing typed columns as-is (no removal).
+  3. Include rawConfig in GET /licenses and GET /licenses/:id includes.
+  4. Migration via hand-authored migration.sql + prisma migrate deploy.
+
+P1 — Reload saved config into the wizard:
+  5. frontend: POSGeneratorPage reads optional ?licenseId= (or /projects/:id)
+     query; on mount, if present, GET /licenses/:id, then:
+       - usePOSConfiguration(license.rawConfig.configuration)
+       - usePOSModules(license.rawConfig.selectedModules)
+       - seed formData (clientId, sector, licenseType, bindingType,
+         expirationDate)
+     Reuses existing hook initial-value support (no new architecture).
+  6. Add a "Modify" action on existing projects -> route to /pos-generator?licenseId=.
+
+P2 — "My POS Projects" page:
+  7. New client page (reuse GET /licenses feed + Dashboard card patterns) with
+     per-project: View details, Download, Generate Again (POST /pos/generate),
+     Modify (-> prefill), Duplicate (POST /licenses copy + optional), Delete
+     (optional; soft or DELETE /pos/cleanup + license removal).
+  8. Add route /dashboard/projects + sidebar entry.
+  9. Reuse downloadPOS / build-status polling / Step5Results.
+
+P3 — Polish (optional, versioning decision): group by businessName, show
+  buildStatus badge, version counter if desired.
+
+Regenerate does NOT need new endpoints: POST /pos/generate {licenseId} already
+reloads config+modules from the DB and rebuilds. The dashboard action exists
+today; only the full-config persistence (P0) is required for fidelity.
+
+================================================================================
+9. RISKS
+================================================================================
+- Lossy persistence is the #1 blocker: without P0, "modify & regenerate" will
+  silently drop ~half the wizard options. Must ship P0 before P1/P2.
+- rawConfig Json with base64 logo/favicon can be large; keep rawConfig bounded
+  (cap logo size) or move logo to filesystem path. Acceptable for phase 1.
+- Existing DB rows have no rawConfig: old POS projects can still regenerate
+  (typed columns) but with reduced fidelity. Note in UI or accept.
+- Dead legacy code (UserPosConfiguration, Generator.tsx iframe, v1 routes)
+  must NOT be reused or revived.
+- POS engine (pos-template + utils/generators + routes/pos.js) is on the
+  DO-NOT-MODIFY list. P0 only touches licenses.js filtering + schema; do NOT
+  change generator behavior.
+- buildStatus semantics (source_ready/completed/building) reused as-is.
+- The user-mode client filter (GET /licenses?userId=) uses clientId-prefix
+  matching + email; with real auth the client is linked via Client.userId —
+  verify the feed returns correct licenses for the authenticated client
+  (may need the feed to also match Client.userId).
+
+================================================================================
+10. RECOMMENDED IMPLEMENTATION ORDER
+================================================================================
+  1. P0: schema rawConfig column + migration + store/return it (verify GET
+     /licenses returns it).
+  2. P0: verify a full-config generate -> regenerate reproduces options.
+  3. P1: wizard prefill via ?licenseId= (Modify).
+  4. P2: "My POS Projects" page + route + actions (Generate Again / Modify /
+     Download / Duplicate / Delete-optional).
+  5. P3: versioning/grouping decision + polish.
+  Validate at each step with tsc --noEmit + a browser E2E (generate -> reload
+  wizard -> modify -> regenerate -> download).
+
+================================================================================
+11. ESTIMATED EFFORT
+================================================================================
+  P0 (rawConfig persistence)            ~1 day  (schema + filter + includes + migration)
+  P1 (wizard prefill / Modify)          ~1-2 days (query param, seeding 3 hooks, validation)
+  P2 (My POS Projects page + actions)   ~2-3 days (page, routing, actions reuse)
+  P3 (versioning/grouping/polish)       ~1-2 days (decision-dependent)
+  Total                                ~5-8 days incl. verification/E2E
+
+================================================================================
+12. FILES THAT WILL NEED MODIFICATION (when approved)
+================================================================================
+Backend:
+  backend/prisma/schema.prisma            add rawConfig Json? (+ version col, optional)
+  backend/prisma/migrations/<new>/        migration.sql
+  backend/routes/licenses.js              store rawConfig; include in list/get responses
+  (NO changes to pos.js, utils/generators/*, pos-template, services/*)
+
+Frontend:
+  frontend/src/pages/pos/POSGeneratorPage.tsx   accept ?licenseId= prefill
+  frontend/src/pages/dashboard/Projects.tsx     NEW "My POS Projects" page
+  frontend/src/App.tsx                          route /dashboard/projects (+ sidebar in DashboardLayout.tsx)
+  frontend/src/services/posService.ts           (maybe) getDownloadUrl reuse, loadProject
+  frontend/src/pages/dashboard/Dashboard.tsx    (optional) link card -> projects page
+
+================================================================================
+13. FILES THAT MUST REMAIN UNTOUCHED
+================================================================================
+  backend/services/*                 (BI/ETL/analytics — out of scope)
+  backend/routes/bi-*                (BI workflow — paused)
+  backend/routes/pos.js              (generator endpoint — reuse as-is)
+  backend/utils/generators/*         (generator ENGINE — reuse as-is)
+  backend/utils/pos-generator.js, license-validator.js, etc.
+  pos-template/*                     (POS source template)
+  admin/*                            (Admin app — out of scope)
+  metabase/*, backend ETL/warehouse/analytics-cache
+  POS BI export (frontend BiExportDeploy, Generator.tsx iframe)
+  backend/src/* (v1)                 (unused alt server)
+
+================================================================================
+DECISION REQUESTED
+================================================================================
+  a) Approve the audit + minimal plan (P0->P1->P2) as-is?
+  b) Versioning: Option A (each saved config = its own License, grouped in UI)
+     vs Option B (new PosProject parent table)? Default recommendation: A.
+  c) Delete/duplicate: include in this phase or defer?
+================================================================================

@@ -1,0 +1,317 @@
+================================================================
+CARTHAPOS BI — FULL DATA FLOW REPORT
+From client data import → ETL processing → Metabase dashboard
+================================================================
+
+This report describes, end to end, what happens in the system when an
+admin imports a client's data file, processes it through the ETL
+pipeline, generates a BI dashboard, and finally loads/displays that
+data inside a Metabase dashboard.
+
+========================================================
+SECTION 1 — ADMIN IMPORTS THE CLIENT'S DATA
+========================================================
+
+Files involved:
+  - backend/routes/bi-uploads.js   (upload endpoint, POST /api/bi-uploads)
+  - backend/routes/bi-requests.js  (BI request lifecycle)
+  - admin/src/pages/wizard/Step1Upload.jsx (upload UI)
+
+What happens:
+  1. The admin starts a BI import from the wizard ("Assistant d'import BI").
+     The import can be linked to a BI request (BiRequest) that has already
+     been approved, or run standalone.
+
+  2. The client's data is sent as a ZIP file containing:
+       - metadata.json      (clientId, businessType, bi_schema_version, ...)
+       - one or more CSVs   (sales.csv, products.csv, customers.csv,
+                             inventory.csv, appointments.csv, ...)
+     Max accepted size: 100 MB.
+
+  3. On the backend (POST /api/bi-uploads):
+       - The ZIP is received with multer.
+       - A duplicate-file check runs (bi_uploads.fileHash unique index).
+         If the same file was already uploaded and FAILED, the old job is
+         removed so the client can retry.
+       - A BiUpload row is created with status = PENDING_PAYMENT_VERIFICATION
+         and a BiProcessingJob is created (status = QUEUED).
+
+  4. The linked BiRequest (if any) is checked: only an APPROVED request may
+     be linked to an upload. Payment verification gates the import.
+
+  5. The admin then advances the upload through the wizard steps:
+       Upload → Validate → Raw preview → Prepare → Transform preview →
+       Dimensional model → Corrections → Load → Dashboard → Report.
+
+  Statuses seen at the upload level:
+       UPLOADED → VALIDATING → VALIDATED → PREPARED → COMPLETED (or FAILED)
+  Statuses seen at the request level (request-linked imports):
+       APPROVED → PROCESSING_ETL → DATA_REVIEW → GENERATING_DASHBOARD →
+       READY_FOR_REVIEW → PUBLISHED → COMPLETED
+  (All statuses and event types are centralized in backend/utils/bi-status.js.)
+
+========================================================
+SECTION 2 — ETL PROCESSING (backend/services/etl-pipeline.js)
+========================================================
+
+The ETL is implemented as an EtlPipeline class. Its run() method executes
+the following steps in order:
+
+  STEP 1 — EXTRACT ZIP
+    - The uploaded ZIP is unpacked to a temporary directory.
+    - The ZIP is inspected (file list, sizes) for integrity.
+
+  STEP 2 — READ METADATA
+    - metadata.json is parsed.
+    - clientId is OVERRIDDEN with the upload.clientId (tenant isolation:
+      the data always belongs to the client selected on the upload, never
+      to an id embedded inside the ZIP).
+    - businessType and bi_schema_version are read.
+
+  STEP 3 — SCHEMA ENFORCEMENT
+    - The ZIP's bi_schema_version must match the server's
+      BiSchemaRegistry.BI_SCHEMA_VERSION. A mismatch aborts the pipeline
+      (export produced by an older/different POS version is rejected).
+
+  STEP 4 — VALIDATE DATASETS (backend/services/bi-schema-registry.js)
+    - Each CSV is validated against the registered schema: required
+      columns, data types, allowed values.
+    - Known quality fixes are applied automatically (e.g. table_number
+      parsing, service-location normalization for "Comptoir"/"Take Away").
+
+  STEP 4b — DATA PREPARATION (backend/services/data-preparation-service.js)
+    - This is the TRANSFORM phase. For every row of every dataset:
+        * Exact duplicate rows are removed (deduplication).
+        * Business keys are checked for duplicates.
+        * Type coercion: numbers and dates are parsed/normalized
+          (e.g. "T5" → 5 for table_number).
+        * Categorical values are mapped to known enums/domains
+          (normalizeEnum).
+        * Text values are trimmed/normalized.
+    - Every automatic fix is recorded (automaticFixes, warnings, errors,
+      duplicatesRemoved) and shown to the admin in the wizard.
+    - Rows that cannot be fixed are marked ERROR; if they belong to a
+      dataset that will be loaded, the load step is blocked until the
+      admin resolves them.
+
+  STEP 5 — LOAD INTO WAREHOUSE (inside a DB transaction)
+    - STEP 5a: Load dimension tables:
+        dim_clients, dim_products, dim_suppliers, dim_customers, dim_time
+    - STEP 5b: Load fact tables:
+        fact_sales, fact_sale_items, fact_inventory, fact_appointments,
+        fact_kitchen_orders, fact_kitchen_order_items
+    - Invalid rows are skipped; orphan rows (references that do not match
+      any dimension) are skipped with warnings.
+    - On success: BiUpload → COMPLETED, BiProcessingJob → COMPLETED with
+      recordsLoaded, and the linked BiRequest (if any) transitions
+      PROCESSING_ETL → DATA_REVIEW.
+    - On failure: BiUpload/BiProcessingJob → FAILED with the failing step
+      named (e.g. "FAILED at step validate").
+
+  WIZARD SUB-STEPS (triggered by admin through the UI, NOT part of run()):
+    - POST /api/bi-uploads/:id/validate        → extract + validate only
+    - POST /api/bi-uploads/:id/prepare         → run data preparation
+    - POST /api/bi-uploads/:id/correct         → apply admin corrections
+    - POST /api/bi-uploads/:id/confirm-load    → run the warehouse load
+      (confirm-load is blocked while unresolved ERRORs remain on loaded
+      datasets; it reuses loadIntoWarehouse()).
+
+  NOTE: The warehouse is the single source of truth for BI analytics. The
+  analytics-cache-service pre-computes queries on top of it. The ETL,
+  warehouse schema and analytics cache are NOT modified by the dashboard
+  assignment workflow.
+
+========================================================
+SECTION 3 — DASHBOARD GENERATION
+========================================================
+
+Files involved:
+  - backend/routes/bi-dashboards.js  (generate-from-upload endpoint)
+  - admin/src/pages/wizard/Step8Dashboard.jsx (UI)
+
+What happens:
+  1. Once the data is COMPLETED (loaded into the warehouse), the admin
+     reaches the wizard's dashboard step.
+
+  2. POST /api/bi/dashboards/generate-from-upload is called with uploadId.
+     Guards:
+       - Upload must be COMPLETED.
+       - Linked BiRequest (if any) must be DATA_REVIEW.
+     A "dashboard generation is already running" 409 STATE_CONFLICT is
+     returned if a concurrent generation is in progress (atomic status
+     guard DATA_REVIEW → GENERATING_DASHBOARD).
+
+  3. A BiDashboard row is created:
+       - version = max(prior version for this client/businessType) + 1
+       - status = DRAFT
+       - templateUsed / name / description from the BiDashboardTemplate
+         registry (restaurant → "Restaurant Dashboard", etc.)
+       - metabaseDashboardId = the id the admin selected from a Metabase
+         collection (or the template fallback, or null)
+
+  4. The linked BiRequest (if any) transitions GENERATING_DASHBOARD →
+     READY_FOR_REVIEW and a DASHBOARD_GENERATED timeline event is recorded.
+
+  IMPORTANT: "Generating a dashboard" here only creates the BiDashboard
+  metadata row. The actual Metabase dashboard already exists inside
+  Metabase (in the CarthaPOS Templates collections). The system does NOT
+  create Metabase cards/questions — it LINKS the CarthaPOS dashboard to an
+  existing Metabase dashboard.
+
+========================================================
+SECTION 4 — ADMIN PICKS A METABASE COLLECTION + DASHBOARD
+(collection-based assignment)
+========================================================
+
+Files involved:
+  - backend/utils/metabase-client.js      (Metabase REST client)
+  - backend/routes/bi-metabase.js         (discovery endpoints)
+  - admin/src/pages/AdminDashboardAssign.jsx (admin UI)
+  - admin/src/pages/AdminRequestDetail.jsx  (entry button)
+
+What happens:
+  1. From a DRAFT / READY_FOR_REVIEW dashboard, the admin clicks
+     "Assigner un dashboard Metabase" → /bi-dashboard/:id/assign.
+
+  2. The page loads the live list of Metabase collections:
+       GET /api/bi/metabase/collections
+     The backend authenticates to Metabase via POST /api/session using
+     METABASE_USER / METABASE_PASSWORD from backend/.env, then calls
+     GET /api/collection (Metabase REST API).
+
+  3. The admin picks a collection (e.g. "CarthaPOS Templates"):
+       GET /api/bi/metabase/collections/:id/dashboards
+     The backend lists items inside that collection, recursing into
+     sub-collections (Restaurant → Dashboard → ...), and keeps ONLY
+     items with model === 'dashboard'. Questions, Documentation and
+     nested collections are filtered out, so the admin never sees them.
+
+  4. The admin picks one dashboard (e.g. "Restaurant Executive Dashboard",
+     Metabase id 3).
+
+  5. On selection, the chosen metabaseDashboardId is PERSISTED:
+       PATCH /api/bi/dashboards/:id   { metabaseDashboardId: <id> }
+
+  6. A live preview iframe is shown (admin-only):
+       GET /api/bi/dashboards/:id/embed
+     The backend resolves the public-share UUID of the chosen Metabase
+     dashboard (fetches it, or creates it via the public_link endpoint)
+     and returns iframeUrl =
+       METABASE_PUBLIC_URL/public/dashboard/<public_uuid>
+     The iframe renders the real Metabase dashboard populated with the
+     client's warehouse data.
+
+========================================================
+SECTION 5 — PUBLISH
+========================================================
+
+Files involved:
+  - backend/routes/bi-dashboards.js (POST /api/bi/dashboards/:id/publish)
+  - backend/routes/bi-reviews.js    (approve/reject)
+
+What happens:
+  1. The admin clicks "Publier" on the assign page.
+  2. POST /api/bi/dashboards/:id/publish validates the dashboard is
+     DRAFT or READY_FOR_REVIEW, then atomically:
+       - sets status = PUBLISHED and assignedAt = now
+       - archives prior ACTIVE BiDashboardAssignments for the client
+         (status → SUPERSEDED)
+       - creates a new ACTIVE BiDashboardAssignment
+       - completes the linked BiRequest (→ COMPLETED)
+       - sends the client a DASHBOARD_READY notification
+  3. The client's embedded dashboard viewer now shows this published
+     dashboard (gated on status === PUBLISHED and embedding enabled).
+
+========================================================
+SECTION 6 — WHAT HAPPENS WHEN THE ADMIN LOADS THE CLIENT'S
+DATA IN THE METABASE DASHBOARD
+========================================================
+
+Two different meanings:
+
+A) "Loading the data INTO Metabase" — how the data reaches Metabase:
+   - There is NO upload of data into Metabase. Metabase connects to the
+     same PostgreSQL database and queries the warehouse tables that the
+     ETL filled (dim_clients, fact_sales, ...).
+   - The Metabase dashboard (e.g. Restaurant Executive Dashboard) has its
+     cards/queries pointing at those warehouse tables. When it is opened,
+     Metabase runs its queries against the client's freshly loaded data.
+   - The dashboard is SHARED across all restaurant clients (public
+     sharing). Per-tenant row-level filtering inside Metabase is an
+     Enterprise feature and is out of scope.
+
+B) "Loading the dashboard in the admin UI" — what the admin sees:
+   - Admin preview (assign page / AdminRequestDetail → DashboardPreview):
+     the browser opens GET /api/bi/dashboards/:id/embed, gets an
+     iframeUrl, and renders the Metabase dashboard in an <iframe>.
+       * Embedding must be enabled: METABASE_EMBED_ENABLED=true in .env.
+       * If no public link exists yet for the dashboard, the backend
+         creates one (POST /api/dashboard/:id/public_link).
+       * If Metabase is not configured, /embed returns available=false and
+         the UI shows "Aperçu non disponible" instead of an iframe.
+   - The preview is ADMIN-ONLY. It is never shown to the client before
+     publish; the client only ever sees the PUBLISHED dashboard via
+     EmbeddedDashboardContainer (frontend), which checks
+     dashboard.status === 'PUBLISHED' AND embed enabled.
+
+   - "Ouvrir dans Metabase" (AdminDashboardViewer) opens the full Metabase
+     UI at METABASE_BASE_URL/dashboard/<id> in a new tab so the admin can
+     edit charts, filters and layout directly in Metabase.
+
+   - After publish, when the CLIENT opens their BI dashboard:
+       * Client UI → EmbeddedDashboardContainer renders
+         METABASE_PUBLIC_URL/public/dashboard/<uuid> in an iframe.
+       * It refreshes when the client reloads; the data shown is whatever
+         is currently in the warehouse for that dashboard's queries.
+
+========================================================
+SECTION 7 — SUMMARY OF THE FULL FLOW (single picture)
+========================================================
+
+  Admin uploads client ZIP
+       │  POST /api/bi-uploads  → BiUpload PENDING_PAYMENT_VERIFICATION
+       ▼
+  Wizard: validate → prepare → correct
+       │  (bi-schema-registry validation + data-preparation transform)
+       ▼
+  confirm-load → ETL STEP 5 (dimensions + facts) into PostgreSQL warehouse
+       │  BiUpload COMPLETED · request → DATA_REVIEW
+       ▼
+  generate-from-upload → BiDashboard DRAFT (metadata row, version++,
+       │  templateUsed, metabaseDashboardId from collection pick)
+       ▼
+  Admin assign page: pick Metabase collection → pick dashboard
+       │  GET /api/bi/metabase/collections(...)  ·  PATCH metabaseDashboardId
+       ▼
+  Live admin preview (iframe): GET /:id/embed
+       │  resolves/creates public link → /public/dashboard/<uuid>
+       ▼
+  Publish: POST /:id/publish
+       │  PUBLISHED + ACTIVE assignment + request COMPLETED + notification
+       ▼
+  Client opens dashboard → EmbeddedDashboardContainer iframe
+       → Metabase renders the SAME dashboard, querying the client's data
+         in the warehouse.
+
+================================================================
+KEY FILES
+================================================================
+  backend/routes/bi-uploads.js               upload + validate/prepare/load
+  backend/routes/bi-requests.js              request lifecycle
+  backend/routes/bi-reviews.js               admin approve/reject
+  backend/routes/bi-dashboards.js            generate / embed / publish / patch
+  backend/routes/bi-metabase.js              collection + dashboard discovery
+  backend/routes/bi-dashboard-templates.js   template registry (fallback)
+  backend/utils/metabase-client.js           Metabase REST API client
+  backend/utils/bi-status.js                 statuses + event types
+  backend/utils/bi-workflow.js               status transition guards
+  backend/services/etl-pipeline.js           ETL (extract → transform → load)
+  backend/services/bi-schema-registry.js     schema validation + fixes
+  backend/services/data-preparation-service.js  transform/coercion logic
+  backend/services/warehouse-service.js      analytics queries on warehouse
+  backend/prisma/schema.prisma               warehouse (dim_/fact_) models
+  admin/src/pages/AdminDashboardAssign.jsx   assign UI (collection picker)
+  admin/src/pages/AdminRequestDetail.jsx     request detail + preview
+  admin/src/pages/wizard/Step*.jsx           import wizard steps
+  frontend/src/components/dashboard/EmbeddedDashboardContainer.tsx  client embed
+================================================================

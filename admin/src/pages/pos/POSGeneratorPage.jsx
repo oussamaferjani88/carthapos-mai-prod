@@ -15,15 +15,14 @@ import Step1BasicConfig from '../../components/pos/generator/Step1BasicConfig';
 import Step2ModuleSelection from '../../components/pos/generator/Step2ModuleSelection';
 import Step4License from '../../components/pos/generator/Step4License';
 import Step5Results from '../../components/pos/generator/Step5Results';
+import PageHeader from '../../components/shared/PageHeader';
 import {
   Zap,
   Palette,
   Plus,
-  Minus,
   Monitor,
   Smartphone,
-  Tablet,
-  Eye
+  Tablet
 } from 'lucide-react';
 
 // Import all hooks
@@ -35,7 +34,6 @@ import {
   usePOSGenerator,
   useUSBDrives
 } from '../../hooks';
-import { posService } from '../../services';
 import toast from 'react-hot-toast';
 import { useAccessMode } from '../../contexts/AccessModeContext';
 
@@ -106,17 +104,6 @@ export default function POSGenerator() {
       },
       selectedUSB: formData.selectedUSB
     });
-  };
-
-  const handleDirectConvert = async () => {
-    await generatorHook.directConvert({
-      selectedModules: modulesHook.selectedModules,
-      configuration: configHook.configuration
-    });
-  };
-
-  const handleQuickTest = async () => {
-    await generatorHook.quickTest(configHook.configuration);
   };
 
   const canProceed = () => {
@@ -276,7 +263,7 @@ export default function POSGenerator() {
           <Button variant="outline" onClick={() => generatorHook.goToStep(2.5)} className="mb-4">
             ← Retour au choix
           </Button>
-          <h1 className="text-3xl font-bold">Choisissez un template</h1>
+          <h1 className="text-xl font-semibold tracking-tight text-foreground">Choisissez un template</h1>
           <p className="text-muted-foreground">
             Sélectionnez un template pré-configuré adapté à votre secteur
           </p>
@@ -368,7 +355,7 @@ export default function POSGenerator() {
     return (
       <div className="space-y-6 pb-24">
         <div>
-          <h1 className="text-2xl font-bold mb-2">Personnalisation Avancée</h1>
+          <h1 className="text-xl font-semibold tracking-tight text-foreground mb-1">Personnalisation Avancée</h1>
           <p className="text-muted-foreground">
             Personnalisez entièrement l'apparence et le comportement de votre POS
           </p>
@@ -376,20 +363,7 @@ export default function POSGenerator() {
 
         <div className="flex h-[calc(100vh-16rem)] gap-4 border rounded-lg bg-background">
           {generatorHook.isFormVisible && (
-            <div className="w-[28%] border-r border-border flex flex-col overflow-hidden">
-              <div className="border-b border-border p-2.5 bg-gradient-to-r from-blue-600 to-purple-600 text-white">
-                <div className="flex items-center justify-between">
-                  <h3 className="text-sm font-semibold">🎨 Design Studio</h3>
-                  <Button
-                    variant="secondary"
-                    size="sm"
-                    onClick={() => generatorHook.setIsFormVisible(false)}
-                    className="bg-white/20 hover:bg-white/30 text-white border-white/20 h-7 w-7 p-0"
-                  >
-                    <Minus className="w-3.5 h-3.5" />
-                  </Button>
-                </div>
-              </div>
+            <div className="w-[340px] border-r border-border flex flex-col overflow-hidden shrink-0">
               <div className="flex-1 overflow-hidden">
                 <POSCustomizer
                   formData={{ configuration: configHook.configuration, selectedModules: modulesHook.selectedModules }}
@@ -403,6 +377,7 @@ export default function POSGenerator() {
                   onBack={() => { }}
                   isVisible={true}
                   mode="inline"
+                  onToggleSidebar={() => generatorHook.setIsFormVisible(false)}
                 />
               </div>
             </div>
@@ -410,7 +385,7 @@ export default function POSGenerator() {
 
           {!generatorHook.isFormVisible && (
             <div className="absolute left-4 top-4 z-10">
-              <Button onClick={() => generatorHook.setIsFormVisible(true)} className="bg-gradient-to-r from-blue-600 to-purple-600">
+              <Button onClick={() => generatorHook.setIsFormVisible(true)} className="bg-primary">
                 <Plus className="w-4 h-4 mr-2" />
                 Ouvrir le Design Studio
               </Button>
@@ -485,12 +460,10 @@ export default function POSGenerator() {
   // Main workflow UI
   return (
     <div className="space-y-6 pb-24">
-      <div>
-        <h1 className="text-3xl font-bold">Générateur POS Personnalisé</h1>
-        <p className="text-muted-foreground">
-          Créez un système de caisse entièrement personnalisé
-        </p>
-      </div>
+      <PageHeader
+        title="Générateur POS Personnalisé"
+        description="Créez un système de caisse entièrement personnalisé"
+      />
 
       {/* Step Indicator */}
       <div className="flex items-center space-x-4 mb-6">

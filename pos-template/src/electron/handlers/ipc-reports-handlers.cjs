@@ -496,6 +496,20 @@ function registerReportsHandlers(ipcMainInstance, databaseManager) {
 
   // ════════════════════════════════════════════════════════════════════
   // X REPORT — Read current shift totals WITHOUT resetting
+  //
+  // Root cause (before fix):
+  //   1. No fallback shift resolution: unlike Z Report, X Report returned
+  //      "No open shift found" when no shift was open (even if closed shifts
+  //      existed with data).
+  //   2. Frontend/backend data contract mismatch: handler returned nested
+  //      { data: { sales: { total }, drawer: { cashSales } } } but the UI
+  //      expected flat fields (totalSales, cashTotal, etc.).
+  //   3. Missing byCashier aggregation: UI rendered a "by cashier" section
+  //      but the handler never fetched or returned it.
+  //   4. Payment methods used field name 'revenue' but UI expected 'total'.
+  //
+  // Fix: align return structure with UI expectations, add fallback shift
+  //      resolution (same pattern as Z Report), and add cashier grouping.
   // ════════════════════════════════════════════════════════════════════
   ipcMain.handle('report:x-report', async (_event, opts = {}) => {
     try {
@@ -508,7 +522,12 @@ function registerReportsHandlers(ipcMainInstance, databaseManager) {
       }
 
       if (!shiftInfo) {
-        return { error: 'No open shift found', data: null };
+        const lastClosed = await get('SELECT * FROM shifts WHERE status = \'closed\' ORDER BY closed_at DESC LIMIT 1');
+        if (lastClosed) {
+          shiftInfo = lastClosed;
+        } else {
+          return { error: 'Aucun shift trouvé. Veuillez d\'abord ouvrir une caisse.', data: null };
+        }
       }
 
       const sid = shiftInfo.id;
@@ -525,9 +544,9 @@ function registerReportsHandlers(ipcMainInstance, databaseManager) {
       );
 
       const paymentMethods = await all(
-        `SELECT payment_method, COUNT(*) as count, COALESCE(SUM(total),0) as revenue
+        `SELECT payment_method, COUNT(*) as count, COALESCE(SUM(total),0) as total
          FROM sales WHERE shift_id = ? AND status != 'pending'
-         GROUP BY payment_method ORDER BY revenue DESC`,
+         GROUP BY payment_method ORDER BY total DESC`,
         [sid]
       );
 
@@ -554,38 +573,61 @@ function registerReportsHandlers(ipcMainInstance, databaseManager) {
         [sid]
       );
 
-      const now = new Date().toISOString();
-      const reportData = {
-        type: 'X',
-        shift: {
-          id: shiftInfo.id,
-          user_name: shiftInfo.user_name,
-          opened_at: shiftInfo.opened_at,
-          opening_float: shiftInfo.opening_float || 0
-        },
-        period: { start: startDate, end: now.split(' ')[0] },
-        sales: {
-          total: totals?.totalSales || 0,
-          revenue: totals?.totalRevenue || 0,
-          tax: totals?.totalTax || 0,
-          discounts: totals?.totalDiscounts || 0,
-          uniqueCustomers: totals?.uniqueCustomers || 0,
-          itemsSold: itemsSold?.count || 0
-        },
-        paymentMethods: paymentMethods || [],
-        refunds: { count: refunds?.count || 0, total: refunds?.total || 0 },
-        drawer: {
-          opening: shiftInfo.opening_float || 0,
-          expected: (shiftInfo.opening_float || 0) + (totals?.totalRevenue || 0) - (shiftInfo.card_sales || 0) - (shiftInfo.other_sales || 0),
-          cashSales: shiftInfo.cash_sales || 0,
-          cardSales: shiftInfo.card_sales || 0,
-          otherSales: shiftInfo.other_sales || 0
-        },
-        topProducts: topProducts || [],
-        generatedAt: now
-      };
+      const cashierRows = await all(
+        `SELECT u.full_name AS name, COUNT(s.id) AS salesCount, COALESCE(SUM(s.total),0) AS totalRevenue
+         FROM sales s
+         JOIN users u ON u.id = s.user_id
+         WHERE s.shift_id = ? AND s.status != 'pending'
+         GROUP BY u.id ORDER BY totalRevenue DESC`,
+        [sid]
+      );
 
-      return { data: reportData };
+      const cashPaymentMethods = ['cash', 'espèces', 'especes'];
+      const cardPaymentMethods = ['card', 'carte'];
+      let xCashSales = 0;
+      let xCardSales = 0;
+      let xOtherSales = 0;
+      for (const pm of paymentMethods) {
+        const method = (pm.payment_method || '').toLowerCase().trim();
+        if (cashPaymentMethods.includes(method)) {
+          xCashSales += pm.total;
+        } else if (cardPaymentMethods.includes(method)) {
+          xCardSales += pm.total;
+        } else {
+          xOtherSales += pm.total;
+        }
+      }
+
+      const now = new Date().toISOString();
+      const totalRevenue = totals?.totalRevenue || 0;
+      const shiftOpen = shiftInfo.status === 'open';
+
+      return {
+        data: {
+          shiftId: shiftInfo.id,
+          shiftUser: shiftInfo.user_name || '',
+          shiftOpenedAt: shiftInfo.opened_at,
+          shiftClosedAt: shiftInfo.closed_at,
+          shiftOpen,
+          totalSales: totals?.totalSales || 0,
+          totalRevenue,
+          totalTax: totals?.totalTax || 0,
+          totalDiscounts: totals?.totalDiscounts || 0,
+          uniqueCustomers: totals?.uniqueCustomers || 0,
+          itemsSold: itemsSold?.count || 0,
+          cashTotal: xCashSales,
+          cardTotal: xCardSales,
+          otherTotal: xOtherSales,
+          refundCount: refunds?.count || 0,
+          refundTotal: refunds?.total || 0,
+          openingFloat: shiftInfo.opening_float || 0,
+          closingExpected: (shiftInfo.opening_float || 0) + totalRevenue - xCardSales - xOtherSales,
+          byPaymentMethod: paymentMethods || [],
+          byCashier: cashierRows || [],
+          topProducts: topProducts || [],
+          generatedAt: now,
+        },
+      };
     } catch (error) {
       console.error('❌ report:x-report error:', error);
       throw error;
@@ -597,8 +639,20 @@ function registerReportsHandlers(ipcMainInstance, databaseManager) {
   // ════════════════════════════════════════════════════════════════════
   ipcMain.handle('report:z-report', async (_event, opts = {}) => {
     try {
-      const shiftId = opts.shift_id;
-      if (!shiftId) throw new Error('shift_id is required for Z report');
+      let shiftId = opts.shift_id;
+      if (!shiftId) {
+        const openShift = await get("SELECT id FROM shifts WHERE status = 'open' ORDER BY opened_at DESC LIMIT 1");
+        if (openShift) {
+          shiftId = openShift.id;
+        } else {
+          const lastShift = await get("SELECT id FROM shifts WHERE status = 'closed' ORDER BY closed_at DESC LIMIT 1");
+          if (lastShift) {
+            shiftId = lastShift.id;
+          } else {
+            throw new Error('Aucun shift trouvé. Veuillez d\'abord ouvrir une caisse.');
+          }
+        }
+      }
 
       const shift = await get('SELECT * FROM shifts WHERE id = ?', [shiftId]);
       if (!shift) throw new Error('Shift not found');
@@ -648,8 +702,24 @@ function registerReportsHandlers(ipcMainInstance, databaseManager) {
       const now = new Date();
       const reportNumber = `Z${now.getFullYear()}${String(now.getMonth()+1).padStart(2,'0')}${String(now.getDate()).padStart(2,'0')}-${String(sid).padStart(4,'0')}`;
 
-      const closingActual = opts.closing_actual != null ? opts.closing_actual : (shift.closing_actual || 0);
-      const closingExpected = (shift.opening_float || 0) + (totals?.totalRevenue || 0) - (shift.card_sales || 0) - (shift.other_sales || 0);
+      const cashPaymentMethods = ['cash', 'espèces', 'especes'];
+      const cardPaymentMethods = ['card', 'carte'];
+      let computedCashSales = 0;
+      let computedCardSales = 0;
+      let computedOtherSales = 0;
+      for (const pm of paymentMethods) {
+        const method = (pm.payment_method || '').toLowerCase().trim();
+        if (cashPaymentMethods.includes(method)) {
+          computedCashSales += pm.revenue;
+        } else if (cardPaymentMethods.includes(method)) {
+          computedCardSales += pm.revenue;
+        } else {
+          computedOtherSales += pm.revenue;
+        }
+      }
+
+      const closingActual = opts.closing_actual != null ? opts.closing_actual : (opts.closing_amount != null ? opts.closing_amount : (shift.closing_actual || 0));
+      const closingExpected = (shift.opening_float || 0) + (totals?.totalRevenue || 0) - computedCardSales - computedOtherSales;
 
       const zReport = {
         shift_id: sid,
@@ -662,9 +732,9 @@ function registerReportsHandlers(ipcMainInstance, databaseManager) {
         total_revenue: totals?.totalRevenue || 0,
         total_tax: totals?.totalTax || 0,
         total_discounts: totals?.totalDiscounts || 0,
-        cash_sales: shift.cash_sales || 0,
-        card_sales: shift.card_sales || 0,
-        other_sales: shift.other_sales || 0,
+        cash_sales: computedCashSales,
+        card_sales: computedCardSales,
+        other_sales: computedOtherSales,
         refund_count: refunds?.count || 0,
         refund_total: refunds?.total || 0,
         opening_float: shift.opening_float || 0,

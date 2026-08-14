@@ -1,0 +1,122 @@
+Phase 1 — ETL Data-Quality Upgrade Implementation Report
+========================================================
+Date: 2026-08-02
+Auditor: CarthaPOS BI/ETL audit (CRITICAL findings)
+Scope: Backend only — no schema/warehouse/dashboard/analytics-cache redesign
+
+FILES MODIFIED
+--------------
+1. backend/services/bi-data-utils.js (NEW)
+   - parseInteger: strict /^-?\d+$/, rejects 12.5, 1e3, 1,200, +12, 12., abc123
+   - parseDate: strict ISO calendar-validated YYYY-MM-DD[ T]HH:MM[:SS], rejects 2026-02-30
+   - parseNumber: strict /^-?\d+(\.\d+)?$/, rejects 1e3, 1,200.50, +12, .5, 12.
+   - normalizeEnum(value, domain): trim + collapse whitespace + lowercase + alias map
+   - normalizeCategorical: lowercase canonical form
+   - formatNumber, toDate, isEmpty, normalizeText
+   - ENUM_MAPS: payment_method, sale_status, kitchen_status, priority, appointment_status, table_status
+   - Aliases: espèces/especes→cash, carte→card, check→cheque, canceled→cancelled, done→completed
+
+2. backend/services/bi-schema-registry.js
+   - Wired parseInteger, parseNumber, parseDate into validateCsvTypes
+   - integer branch: uses parseInteger (was lenient regex)
+   - real branch: uses parseNumber (was inline regex — now single source)
+   - datetime branch: uses parseDate (was Date.parse with silent rollover)
+
+3. backend/services/data-preparation-service.js (FULL REWRITE)
+   - All parsing goes through bi-data-utils (single source of truth)
+   - DATASET_RULES: per-dataset rules for integer/numeric/date/text/categorical/enums/optionalDefaults/unknownDefaults/businessKey/checks
+   - prepare() returns {preparedDatasets, changes, statistics, profiles, status}
+   - Statistics: totalRowsProcessed, automaticFixes, warnings, errors, duplicatesRemoved
+   - Profiles per dataset: rowCount, validRows, invalidRows, duplicateRows, duplicateBusinessKeys, missingValues, nullCount, distinctCount, numericStats
+   - runReconciliation(): per-sale subtotal+tax−discount==total, per-line line_total==qty×unit_price, global grain report (item_total+vat−discounts vs sales grain)
+   - Categorical normalization: trim + collapse whitespace + lowercase canonical
+   - Duplicate business-key detection and reporting
+   - Orphan-row skip logic not here (in etl-pipeline)
+
+4. backend/services/etl-pipeline.js (MAJOR REFACTOR)
+   - Imports: bi-data-utils (parseInteger, parseNumber, parseDate), data-preparation-service (DATASET_RULES)
+   - New helpers:
+     * _typedRows(datasets) — normalizes {header,rows} → plain arrays
+     * _rowsToDatasets(prepared, rawDatasets) — re-wraps with headers
+     * _prepareDatasets(datasets) — routes through dataPreparationService.prepare()
+     * _errorSkipMap(changes) — builds Set of rowIndexes per dataset with ERROR severity
+     * _collectDateKeys(datasets) — union of all date values across all datasets
+     * _columnType(datasetKey, column) — looks up integer/numeric/date/text
+     * _typedCorrection(datasetKey, column, rawValue) — re-types a reviewer correction
+     * _applyCleanedCorrections(datasets, previewJson, report, skipMap) — merges overlay + legacy MANUALLY_CORRECTED changes, re-types, re-validates, applies to cleanedDatasets rows
+     * _replayOverlays(previewJson, report, skipMap) — replays dimension/fact-section overlays with typing
+     * _buildWarehouse(datasets, metadata, uploadId, changes) — in-memory dim/fact builder mirroring DB loaders (same coercion, same orphan/error skipping)
+   - run(): after _validateDatasets, calls _prepareDatasets(), passes preparedDatasets + errorSkip to _loadDimensions/_loadFacts
+   - _loadDimensions: typed rows, skip ERROR rows, dimTime auto-seeded from ALL date columns (not just sales), overlay support
+   - _loadFacts: typed rows, skip ERROR rows, orphan sale_items/kitchen_order_items with unknown product_id skipped + warned, overlay support, returns {recordsLoaded, skippedRows, orphanWarnings}
+   - prepareWarehouse: uses _prepareDatasets + _buildWarehouse, returns profiles/skippedRows/orphanWarnings
+   - loadIntoWarehouse (T10): re-types + re-validates all corrections via _applyCleanedCorrections, replays dim/fact overlays via _replayOverlays, returns report {skippedRows, orphanWarnings, appliedCorrections, unresolvedIssues}
+
+5. backend/routes/bi-uploads.js
+   - POST /:id/correct: persists overlays into preview.corrections[section][table][rowIndex] for ALL sections (cleaned, dimensions, facts)
+   - POST /:id/prepare: persists profiles, skippedRows, orphanWarnings into preview file
+   - POST /:id/confirm-load: response now includes full report (skippedRows, orphanWarnings, appliedCorrections, unresolvedIssues)
+
+6. backend/services/bi-schema-registry.js (minor)
+   - Added parseNumber import for real-branch consistency
+
+FUNCTIONAL TEST RESULTS
+-----------------------
+Parser edge cases (20/20 PASS):
+  - parseInteger: 12→12, 12.5→invalid, 1e3→invalid, 1,200→invalid, +12→invalid, 12.→invalid, abc123→invalid, -7→-7
+  - parseNumber: 69.5→69.5, 1e3→invalid
+  - parseDate: 2026-02-30→invalid, 2026-13-01→invalid, 24:00→invalid, 2026-08-01T06:05:22→valid, 2026-08-01 06:05:22→valid
+  - normalizeEnum: ESPÈCES→cash, CARTE→card, DONE→completed, bogus→unknown, Check→cheque
+
+Reference ZIP (1785531709813_bi_export.zip, 11,537 rows):
+  - validate: all datasets OK, 0 type errors
+  - prepare: 0 errors, 0 warnings, status READY_FOR_REVIEW
+  - reconciliation: per-sale and per-line rules pass; global grain gap correctly explained by discounts (item grain excludes discounts)
+  - warehouse preview: DimTime=181, DimClient=1, DimCustomer=14, DimProduct=19, FactSale=2500, FactSaleItem=7358, FactKitchenOrder=402, FactKitchenOrderItem=1205
+
+Synthetic dirty dataset (11 rows):
+  - Duplicates removed: 1
+  - ERRORs: invalid date (2), invalid sale_id (1), invalid total (1), invalid quantity (1) = 5
+  - WARNs: negative total (1), unknown enum (1) = 2 (reconciliation WARNs excluded from count)
+  - Orphan sale_item (product_id 999 not in products): skipped + warned
+  - Error rows skipped at load: 4 (3 sales + 1 sale_item)
+  - Orphan warnings: 1
+
+Full wizard flow (validate→prepare→correct→confirm-load) on fresh tenant verify-tenant-001:
+  - recordsLoaded: 11,484 (2500+19+0+402+7358+1205)
+  - appliedCorrections: 2 (total→90.50 numeric, payment_method→card text)
+  - skippedRows: 0, orphanWarnings: 0, unresolvedIssues: 0
+  - DB verified: all fact counts match, no dangling product FKs, tableNumber stored as integer
+
+Server: boots cleanly on PORT=3001, /api/health returns 200
+
+AUDIT ITEMS COVERED
+-------------------
+F1  Strict integer/date validation         ✅ bi-data-utils + schema registry
+F2  Referential integrity (orphan skip)     ✅ _loadFacts + _buildWarehouse
+F3  Single preparation pipeline             ✅ run() routes through _prepareDatasets()
+F4  Revenue reconciliation                  ✅ per-sale, per-line, global grain
+F5  Enum standardization (lowercase)        ✅ normalizeEnum + ENUM_MAPS with aliases
+F6  Data profiling                          ✅ per-dataset profiles in prepare() output
+F7  Duplicate business keys                 ✅ detected and reported in prepare()
+F8  Consistent numeric handling             ✅ no parseFloat||0 / falsy→NULL masking
+F9  Strict coercion (no silent fallbacks)   ✅ all parsers reject invalid; null for missing
+F10 Persisted reviewer corrections          ✅ overlay persistence + replay + re-validation at confirm-load
+
+T3  Single preparation pipeline (run+prepareWarehouse)  ✅
+T4  dim_time auto-seed (union of all date columns)      ✅
+T5  Revenue reconciliation rules                        ✅
+T6  Enum whitelists (lowercase canonical)               ✅
+T7  Profiling per dataset                               ✅
+T8  Duplicate business-key report                       ✅
+T9  Strict coercion map (no parseFloat||0)             ✅
+T10 Persisted reviewer corrections + report             ✅
+
+NOTES
+-----
+- All 10 test uploads remain ARCHIVED; warehouse was empty before Phase 1 loads.
+- No DB schema changes made.
+- No grain/functionality/backward-compat changes to dashboard/analytics-cache/wizard UI.
+- The reference ZIP's global grain gap (item_total+vat vs sale_total) is explained by discounts: line_total excludes discounts while sale.total subtracts them. Per-sale and per-line reconciliation rules pass cleanly.
+- Canonical enum form = lowercase (verified: dashboard/analytics-cache consumers read lowercase; uppercase would break them).
+- Orphan detection covers sale_items and kitchen_order_items referencing products not in the products dataset. Customer orphans in FactSale are nulled (dimCustomerId nullable) rather than dropping the sale.

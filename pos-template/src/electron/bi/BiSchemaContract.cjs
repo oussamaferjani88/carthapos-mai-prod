@@ -10,10 +10,11 @@
  *   - required (true = must always have a value)
  *   - description (human-readable)
  *
- * v2.0 — Full enterprise rewrite: 19 datasets, enriched columns, facts/dimensions.
+ * v2.2 — Added kitchen_order_items dataset; removed items JSON column
+ *         from kitchen_orders; optimized audit_logs JSON payloads.
  */
 
-const BI_SCHEMA_VERSION = '2.0.0';
+const BI_SCHEMA_VERSION = '2.2.0';
 const EXPORT_VERSION = '2.0.0';
 const GENERATOR_VERSION = '2.0.0';
 
@@ -71,7 +72,6 @@ const SCHEMAS = {
     columns: [
       { name: 'order_id',          type: 'integer',  required: true,  description: 'Unique kitchen order identifier' },
       { name: 'table_number',      type: 'text',     required: false, description: 'Source table number' },
-      { name: 'items',             type: 'text',     required: false, description: 'Order items (JSON array)' },
       { name: 'notes',             type: 'text',     required: false, description: 'Special instructions' },
       { name: 'priority',          type: 'text',     required: false, description: 'Priority level (low/normal/high/urgent)' },
       { name: 'status',            type: 'text',     required: false, description: 'Order status' },
@@ -91,6 +91,23 @@ const SCHEMAS = {
       { name: 'updated_at',        type: 'datetime', required: false, description: 'Last update timestamp' },
     ],
     order: 'order_id',
+  },
+
+  kitchen_order_items: {
+    columns: [
+      { name: 'kitchen_order_item_id', type: 'integer',  required: true,  description: 'Synthetic unique ID per order item' },
+      { name: 'order_id',              type: 'integer',  required: true,  description: 'FK to kitchen_orders' },
+      { name: 'sale_id',               type: 'integer',  required: false, description: 'FK to sales (denormalized from kitchen_orders)' },
+      { name: 'product_id',            type: 'integer',  required: false, description: 'FK to products (nullable — items may only have a name)' },
+      { name: 'product_name',          type: 'text',     required: false, description: 'Item name (denormalized from items JSON)' },
+      { name: 'quantity',              type: 'integer',  required: false, description: 'Quantity ordered' },
+      { name: 'unit_price',            type: 'real',     required: false, description: 'Unit price at time of order' },
+      { name: 'line_total',            type: 'real',     required: false, description: 'quantity * unit_price' },
+      { name: 'department',            type: 'text',     required: false, description: 'Kitchen department (denormalized from kitchen_orders)' },
+      { name: 'preparation_time',      type: 'integer',  required: false, description: 'Estimated prep time per item (minutes)' },
+      { name: 'created_at',            type: 'datetime', required: false, description: 'Kitchen order creation timestamp (denormalized)' },
+    ],
+    order: 'kitchen_order_item_id',
   },
 
   stock_movements: {
@@ -136,7 +153,7 @@ const SCHEMAS = {
       { name: 'timestamp',       type: 'datetime', required: true,  description: 'Event timestamp' },
       { name: 'user_id',         type: 'integer',  required: false, description: 'FK to users' },
       { name: 'user_name',       type: 'text',     required: false, description: 'User display name' },
-      { name: 'action',          type: 'text',     required: true,  description: 'Action (open/close/count)' },
+      { name: 'action',          type: 'text',     required: true,  description: 'Action (shift_open/shift_close/drawer_open/cash_count/cash_adjustment)' },
       { name: 'reason',          type: 'text',     required: false, description: 'Reason for drawer access' },
       { name: 'amount_expected', type: 'real',     required: false, description: 'Expected amount' },
       { name: 'amount_actual',   type: 'real',     required: false, description: 'Actual counted amount' },
@@ -261,17 +278,6 @@ const SCHEMAS = {
     order: 'product_id',
   },
 
-  categories: {
-    columns: [
-      { name: 'category_id',  type: 'integer',  required: true,  description: 'Unique category identifier' },
-      { name: 'name',         type: 'text',     required: true,  description: 'Category name' },
-      { name: 'description',  type: 'text',     required: false, description: 'Category description' },
-      { name: 'color',        type: 'text',     required: false, description: 'Display color hex' },
-      { name: 'created_at',   type: 'datetime', required: false, description: 'Creation timestamp' },
-    ],
-    order: 'category_id',
-  },
-
   product_families: {
     columns: [
       { name: 'family_id',   type: 'integer',  required: true,  description: 'Unique family identifier' },
@@ -358,6 +364,34 @@ const SCHEMAS = {
       { name: 'created_at',  type: 'datetime', required: false, description: 'Service creation timestamp' },
     ],
     order: 'service_id',
+  },
+
+  audit_logs: {
+    columns: [
+      { name: 'log_id',      type: 'integer',  required: true,  description: 'Unique audit log entry identifier' },
+      { name: 'timestamp',   type: 'datetime', required: true,  description: 'Event timestamp' },
+      { name: 'user_id',     type: 'integer',  required: false, description: 'FK to users' },
+      { name: 'user_name',   type: 'text',     required: false, description: 'User display name at time of event' },
+      { name: 'action_type', type: 'text',     required: true,  description: 'Action classification (LOGIN_SUCCESS, SHIFT_OPEN, CUSTOMER_CREATE, ...)' },
+      { name: 'entity_type', type: 'text',     required: false, description: 'Type of entity affected (user, shift, customer, supplier, backup, ...)' },
+      { name: 'entity_id',   type: 'integer',  required: false, description: 'ID of the affected entity' },
+      { name: 'old_value',   type: 'text',     required: false, description: 'Previous state (JSON for complex changes)' },
+      { name: 'new_value',   type: 'text',     required: false, description: 'New state (JSON for complex changes)' },
+      { name: 'ip_address',  type: 'text',     required: false, description: 'Client IP address at time of event' },
+      { name: 'notes',       type: 'text',     required: false, description: 'Human-readable event description' },
+    ],
+    order: 'log_id',
+  },
+
+  vat_rates: {
+    columns: [
+      { name: 'vat_rate_id', type: 'integer',  required: true,  description: 'Unique VAT rate identifier' },
+      { name: 'name',        type: 'text',     required: true,  description: 'Rate display name (e.g. TVA 20%)' },
+      { name: 'rate',        type: 'real',     required: true,  description: 'VAT percentage (e.g. 20.00)' },
+      { name: 'is_active',   type: 'integer',  required: false, description: 'Whether this rate is currently active (0/1)' },
+      { name: 'created_at',  type: 'datetime', required: false, description: 'Rate creation timestamp' },
+    ],
+    order: 'vat_rate_id',
   },
 
 };

@@ -1,10 +1,11 @@
 import { useEffect, useState } from "react";
 import { Outlet, Link, useLocation, useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
-import { LayoutDashboard, Package, Settings, LogOut, User, FileArchive, BarChart3 } from "lucide-react";
+import { LayoutDashboard, Package, Settings, LogOut, User, BarChart3, FolderOpen } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import ThemeToggle from "./ThemeToggle";
 import LanguageSwitcher from "./LanguageSwitcher";
+import { getAuthUser, getAuthClient, clearAuth } from "@/lib/auth";
 
 type PortalUser = {
   id?: string;
@@ -14,16 +15,16 @@ type PortalUser = {
 };
 
 const getStoredUser = (): PortalUser | null => {
-  try {
-    const local = localStorage.getItem("user");
-    if (local) return JSON.parse(local);
-
-    const session = sessionStorage.getItem("user");
-    if (session) return JSON.parse(session);
-  } catch (error) {
-    console.warn("Unable to parse stored user", error);
+  const authUser = getAuthUser();
+  const authClient = getAuthClient();
+  if (authUser || authClient) {
+    return {
+      id: authClient?.id || authUser?.id,
+      name: authClient?.name || authUser?.username,
+      email: authClient?.email || authUser?.email,
+      companyName: authClient?.name || undefined,
+    };
   }
-
   return null;
 };
 
@@ -45,18 +46,18 @@ const DashboardLayout = () => {
       icon: Package
     },
     {
+      name: t('dashboard.nav.projects'),
+      href: '/dashboard/projects',
+      icon: FolderOpen
+    },
+    {
       name: t('dashboard.nav.settings'),
       href: '/dashboard/settings',
       icon: Settings
     },
     {
-      name: "Export BI",
-      href: '/dashboard/bi-export',
-      icon: FileArchive
-    },
-    {
-      name: "Tableaux de bord BI",
-      href: '/dashboard/bi-dashboard',
+      name: t('dashboard.nav.bi'),
+      href: '/dashboard/bi',
       icon: BarChart3
     }
   ];
@@ -86,14 +87,7 @@ const DashboardLayout = () => {
   }, []);
 
   const handleLogout = () => {
-    localStorage.removeItem("user");
-    localStorage.removeItem("isAuthenticated");
-    localStorage.removeItem("accessMode");
-    localStorage.removeItem("currentUserId");
-    localStorage.removeItem("currentUserName");
-    localStorage.removeItem("currentUserEmail");
-    sessionStorage.removeItem("user");
-    sessionStorage.removeItem("isAuthenticated");
+    clearAuth();
     setUser(null);
     navigate("/login");
   };

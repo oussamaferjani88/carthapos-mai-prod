@@ -1,0 +1,220 @@
+================================================================================
+REPORT: REPLACE MOCK AUTH WITH REAL AUTH (CLIENT PORTAL) + FIX IDENTITY FLOW
+================================================================================
+Date: 2026-08-06
+State: COMPLETE — all objectives implemented and verified end-to-end live.
+
+================================================================================
+1. FILES MODIFIED
+================================================================================
+Frontend (client portal):
+  NEW  frontend/src/lib/auth.ts
+         Single auth source of truth. Keys: authToken / authUser / authClient.
+         saveAuthSession() stores JWT + user + client, clears all AccessMode
+         keys, and writes a LIVE legacy mirror (localStorage.user /
+         isAuthenticated) derived from real backend data only.
+         clearAccessModeIdentity() removes currentUserId / currentUserName /
+         currentUserEmail / accessMode / user / isAuthenticated from both
+         localStorage and sessionStorage.
+         clearAuth() full logout cleanup.
+         apiLogin(email, password) -> POST /api/auth/login
+         apiRegister(payload)      -> POST /api/auth/register
+         getToken / getAuthUser / getAuthClient / isAuthenticated.
+
+  MODIFIED frontend/src/lib/bi-client.ts
+         getStoredUser() prefers authClient -> authUser, falls back to legacy
+         localStorage.user only when no real session.
+         getIdentityUserId() / resolveClientId() ONLY return currentUserId
+         when accessMode === 'user' (explicit AccessMode); otherwise they use
+         the authenticated client/user id. biFetch attaches Authorization:
+         Bearer <token>. Re-exports clearAuth.
+
+  MODIFIED frontend/src/lib/api.ts
+         Axios request interceptor attaches Authorization: Bearer <token>.
+         X-User-Id header only under explicit AccessMode, else the
+         authenticated client/user id. No stale currentUserId from storage.
+
+  MODIFIED frontend/src/pages/Login.tsx
+         handleSubmit -> apiLogin -> saveAuthSession -> clearAccessModeIdentity
+         -> navigate("/dashboard"). Mock fabricated profile REMOVED. Real
+         backend errors surfaced.
+
+  MODIFIED frontend/src/pages/Register.tsx
+         handleSubmit -> apiRegister (username = fullName | email-local |
+         user-<ts>; businessName = businessName | company | companyName |
+         fullName; phone = businessPhone | resellerPhone) -> saveAuthSession ->
+         clearAccessModeIdentity -> /dashboard (or /verification-pending when
+         a verification flow is triggered). Mock console.log REMOVED. No fake
+         profile creation.
+
+  MODIFIED frontend/src/components/DashboardLayout.tsx
+         Sidebar identity built ONLY from getAuthUser()/getAuthClient()
+         (client name + email win). No localStorage.user fallback. Logout ->
+         clearAuth().
+
+  MODIFIED frontend/src/pages/dashboard/BIDashboardViewer.tsx   (P1 FIX)
+         Was sending user.id (a USER id) as clientId. Now loadData /
+         handleMarkAllRead use resolveClientId() -> the authenticated client's
+         real id, so dashboard listing works.
+
+  MODIFIED frontend/src/pages/dashboard/Dashboard.tsx
+         getPortalUser prefers auth identity before the legacy
+         localStorage.user fallback.
+
+  MODIFIED frontend/src/contexts/AccessModeContext.tsx
+         AccessMode activates ONLY when URL has mode/userId params. No URL
+         params -> resets to admin/null and does NOT resurrect stored keys.
+         Provider unmount drops the identity so it never survives into a
+         normal session. Removed the storage-event resurrection.
+
+Backend (identity plumbing only — no engine logic touched):
+  MODIFIED backend/server.js
+         optionalAuth now mounted on ALL BI routes: /api/bi-requests,
+         /api/bi-uploads, /api/bi/debug, /api/bi/dashboards,
+         /api/bi/dashboard, /api/bi/dashboard-templates,
+         /api/bi/notifications, /api/bi/analysis, /api/bi/analytics,
+         /api/bi/reviews, /api/bi/review, /api/bi/assignments, /api/bi/stats.
+         JWT now populates req.user on all BI routes.
+
+  MODIFIED backend/routes/bi-requests.js
+         GET "/" list: spoofable clientId query override replaced with
+         identity-forced scope: identityClientId = await resolveClientId(req);
+         scopedClientId = identityClientId || clientId. A query clientId can
+         no longer widen the scope.
+
+  MODIFIED backend/routes/bi-notifications.js
+         read-all + unread-count now use (await resolveClientId(req)) ||
+         clientId, so the JWT identity always wins over a body/query clientId.
+
+================================================================================
+2. AUTHENTICATION FLOW — BEFORE vs AFTER
+================================================================================
+BEFORE (mock):
+  - Login.tsx / Register.tsx never contacted the backend.
+  - They fabricated a fake profile object and wrote it to localStorage.user.
+  - AccessModeContext (leftover from Phase-4 E2E URL params) persisted
+    currentUserId / currentUserName / currentUserEmail.
+  - BI identity (getIdentityUserId / resolveClientId) preferred that stale
+    currentUserId over everything.
+  - Result: a real logged-in client's BI requests were attributed to an
+    unrelated test client ("E2E Phase4 Client", id cmsgdpeti0000h8aoj1c670lt).
+  - BIDashboardViewer sent user.id (a USER id) as clientId (P1 bug).
+
+AFTER (real):
+  - Register: POST /api/auth/register creates a real User (role CLIENT,
+    bcrypt, isActive) + a linked Client row via Client.userId (or links an
+    existing client by email). Returns { token, user, client }.
+  - Login: POST /api/auth/login validates against the DB, returns the same
+    JWT + user + client. Frontend stores them.
+  - JWT is the single source of truth: every request carries
+    Authorization: Bearer <token>; backend optionalAuth -> req.user ->
+    resolveClientId() maps user -> client.id for ALL BI scoping.
+  - Sidebar shows the authenticated client's name + email.
+  - No fake profiles, no stale identities.
+
+================================================================================
+3. LOCALSTORAGE KEYS NOW USED
+================================================================================
+  authToken                       real JWT (set by saveAuthSession, removed by clearAuth)
+  authUser                        real backend user {id, username, email, role}
+  authClient                      real backend client {id, name, email, phone}
+  user                            LIVE mirror of the real session (kept only
+                                  for legacy readers; cleared on logout)
+  isAuthenticated                 live mirror flag
+  currentUserId / currentUserName / currentUserEmail / accessMode
+                                  AccessMode test-only: written ONLY on
+                                  explicit URL params (?mode&userId), cleared
+                                  on normal login/register/logout and on
+                                  provider unmount. Never resurrected without
+                                  URL params.
+
+================================================================================
+4. JWT FLOW
+================================================================================
+  Client:
+    apiLogin/apiRegister -> backend returns { token, user, client }.
+    saveAuthSession stores token in authToken.
+    biFetch and axios attach:  Authorization: Bearer <token>.
+  Backend:
+    optionalAuth (middleware/auth.js verifyToken) populates req.user
+    { id, username, email, role } on all BI routes.
+    resolveClientId(req) (utils/identity.js) order:
+      JWT req.user -> X-User-Id header -> userId body/query.
+    Finds Client by userId and returns client.id; if no Client row exists,
+    falls back to the raw user id, so a request is never attributed to
+    another client.
+  Scoping: bi-requests list, bi-dashboards list/detail, bi-notifications,
+  bi-assignments all derive the tenant from resolveClientId. A forged
+  clientId in query/body cannot widen the scope.
+
+================================================================================
+5. DATABASE VERIFICATION
+================================================================================
+  Register oussamaferjani.dev@gmail.com -> verified via Prisma:
+    User:
+      id         cmshgos2t0000r012zhszg335
+      username   authcheck1786017469589
+      email      oussamaferjani.dev@gmail.com
+      role       CLIENT
+    Client:
+      id         cmshgos3y0002r012xf0kwdut
+      name       Oussama Resto
+      email      oussamaferjani.dev@gmail.com
+      userId     cmshgos2t0000r012zhszg335   (FK link User -> Client)
+
+  Login (POST /api/auth/login) returns:
+    token   JWT (317 chars, exp 7d, issuer CarthaPos, role CLIENT)
+    user    { id, username, email, role }
+    client  { id: cmshgos3y0002r012xf0kwdut, name: "Oussama Resto",
+              email: oussamaferjani.dev@gmail.com }
+  GET /api/auth/me (with JWT) returns the same user + client. Correct.
+
+================================================================================
+6. END-TO-END VERIFICATION (live, all passing)
+================================================================================
+  Scenario 1 — Register:
+    oussamaferjani.dev@gmail.com -> database contains User + Client linked
+    via Client.userId. PASS (see section 5).
+
+  Scenario 2 — Login + Sidebar:
+    Login -> sidebar displays "Oussama Resto" / oussamaferjani.dev@gmail.com.
+    NOT tetete@gmail.com, no cached mock user. PASS.
+
+  Scenario 3 — Create BI Request:
+    POST /api/bi-requests with JWT -> request.clientId auto-set to
+    cmshgos3y0002r012xf0kwdut (the authenticated client). PASS.
+    Client list returns only own requests; spoofing ?clientId=<other> still
+    returns only own requests. PASS.
+
+  Scenario 4 — Upload BI ZIP:
+    Upload rejected without .zip ("Only .zip files are allowed").
+    Valid ZIP accepted, stored under the client, and visible to admin with
+    the correct clientId (Oussama Resto). PASS.
+
+  Scenario 5 — Publish + Client Dashboard:
+    Admin created dashboard for client cmshgos3y0002r012xf0kwdut
+    (DRAFT) -> published (PUBLISHED + ACTIVE assignment).
+    Client (JWT) sees EXACTLY 1 dashboard: "Auth E2E Restaurant", allOwned.
+    Client does NOT see the 3 published dashboards belonging to other
+    clients. Foreign dashboard detail -> "Dashboard not found".
+    Test dashboard archived after verification. PASS.
+
+  Scenario 6 — Logout:
+    handleLogout -> clearAuth() removes authToken/authUser/authClient AND
+    calls clearAccessModeIdentity() removing currentUserId/currentUserName/
+    currentUserEmail/accessMode/user/isAuthenticated from both storages.
+    Next login starts clean. Only writers of those keys are AccessModeContext
+    (URL-param-only) and auth.ts (live real mirror). PASS.
+
+  Build: npx tsc --noEmit clean; npm run build succeeds.
+
+================================================================================
+7. ENGINE FILES — NOT MODIFIED (confirmation)
+================================================================================
+  NOT touched: backend/services/*, ETL pipeline, warehouse,
+  analytics cache, dashboard generation, Metabase integration,
+  admin wizard logic, POS BI export.
+  Backend edits were limited to identity plumbing required for JWT to reach
+  BI routes: server.js optionalAuth mounts + two scoped route guards
+  (bi-requests list, bi-notifications).
+================================================================================

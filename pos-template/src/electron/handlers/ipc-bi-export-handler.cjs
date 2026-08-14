@@ -89,7 +89,7 @@ class IPCBiExportHandler {
 
     const PARALLEL_BATCHES = [
       ['sales', 'products', 'customers'],
-      ['categories', 'product_families'],
+      ['product_families'],
     ];
 
     for (const batch of PARALLEL_BATCHES) {
@@ -327,7 +327,7 @@ class IPCBiExportHandler {
     const lines = rows.map(row => {
       return columns.map(col => this._escapeCsv(row[col])).join(',');
     });
-    return [header, ...lines].join('\n') + '\n';
+    return '\uFEFF' + [header, ...lines].join('\n') + '\n';
   }
 
   _queryAll(db, sql, params = []) {

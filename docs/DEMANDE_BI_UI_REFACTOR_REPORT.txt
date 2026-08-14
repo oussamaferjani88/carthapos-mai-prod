@@ -1,0 +1,175 @@
+================================================================================
+RAPPORT — REFONTE UI/UX « DEMANDE BI » (ADMIN REQUEST DETAIL)
+================================================================================
+Date            : 2026-08-14
+Périmètre       : FRONTEND SEULEMENT (admin) — aucun changement backend ni API.
+Fichier parent  : admin/src/pages/AdminRequestDetail.jsx  (1 057 lignes -> 267)
+Composants      : 9 nouveaux fichiers sous admin/src/components/bi/request/
+Build/test      : eslint OK, npm run build OK (Vite, 16 s)
+
+--------------------------------------------------------------------------------
+1. OBJECTIF
+--------------------------------------------------------------------------------
+Refonte complète de la page de détail d'une demande BI en un écran
+« professionnel » piloté par l'état (état-machine), composantisé et épuré,
+sans toucher au backend ni à l'API. Toutes les fonctionnalités existantes sont
+conservées à l'identique ; seule l'UI/UX est restructurée.
+
+--------------------------------------------------------------------------------
+2. FICHIERS CRÉÉS  (admin/src/components/bi/request/)
+--------------------------------------------------------------------------------
+  labels.js               - Constantes partagées : EVENT_LABELS, EVENT_STYLE,
+                            EVENT_ERRORS, JOB_STATUS_LABELS, jobStatusLabel,
+                            jobStatusClass, PAYMENT_LABELS.
+
+  RequestHeader.jsx       - En-tête « SaaS » : lien retour, icône, nom de la
+                            demande, sous-titre (métier + dates), StatusBadge
+                            (export nommé, réutilisé dans la Sidebar),
+                            bouton « Actualiser », menu déroulant « Actions »
+                            contextuel (paiement, infos, approuver, rejeter,
+                            générer, publier) avec élément destructif
+                            « Rejeter ». Le menu est masqué si aucune action
+                            n'est possible.
+
+  RequestWorkflow.jsx     - Stepper de workflow 7 étapes redessiné
+                            (pastilles done/current/error/pending + barres de
+                            liaison + bannière terminale / erreur).
+
+  RequestWorkspace.jsx    - Espace principal piloté par le statut
+                            (état-machine, switch(status)) :
+                              APPROVED / PROCESSING_ETL
+                                  -> EtlWorkspace (assistant ETL, wizard) /
+                                     EtlProcessingPanel (ETL en cours)
+                              PENDING_REVIEW / REQUEST_INFO
+                                  -> ReviewRequestWorkspace
+                                     (carte paiement si PENDING, CTA
+                                     « Approuver la demande », demander des
+                                     infos, rejeter)
+                              DATA_REVIEW
+                                  -> DataReviewWorkspace (panneau succès +
+                                     tuiles statistiques + CTA « Préparer le
+                                     dashboard »)
+                              GENERATING_DASHBOARD
+                                  -> GeneratingWorkspace (spinner)
+                              READY_FOR_REVIEW
+                                  -> DashboardReviewWorkspace (aperçu,
+                                     provisionner, publier)
+                              PUBLISHED
+                                  -> PublishedWorkspace (panneau vert)
+                              COMPLETED / REJECTED / CANCELLED
+                                  -> TerminalWorkspace
+
+  RequestSidebar.jsx      - Colonne latérale sticky (lg, 1/3) : « Résumé »
+                            (statut, progression, uploads, dashboard, jours),
+                            « Paiement » (méthode/date), « Demande client »
+                            (client, activité, licence, emails), « Notes
+                            admin » (textarea + enregistrer).
+
+  RequestInfo.jsx         - Grille « définition » (Client, Activité, Template,
+                            Email, Licence, Créée le).
+
+  RequestDataSource.jsx   - Lignes d'upload compactes (statut, taille, lignes,
+                            fichiers, date, téléchargement ZIP, « Voir les
+                            détails ») + zones repliables « Journaux ETL »,
+                            « Rapport de validation », « Résumé entrepôt ».
+
+  RequestDashboard.jsx    - Carte dashboard (nom, version, badges, Voir /
+                            Provisionner / Publier) + aperçu iframe repliable
+                            (embed GET /bi/dashboards/:id/embed).
+
+  RequestHistory.jsx      - Chronologie verticale « Historique de la demande »
+                            (event history, erreurs stylées).
+
+--------------------------------------------------------------------------------
+3. FICHIER MODIFIÉ
+--------------------------------------------------------------------------------
+  admin/src/pages/AdminRequestDetail.jsx  (1 057 -> 267 lignes)
+  Orchestration légère : chargement + skeleton, gestion d'erreur + « Réessayer »,
+  run(key, fn) pour toutes les actions (spinner + toast + reload), indicateurs
+  dérivés (paymentOk, canVerifyPayment, canApprove, canRunEtl, canGenerate,
+  canPreview, canPublish, canReject, canRequestInfo, isEtlProcessing,
+  workflowStep, hasError), polling 6 s, grille lg:grid-cols-3 (contenu
+  principal 2/3 + sidebar sticky).
+
+--------------------------------------------------------------------------------
+4. FONCTIONNALITÉS PRÉSERVÉES (aucun changement d'API ni de logique métier)
+--------------------------------------------------------------------------------
+  - Chargement GET /bi-requests/:id + bouton Actualiser + polling 6 s sur
+    PROCESSING_ETL / DATA_REVIEW / GENERATING_DASHBOARD.
+  - Vérifier le paiement   PATCH /bi-requests/:id/payment { paymentMethod }
+  - Demander des infos     PATCH /bi-requests/:id/request-info { adminNotes }
+  - Approuver              PATCH /bi-requests/:id/approve { adminNotes }
+  - Rejeter                PATCH /bi-requests/:id/reject { adminNotes }
+  - Notes admin            PATCH /bi-requests/:id/status { adminNotes }
+  - Assistant ETL complet (wizard) : pages Step2Validation..Step7LoadConfirm
+    inchangées, toujours encapsulées par EtlStepsWorkflow.
+  - Préparer le dashboard  POST /bi/dashboards/generate-from-upload { uploadId }
+  - Aperçu dashboard       embed GET /bi/dashboards/:id/embed (iframe)
+  - Provisionner           lien /bi-dashboard/:id/assign (AdminDashboardAssign)
+  - Publier                POST /bi/dashboards/:id/publish
+  - Télécharger ZIP        GET /api/bi-uploads/:id/download
+  - Journal / validation / résumé entrepôt (GET /bi-uploads/:id/logs,
+    /validation-report, /summary) dans les zones repliables.
+  - Historique (event history) conservé en chronologie.
+  - Conditionnel ETL : isEtlProcessing masque Sidebar + cartes Info/Source/
+    Dashboard/Historique et met le stepper sur l'étape 3 pendant le traitement.
+
+--------------------------------------------------------------------------------
+5. CHANGEMENTS UI/UX
+--------------------------------------------------------------------------------
+  - En-tête « SaaS » avec badge de statut coloré + menu « Actions » unifié
+    (remplace la carte « Actions » séparée).
+  - Espace principal unique piloté par le statut (l'utilisateur ne voit que les
+    actions pertinentes à l'état courant), au lieu d'une pile de cartes figées.
+  - Stepper 7 étapes redessiné avec pastilles + connexions + bannière
+    terminale / erreur.
+  - Sidebar sticky compacte : Résumé / Paiement / Demande client / Notes admin.
+  - Uploads en lignes compactes avec sections repliables (Journaux ETL,
+    Rapport de validation, Résumé entrepôt).
+  - Aperçu du dashboard repliable directement dans la carte.
+  - États terminaux (COMPLETED / REJECTED / CANCELLED) rendus proprement avec
+    badge d'erreur sur le stepper en cas d'échec.
+
+--------------------------------------------------------------------------------
+6. COMPORTEMENT PAR ÉTAT
+--------------------------------------------------------------------------------
+  PENDING_REVIEW      : workspace review (paiement si manquant + CTA approuver +
+                        demander infos + rejeter) ; sidebar + grille complète ;
+                        stepper étape 1 active.
+  APPROVED            : assistant ETL (wizard) ; isEtlProcessing vrai ->
+                        grille + sidebar masquées, stepper étape 3 active.
+  PROCESSING_ETL      : panneau de progression ETL (phases) ; stepper étape 3 ;
+                        grille masquée ; polling.
+  DATA_REVIEW         : panneau succès + tuiles stats + « Préparer le
+                        dashboard » ; grille visible ; polling.
+  GENERATING_DASHBOARD: spinner génération ; grille visible ; polling.
+  READY_FOR_REVIEW    : aperçu + provisionner + publier.
+  PUBLISHED           : panneau « publié » + carte dashboard avec badges.
+  COMPLETED           : panneau terminal succès (remboursement si licence nulle).
+  REJECTED            : panneau terminal erreur + bannière d'erreur
+                        (stylée) + stepper erreur.
+  CANCELLED           : panneau terminal (annulé).
+
+--------------------------------------------------------------------------------
+7. RÉSULTATS DE CONSTRUCTION / TEST
+--------------------------------------------------------------------------------
+  - npx eslint src/pages/AdminRequestDetail.jsx src/components/bi/request/
+        -> 0 erreur, 0 warning (2 erreurs initiales corrigées : import cn
+           inutilisé dans RequestDashboard, alias « icon: Icon » dans
+           RequestSidebar remplacé par const Icon = icon).
+  - npm run build      -> OK (avertissement de taille de chunk préexistant,
+                           sans lien avec ce refactoring).
+  - Toutes les routes API ci-dessus vérifiées présentes dans le nouveau code
+    (grep api.get/patch/post).
+  - Non testé : vérification visuelle manuelle sur navigateur (états réels).
+
+--------------------------------------------------------------------------------
+8. POINTS UX RÉSIDUELS / AMÉLIORATIONS FUTURES
+--------------------------------------------------------------------------------
+  - Aucune suppression fonctionnelle ; le seul « avertissement » de build
+    (chunk > 500 kB) est préexistant et pourrait être traité par un
+    code-splitting des pages (React.lazy) — hors périmètre de cette refonte.
+  - Possible validation visuelle supplémentaire sur le navigateur pour régler
+    finement espacements/contrastes.
+  - Optionnel : extraire plus tard RequestWorkspace en sous-composants dédiés
+    par état si le fichier redevient volumineux.

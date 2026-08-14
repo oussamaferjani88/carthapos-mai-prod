@@ -12,6 +12,7 @@ import { Eye, EyeOff, Lock, Mail, User, Building, Store, Users, Upload, FileText
 import LiquidEther from "@/components/LiquidEther";
 import AuthSkeleton from "@/components/skeletons/AuthSkeleton";
 import LanguageSwitcher from "@/components/LanguageSwitcher";
+import { apiRegister, saveAuthSession, clearAccessModeIdentity } from "@/lib/auth";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
@@ -151,59 +152,32 @@ const Register = () => {
     setLoading(true);
 
     try {
-      // TODO: Replace with actual API call
-      const registrationData = {
-        fullName: formData.fullName,
-        email: formData.email,
+      const businessName =
+        formData.businessName ||
+        formData.company ||
+        formData.companyName ||
+        formData.fullName;
+      const phone = formData.businessPhone || formData.resellerPhone || undefined;
+
+      const session = await apiRegister({
+        username: formData.fullName || formData.email.split("@")[0] || `user-${Date.now()}`,
+        email: formData.email.trim(),
         password: formData.password,
-        accountType,
-        referralCode: referralCode || undefined,
-        ...(accountType === "business" && {
-          businessInfo: {
-            name: formData.businessName,
-            type: formData.businessType,
-            address: formData.businessAddress,
-            phone: formData.businessPhone,
-            taxId: formData.taxId,
-          }
-        }),
-        ...(accountType === "reseller" && {
-          resellerInfo: {
-            companyName: formData.companyName,
-            registrationNumber: formData.registrationNumber,
-            taxId: formData.resellerTaxId,
-            address: formData.resellerAddress,
-            phone: formData.resellerPhone,
-          }
-        }),
-      };
-      
-      // TODO: Upload documents if business or reseller
-      // const formDataToSend = new FormData();
-      // formDataToSend.append('data', JSON.stringify(registrationData));
-      // documents.forEach((doc, index) => {
-      //   formDataToSend.append(`document${index}`, doc);
-      // });
-      
-      // const response = await fetch('/api/auth/register', {
-      //   method: 'POST',
-      //   body: formDataToSend,
-      // });
-      
-      // Simulate API call
-      await new Promise(resolve => setTimeout(resolve, 1500));
-      
-      console.log("Registration data:", registrationData);
-      console.log("Documents:", documents);
-      
+        businessName,
+        phone,
+      });
+
+      saveAuthSession(session);
+      clearAccessModeIdentity();
+
       // Normal users go to dashboard, others to pending verification
       if (accountType === "normal") {
         navigate("/dashboard");
       } else {
         navigate("/verification-pending", { state: { accountType } });
       }
-    } catch (err) {
-      setError(t("auth.registerError") || "Failed to register. Please try again.");
+    } catch (err: any) {
+      setError(err?.message || t("auth.registerError") || "Failed to register. Please try again.");
     } finally {
       setLoading(false);
     }

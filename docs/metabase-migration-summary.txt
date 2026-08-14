@@ -1,0 +1,174 @@
+METABASE MIGRATION — IMPLEMENTATION SUMMARY
+=============================================
+Date: June 30, 2026
+
+1. WHAT CHANGED
+----------------
+
+The BI dashboard generation system was migrated from custom React/Recharts
+template-based generation to a Metabase Community Edition association model.
+
+OLD APPROACH:
+  - bi-dashboard-templates.js defined chart layouts (sections, types, keys)
+  - generate-from-upload applied JS template → dashboardConfig JSON
+  - AdminDashboardViewer rendered Recharts from warehouse-service.js queries
+  - Admin could edit KPI config in a React modal
+
+NEW APPROACH:
+  - BiDashboardTemplate database registry stores businessType→metabaseDashboardId
+  - generate-from-upload looks up registry, associates Metabase ID with BiDashboard
+  - AdminDashboardViewer shows Metabase link + dashboard info (no chart rendering)
+  - BI specialist builds/manages dashboards directly in Metabase UI
+
+2. UNCHANGED COMPONENTS (still working as before)
+---------------------------------------------------
+  ✓ ETL pipeline (etl-pipeline.js)
+  ✓ Warehouse schema (dim_*, fact_* tables)
+  ✓ Warehouse loading (dimension/fact insertion)
+  ✓ Data validation (bi-schema-registry.js)
+  ✓ BI uploads (bi-uploads.js route + BiUpload model)
+  ✓ BI requests (bi-requests.js route + BiRequest model)
+  ✓ BI analysis (bi-analysis.js route + BiAnalysisRequest model)
+  ✓ Processing jobs (bi-processing-job model + logs)
+  ✓ Tenant filtering (tenantId on all warehouse records)
+  ✓ Notification workflow (BiNotification)
+  ✓ Dashboard status workflow (DRAFT → IN_PROGRESS → READY_FOR_REVIEW → PUBLISHED)
+
+3. FILES MODIFIED
+------------------
+  backend/prisma/schema.prisma
+    - Added metabaseDashboardId (Int?) field to BiDashboard
+    - Added BiDashboardTemplate model (id, businessType, metabaseDashboardId,
+      name, description, active, createdAt, updatedAt)
+
+  backend/.env
+    - Added METABASE_BASE_URL=http://localhost:3000
+    - Added METABASE_DASHBOARD_COLLECTION=1
+
+  backend/services/bi-dashboard-templates.js
+    - Added deprecation header comment
+    - Still present for backward compatibility
+
+  backend/routes/bi-dashboards.js
+    - generate-from-upload: looks up BiDashboardTemplate registry instead of
+      applying JS template. Creates BiDashboard with metabaseDashboardId. No
+      background process. Returns 201 immediately (was 202 + background job).
+    - POST (create): accepts optional metabaseDashboardId, auto-resolves from
+      template registry if not provided
+    - PATCH: accepts metabaseDashboardId update
+    - Added GET /:id/metabase-link endpoint
+    - GET /:id/data kept for backward compatibility
+    - Removed: background setImmediate generation, fake progress steps, JS
+      template application
+
+  backend/server.js
+    - Added biDashboardTemplatesRoutes import and wire at /api/bi/dashboard-templates
+
+4. FILES CREATED
+-----------------
+  backend/routes/bi-dashboard-templates.js
+    - CRUD endpoints for BiDashboardTemplate registry
+    - GET / (list, with ?active filter)
+    - GET /:businessType (lookup by business type)
+    - POST / (register template)
+    - PATCH /:id (update template)
+    - DELETE /:id (delete template)
+
+5. FRONTEND CHANGES
+--------------------
+  admin/src/pages/AdminBIDashboardManager.jsx
+    - Added "Dashboard Templates" button → opens template manager modal
+    - Added "Open in Metabase" button on each dashboard (when metabaseId set)
+    - Added MB # badge showing Metabase dashboard ID
+    - Added template readiness indicator on upload rows
+    - Template manager modal: list all registered templates, register new ones,
+      activate/deactivate, delete, open in Metabase
+    - Dashboard creation dialog shows template status (linked or unlinked)
+    - Removed: old card preview section (chart type emojis)
+
+  admin/src/pages/AdminDashboardViewer.jsx
+    - Simplified: no more chart rendering, no EditConfigModal
+    - Shows Metabase link card with "Open in Metabase" button
+    - Shows dashboard info (status, client, dates, MB ID)
+    - Still uses dashboard data endpoint for backward compat
+
+  frontend/src/pages/dashboard/BIDashboardViewer.tsx
+    - No changes (kept for backward compatibility with existing client dashboards)
+
+6. NEW API ENDPOINTS
+---------------------
+  GET    /api/bi/dashboard-templates             — List registered templates
+  GET    /api/bi/dashboard-templates/:businessType — Get template by business type
+  POST   /api/bi/dashboard-templates              — Register a new template
+  PATCH  /api/bi/dashboard-templates/:id          — Update a template
+  DELETE /api/bi/dashboard-templates/:id          — Delete a template
+  GET    /api/bi/dashboards/:id/metabase-link      — Get Metabase URL for a dashboard
+
+7. MODIFIED API ENDPOINTS
+--------------------------
+  POST   /api/bi/dashboards/generate-from-upload
+    - No longer generates React/Recharts config from JS templates
+    - Looks up BiDashboardTemplate by businessType
+    - Creates BiDashboard with metabaseDashboardId from template (or null)
+    - Returns 201 immediately (was 202 with background generation)
+    - No more GENERATING status or generationSteps
+
+  POST   /api/bi/dashboards
+    - Accepts metabaseDashboardId in request body
+    - Auto-resolves from template registry if not provided
+    - Sets dashboardType = 'metabase' when linked
+
+  PATCH  /api/bi/dashboards/:id
+    - Now accepts metabaseDashboardId to update the link
+
+8. WORKFLOW CHANGES
+--------------------
+  Dashboard Generation (admin):
+    1. Admin uploads ZIP → ETL processes it → status = COMPLETED
+    2. Admin clicks "Create Dashboard" → server looks up template registry
+    3. If template found → BiDashboard created with metabaseDashboardId
+    4. If no template → BiDashboard created without Metabase link (can be linked later)
+    5. Dashboard is DRAFT immediately (no polling, no progress steps)
+
+  Template Management (admin):
+    1. BI specialist manually builds dashboard in Metabase
+    2. Notes the dashboard ID from Metabase URL (e.g., /dashboard/42)
+    3. Opens CarthaPOS → Dashboard Templates → Register Template
+    4. Fills: business type, Metabase dashboard ID, name
+    5. Template is now available for all future dashboard creations
+
+  Dashboard Customization (BI specialist):
+    1. All editing happens in Metabase native UI
+    2. Admin clicks "Open in Metabase" from CarthaPOS
+    3. Adds/removes cards, changes charts, filters, layout in Metabase
+    4. Changes are immediately reflected for all clients using that template
+
+  Client Viewing (future):
+    - metabaseDashboardId stored on each BiDashboard record
+    - Future Metabase integration can use this ID to embed or proxy
+    - Current client viewer (BIDashboardViewer.tsx) still works with legacy data
+
+9. IMPACT ON EXISTING DATA
+----------------------------
+  - Existing BiDashboard records keep their dashboardConfig JSON (backward compat)
+  - Existing dashboards will still render in legacy viewers
+  - No data migration needed
+  - New dashboards will have dashboardType = 'metabase' and metabaseDashboardId set
+  - Old JS templates in bi-dashboard-templates.js are deprecated but not deleted
+
+10. MANUAL CONFIGURATION NEEDED (BY BI SPECIALIST)
+----------------------------------------------------
+  1. Start Metabase: metabase/start-metabase.bat
+  2. Open http://localhost:3000, complete Metabase setup
+  3. Add PostgreSQL warehouse connection in Metabase Admin → Databases
+     - Host: localhost, Port: 5432, DB: pos_system
+     - User: metabase_reader (read-only), create if not exists
+  4. Build dashboard templates: one per business type (restaurant, cafe, retail,
+     pharmacy, salon) using the warehouse data
+  5. Note each dashboard's numeric ID from the URL bar
+  6. In CarthaPOS admin → Dashboard Manager → Dashboard Templates:
+     Register each template with its business type and Metabase dashboard ID
+
+================================================================================
+END OF SUMMARY
+================================================================================

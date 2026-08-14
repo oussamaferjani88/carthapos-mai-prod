@@ -18,8 +18,16 @@ const { PrismaClient } = require('@prisma/client');
 
 const etlPipeline = require('../services/etl-pipeline');
 const warehouseService = require('../services/warehouse-service');
+const { buildDimensionalModel } = require('../services/bi-model-registry');
+const { resolveClientId } = require('../utils/identity');
 
 const prisma = new PrismaClient();
+
+const {
+  REQUEST_STATUS,
+  EVENT_TYPES,
+} = require('../utils/bi-status');
+const { recordEvent, guardTransition } = require('../utils/bi-workflow');
 
 // ─── Multer config ──────────────────────────────────────────────
 
@@ -50,7 +58,17 @@ const upload = multer({
 
 // ─── POST /api/bi-uploads — Upload ZIP ─────────────────────────
 
-router.post('/', upload.single('file'), async (req, res) => {
+router.post('/', (req, res, next) => {
+  upload.single('file')(req, res, (err) => {
+    if (err) {
+      if (err.code === 'LIMIT_FILE_SIZE') {
+        return res.status(400).json({ error: 'File too large. Maximum size is 100 MB.' });
+      }
+      return res.status(400).json({ error: `Invalid ZIP file: ${err.message}` });
+    }
+    next();
+  });
+}, async (req, res) => {
   try {
     if (!req.file) {
       return res.status(400).json({ error: 'No file uploaded' });
@@ -171,12 +189,17 @@ router.get('/', async (req, res) => {
   try {
     const { clientId, status, page = 1, pageSize = 20 } = req.query;
     const where = {};
-
-    if (clientId) where.clientId = clientId;
+    // Identity-forced tenant scoping: an authenticated client is always
+    // scoped to their own uploads, regardless of any clientId parameter.
+    const identityClientId = await resolveClientId(req);
+    const scopedClientId = identityClientId || clientId;
+    if (scopedClientId) where.clientId = scopedClientId;
     if (status) where.status = status;
 
-    const skip = (parseInt(page) - 1) * parseInt(pageSize);
-    const take = parseInt(pageSize);
+    const parsedPage = Math.max(parseInt(String(page || '1'), 10) || 1, 1);
+    const parsedPageSize = Math.min(Math.max(parseInt(String(pageSize || '20'), 10) || 20, 1), 100);
+    const skip = (parsedPage - 1) * parsedPageSize;
+    const take = parsedPageSize;
 
     const [items, total] = await Promise.all([
       prisma.biUpload.findMany({
@@ -205,9 +228,9 @@ router.get('/', async (req, res) => {
       data: {
         items,
         total,
-        page: parseInt(page),
-        pageSize: parseInt(pageSize),
-        totalPages: Math.ceil(total / parseInt(pageSize)),
+        page: parsedPage,
+        pageSize: parsedPageSize,
+        totalPages: Math.ceil(total / parsedPageSize),
       },
     });
   } catch (error) {
@@ -244,6 +267,12 @@ router.get('/:id', async (req, res) => {
     });
 
     if (!upload) {
+      return res.status(404).json({ error: 'Upload not found' });
+    }
+
+    // Ownership guard: a client may only view their own uploads.
+    const identityClientId = await resolveClientId(req);
+    if (identityClientId && upload.clientId !== identityClientId) {
       return res.status(404).json({ error: 'Upload not found' });
     }
 
@@ -414,18 +443,49 @@ router.post('/:id/cancel', async (req, res) => {
 
 router.get('/clients/list', async (req, res) => {
   try {
-    const clients = await prisma.biUpload.findMany({
+    const clients = await prisma.client.findMany({
+      select: {
+        id: true,
+        name: true,
+        licenses: {
+          select: { sector: true },
+          orderBy: { createdAt: 'desc' },
+          take: 1,
+        },
+      },
+      orderBy: { name: 'asc' },
+    });
+
+    const mapped = clients.map(c => ({
+      clientId: c.id,
+      name: c.name,
+      businessType: c.licenses[0]?.sector || null,
+    }));
+
+    const knownIds = new Set(mapped.map(c => c.clientId));
+
+    const uploadClients = await prisma.biUpload.findMany({
       select: { clientId: true, businessType: true },
       distinct: ['clientId'],
-      orderBy: { clientId: 'asc' },
+      where: { clientId: { not: null } },
     });
-    res.json({ success: true, data: clients });
+
+    for (const u of uploadClients) {
+      if (!knownIds.has(u.clientId)) {
+        mapped.push({ clientId: u.clientId, name: u.clientId, businessType: u.businessType });
+        knownIds.add(u.clientId);
+      }
+    }
+
+    res.json({ success: true, data: mapped });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
 });
 
 // ─── POST /api/bi-uploads/:id/start-etl — Manual ETL trigger ────
+// Wrapper: syncs request status + timeline around the unchanged etlPipeline.run()
+// call and protects against duplicate execution (plan refinements #10/#14).
 
 router.post('/:id/start-etl', async (req, res) => {
   try {
@@ -467,6 +527,28 @@ router.post('/:id/start-etl', async (req, res) => {
       return res.status(400).json({ error: 'ETL has already been completed for this upload.' });
     }
 
+    // Atomic guard: APPROVED → PROCESSING_ETL. A concurrent admin / double
+    // click loses this transition and receives STATE_CONFLICT.
+    const won = await guardTransition({
+      model: 'biRequest',
+      id: upload.requestId,
+      allowedStatuses: [REQUEST_STATUS.APPROVED],
+      nextStatus: REQUEST_STATUS.PROCESSING_ETL,
+    });
+    if (!won) {
+      return res.status(409).json({
+        error: 'STATE_CONFLICT',
+        message: `Request is no longer in a state that allows ETL (current: "${linkedRequest.status}").`,
+      });
+    }
+
+    await recordEvent({
+      requestId: upload.requestId,
+      type: EVENT_TYPES.ETL_STARTED,
+      metadata: { uploadId: upload.id },
+      performedByRole: 'ADMIN',
+    });
+
     // Update upload status to VALIDATING
     await prisma.biUpload.update({
       where: { id: upload.id },
@@ -488,11 +570,38 @@ router.post('/:id/start-etl', async (req, res) => {
 
     // Fire ETL in background (don't await)
     etlPipeline.run(upload.id, upload.filePath)
-      .then((result) => {
+      .then(async (result) => {
         console.log(`[UPLOAD] ETL completed for uploadId=${upload.id}: ${result.recordsLoaded} records in ${result.elapsed}s`);
+        // Sync request: PROCESSING_ETL → DATA_REVIEW (only if still processing)
+        await guardTransition({
+          model: 'biRequest',
+          id: upload.requestId,
+          allowedStatuses: [REQUEST_STATUS.PROCESSING_ETL],
+          nextStatus: REQUEST_STATUS.DATA_REVIEW,
+        });
+        await recordEvent({
+          requestId: upload.requestId,
+          type: EVENT_TYPES.ETL_COMPLETED,
+          metadata: { uploadId: upload.id, recordsLoaded: result.recordsLoaded, elapsed: result.elapsed },
+          performedByRole: 'system',
+        });
       })
-      .catch((err) => {
+      .catch(async (err) => {
         console.error(`[UPLOAD] ETL failed for uploadId=${upload.id}:`, err.message);
+        // Revert request to APPROVED so the admin can retry after fixing data.
+        await guardTransition({
+          model: 'biRequest',
+          id: upload.requestId,
+          allowedStatuses: [REQUEST_STATUS.PROCESSING_ETL],
+          nextStatus: REQUEST_STATUS.APPROVED,
+        });
+        await recordEvent({
+          requestId: upload.requestId,
+          type: EVENT_TYPES.ETL_FAILED,
+          message: err.message,
+          metadata: { uploadId: upload.id },
+          performedByRole: 'system',
+        });
       });
 
     res.status(202).json({
@@ -502,6 +611,443 @@ router.post('/:id/start-etl', async (req, res) => {
     });
   } catch (error) {
     console.error('[UPLOAD] Start ETL failed:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ─── GET /api/bi-uploads/:id/download — Admin ZIP download ────────
+
+router.get('/:id/download', async (req, res) => {
+  try {
+    const upload = await prisma.biUpload.findUnique({
+      where: { id: req.params.id },
+      select: { filePath: true, fileName: true },
+    });
+    if (!upload) return res.status(404).json({ error: 'Upload not found' });
+    if (!upload.filePath || !fs.existsSync(upload.filePath)) {
+      return res.status(404).json({ error: 'Uploaded file no longer exists on disk' });
+    }
+    res.download(upload.filePath, upload.fileName || 'bi_export.zip');
+  } catch (error) {
+    console.error('[UPLOAD] Download failed:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ─── WIZARD ENDPOINTS ─────────────────────────────────────────────
+
+const { loadPreview, savePreview, previewPath } = require('../utils/bi-preview-store');
+
+// ─── POST /api/bi-uploads/:id/validate — Extract & Validate ─────
+
+router.post('/:id/validate', async (req, res) => {
+  try {
+    const upload = await prisma.biUpload.findUnique({ where: { id: req.params.id } });
+    if (!upload) return res.status(404).json({ error: 'Upload not found' });
+
+    const result = await etlPipeline.extractAndValidate(upload.id, upload.filePath);
+
+    // Tenant isolation: always attribute the warehouse snapshot to the client
+    // selected on the upload, never to the clientId embedded in the ZIP.
+    if (upload.clientId) {
+      result.metadata.clientId = upload.clientId;
+    }
+
+    // Store validation result on upload record
+    await prisma.biUpload.update({
+      where: { id: upload.id },
+      data: {
+        status: 'VALIDATED',
+        totalFiles: Object.keys(result.datasets).length,
+        totalRows: Object.values(result.datasets).reduce((s, d) => s + d.rows.length, 0),
+      },
+    });
+
+    // Store raw datasets + validation in preview file for wizard
+    savePreview(upload.id, {
+      metadata: result.metadata,
+      validation: result.validation,
+      rawDatasets: result.datasets,
+      wizardStep: 'validated',
+    });
+
+    res.json({
+      success: true,
+      data: {
+        metadata: result.metadata,
+        validation: result.validation,
+        totalRows: Object.values(result.datasets).reduce((s, d) => s + d.rows.length, 0),
+        totalDatasets: Object.keys(result.datasets).length,
+      },
+    });
+  } catch (error) {
+    console.error('[VALIDATE] Failed:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ─── GET /api/bi-uploads/:id/validation-report — Get validation ──
+
+router.get('/:id/validation-report', async (req, res) => {
+  try {
+    const preview = loadPreview(req.params.id);
+    if (!preview || !preview.validation) {
+      return res.status(400).json({ error: 'Validation not yet performed. Run validate first.' });
+    }
+    res.json({ success: true, data: preview.validation, metadata: preview.metadata });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ─── GET /api/bi-uploads/:id/raw-preview — Preview raw CSV data ──
+
+router.get('/:id/raw-preview', async (req, res) => {
+  try {
+    const preview = loadPreview(req.params.id);
+    if (!preview || !preview.rawDatasets) {
+      return res.status(400).json({ error: 'No raw data available. Run validate first.' });
+    }
+
+    const { dataset: key, page = 1, pageSize = 50 } = req.query;
+    const datasets = preview.rawDatasets;
+
+    if (key) {
+      if (!datasets[key]) return res.status(404).json({ error: `Dataset "${key}" not found` });
+      const ds = datasets[key];
+      const start = (parseInt(page) - 1) * parseInt(pageSize);
+      const rows = ds.rows.slice(start, start + parseInt(pageSize));
+      return res.json({
+        success: true,
+        data: {
+          dataset: key,
+          header: ds.header,
+          rows,
+          totalRows: ds.rows.length,
+          page: parseInt(page),
+          pageSize: parseInt(pageSize),
+          totalPages: Math.ceil(ds.rows.length / parseInt(pageSize)),
+        },
+      });
+    }
+
+    // Return summary of all datasets
+    const summary = {};
+    for (const [k, ds] of Object.entries(datasets)) {
+      summary[k] = { columns: ds.header, rows: ds.rows.length };
+    }
+    res.json({ success: true, data: { datasets: summary } });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ─── POST /api/bi-uploads/:id/prepare — Prepare warehouse (memory) ──
+
+router.post('/:id/prepare', async (req, res) => {
+  try {
+    const upload = await prisma.biUpload.findUnique({ where: { id: req.params.id } });
+    if (!upload) return res.status(404).json({ error: 'Upload not found' });
+
+    const preview = loadPreview(req.params.id);
+    if (!preview || !preview.rawDatasets) {
+      return res.status(400).json({ error: 'No raw data. Run validate first.' });
+    }
+
+    const result = await etlPipeline.prepareWarehouse(preview.rawDatasets, preview.metadata, upload.id);
+
+    // Update preview file with prepared warehouse data
+    preview.cleanedDatasets = result.cleanedDatasets;
+    preview.warehouse = result.warehouse;
+    preview.statistics = result.statistics;
+    preview.changes = result.changes;
+    preview.profiles = result.profiles;
+    preview.skippedRows = result.skippedRows;
+    preview.orphanWarnings = result.orphanWarnings;
+    preview.preparationStatus = result.status;
+    preview.wizardStep = 'prepared';
+    savePreview(req.params.id, preview);
+
+    await prisma.biUpload.update({
+      where: { id: upload.id },
+      data: { status: 'PREPARED' },
+    });
+
+    const errors = result.changes.filter(c => c.severity === 'ERROR');
+
+    res.json({
+      success: true,
+      data: {
+        warehouse: {
+          dimensions: Object.fromEntries(
+            Object.entries(result.warehouse.dimensions).map(([k, v]) => [k, v.length])
+          ),
+          facts: Object.fromEntries(
+            Object.entries(result.warehouse.facts).map(([k, v]) => [k, v.length])
+          ),
+        },
+        statistics: result.statistics,
+        status: result.status,
+        changesCount: result.changes.length,
+        unresolvedErrors: errors.length,
+      },
+    });
+  } catch (error) {
+    console.error('[PREPARE] Failed:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ─── GET /api/bi-uploads/:id/transformation-preview — Before/After ──
+
+router.get('/:id/transformation-preview', async (req, res) => {
+  try {
+    const preview = loadPreview(req.params.id);
+    if (!preview || !preview.warehouse) {
+      return res.status(400).json({ error: 'Warehouse not prepared. Run prepare first.' });
+    }
+
+    const { section, table, page = 1, pageSize = 50 } = req.query;
+
+    if (section && table) {
+      if (section === 'raw' && preview.rawDatasets[table]) {
+        const ds = preview.rawDatasets[table];
+        const start = (parseInt(page) - 1) * parseInt(pageSize);
+        return res.json({
+          success: true, section, table,
+          data: { header: ds.header, rows: ds.rows.slice(start, start + parseInt(pageSize)), totalRows: ds.rows.length },
+        });
+      }
+      if (section === 'cleaned' && preview.cleanedDatasets && preview.cleanedDatasets[table]) {
+        const ds = preview.cleanedDatasets[table];
+        const start = (parseInt(page) - 1) * parseInt(pageSize);
+        return res.json({
+          success: true, section, table,
+          data: { header: ds.header, rows: ds.rows.slice(start, start + parseInt(pageSize)), totalRows: ds.rows.length },
+        });
+      }
+      if (section === 'dimensions' && preview.warehouse.dimensions[table]) {
+        const rows = preview.warehouse.dimensions[table];
+        const start = (parseInt(page) - 1) * parseInt(pageSize);
+        return res.json({
+          success: true, section: 'dimensions', table,
+          data: { rows: rows.slice(start, start + parseInt(pageSize)), totalRows: rows.length },
+        });
+      }
+      if (section === 'facts' && preview.warehouse.facts[table]) {
+        const rows = preview.warehouse.facts[table];
+        const start = (parseInt(page) - 1) * parseInt(pageSize);
+        return res.json({
+          success: true, section: 'facts', table,
+          data: { rows: rows.slice(start, start + parseInt(pageSize)), totalRows: rows.length },
+        });
+      }
+      return res.status(404).json({ error: `Table "${table}" not found in section "${section}"` });
+    }
+
+    // Return summary
+    const summary = { raw: {}, dimensions: {}, facts: {} };
+    if (preview.rawDatasets) {
+      for (const [k, ds] of Object.entries(preview.rawDatasets)) summary.raw[k] = ds.rows.length;
+    }
+    if (preview.cleanedDatasets) {
+      summary.cleaned = {};
+      for (const [k, ds] of Object.entries(preview.cleanedDatasets)) summary.cleaned[k] = ds.rows.length;
+    }
+    if (preview.warehouse) {
+      for (const [k, v] of Object.entries(preview.warehouse.dimensions)) summary.dimensions[k] = v.length;
+      for (const [k, v] of Object.entries(preview.warehouse.facts)) summary.facts[k] = v.length;
+    }
+
+    res.json({
+      success: true,
+      data: summary,
+      statistics: preview.statistics,
+      changes: preview.changes,
+      preparationStatus: preview.preparationStatus,
+      wizardStep: preview.wizardStep,
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ─── GET /api/bi-uploads/:id/dimensional-model — Read-only model ──
+
+router.get('/:id/dimensional-model', async (req, res) => {
+  try {
+    const upload = await prisma.biUpload.findUnique({ where: { id: req.params.id } });
+    if (!upload) return res.status(404).json({ error: 'Upload not found' });
+
+    const preview = loadPreview(req.params.id);
+    if (!preview || !preview.warehouse) {
+      return res.status(400).json({ error: 'Warehouse not prepared. Run prepare first.' });
+    }
+
+    const model = buildDimensionalModel(preview.warehouse);
+    res.json({ success: true, data: model });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ─── POST /api/bi-uploads/:id/correct — Apply corrections ────────
+router.post('/:id/correct', async (req, res) => {
+  try {
+    const preview = loadPreview(req.params.id);
+    if (!preview || !preview.warehouse) {
+      return res.status(400).json({ error: 'No prepared data. Run prepare first.' });
+    }
+
+    const { section, table, rowIndex, changes } = req.body;
+    if (!section || !table || rowIndex === undefined || !changes) {
+      return res.status(400).json({ error: 'section, table, rowIndex, and changes are required' });
+    }
+
+    let target;
+    if (section === 'cleaned' && preview.cleanedDatasets && preview.cleanedDatasets[table]) {
+      target = preview.cleanedDatasets[table].rows;
+    } else if (section === 'dimensions' && preview.warehouse.dimensions[table]) {
+      target = preview.warehouse.dimensions[table];
+    } else if (section === 'facts' && preview.warehouse.facts[table]) {
+      target = preview.warehouse.facts[table];
+    } else {
+      return res.status(404).json({ error: `Target not found: ${section}/${table}` });
+    }
+
+    if (rowIndex < 0 || rowIndex >= target.length) {
+      return res.status(400).json({ error: `rowIndex ${rowIndex} out of range (0-${target.length - 1})` });
+    }
+
+    Object.assign(target[rowIndex], changes);
+
+    // Persist the correction as a replayable overlay keyed by stable
+    // sourceRowIndex so re-derivation at load time can never clobber a fix.
+    preview.corrections = preview.corrections || {};
+    preview.corrections[section] = preview.corrections[section] || {};
+    preview.corrections[section][table] = preview.corrections[section][table] || {};
+    preview.corrections[section][table][rowIndex] = {
+      ...(preview.corrections[section][table][rowIndex] || {}),
+      ...changes,
+    };
+
+    // Mark matching preparation ERROR issues as resolved when the admin
+    // overwrites the cell with a non-empty value.
+    if (section === 'cleaned' && preview.changes && Array.isArray(preview.changes)) {
+      for (const [key, value] of Object.entries(changes)) {
+        if (value === null || value === undefined || (typeof value === 'string' && value.trim() === '')) continue;
+        for (const c of preview.changes) {
+          if (c.dataset === table && c.rowIndex === rowIndex && c.column === key && c.severity === 'ERROR') {
+            c.resolved = true;
+            c.preparedValue = value;
+            c.action = 'MANUALLY_CORRECTED';
+            c.reason = 'Manual correction by reviewer';
+          }
+        }
+      }
+    }
+
+    preview.wizardStep = 'correcting';
+    savePreview(req.params.id, preview);
+
+    res.json({ success: true, message: 'Correction applied' });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ─── POST /api/bi-uploads/:id/confirm-load — Load into warehouse ──
+
+router.post('/:id/confirm-load', async (req, res) => {
+  try {
+    const upload = await prisma.biUpload.findUnique({ where: { id: req.params.id } });
+    if (!upload) return res.status(404).json({ error: 'Upload not found' });
+
+    const preview = loadPreview(req.params.id);
+    if (!preview || !preview.warehouse) {
+      return res.status(400).json({ error: 'No prepared data. Run prepare first.' });
+    }
+
+    // Run the warehouse load with corrected data
+    const result = await etlPipeline.loadIntoWarehouse(upload.id, preview);
+
+    // Interactive ETL is the processing path for client BI requests: when the
+    // linked request is APPROVED, move it to DATA_REVIEW (same transition the
+    // background pipeline performs after a successful run) so the admin can
+    // generate the dashboard.
+    if (upload.requestId) {
+      const won = await guardTransition({
+        model: 'biRequest',
+        id: upload.requestId,
+        allowedStatuses: [REQUEST_STATUS.APPROVED],
+        nextStatus: REQUEST_STATUS.DATA_REVIEW,
+      });
+      if (won) {
+        await recordEvent({
+          requestId: upload.requestId,
+          type: EVENT_TYPES.ETL_COMPLETED,
+          metadata: { uploadId: upload.id, recordsLoaded: result.recordsLoaded, elapsed: result.elapsed },
+          performedByRole: 'system',
+        });
+      }
+    }
+
+    // Clean up preview file
+    try { fs.unlinkSync(previewPath(req.params.id)); } catch {}
+
+    res.json({
+      success: true,
+      data: {
+        recordsLoaded: result.recordsLoaded,
+        elapsed: result.elapsed,
+        report: {
+          skippedRows: result.skippedRows,
+          orphanWarnings: result.orphanWarnings,
+          appliedCorrections: result.appliedCorrections,
+          unresolvedIssues: result.unresolvedIssues,
+        },
+      },
+    });
+  } catch (error) {
+    console.error('[CONFIRM-LOAD] Failed:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ─── GET /api/bi-uploads/:id/report — Success report ─────────────
+
+router.get('/:id/report', async (req, res) => {
+  try {
+    const upload = await prisma.biUpload.findUnique({
+      where: { id: req.params.id },
+      include: {
+        processingJob: { select: { status: true, recordsLoaded: true, startedAt: true, completedAt: true } },
+        dashboards: { select: { id: true, name: true, status: true }, orderBy: { createdAt: 'desc' }, take: 1 },
+      },
+    });
+    if (!upload) return res.status(404).json({ error: 'Upload not found' });
+
+    const elapsed = upload.processingJob?.startedAt && upload.processingJob?.completedAt
+      ? ((new Date(upload.processingJob.completedAt) - new Date(upload.processingJob.startedAt)) / 1000).toFixed(1)
+      : null;
+
+    res.json({
+      success: true,
+      data: {
+        uploadId: upload.id,
+        fileName: upload.fileName,
+        fileSize: upload.fileSize,
+        status: upload.status,
+        totalRows: upload.totalRows,
+        recordsLoaded: upload.processingJob?.recordsLoaded || 0,
+        elapsed,
+        processingJob: upload.processingJob,
+        dashboard: upload.dashboards?.[0] || null,
+        createdAt: upload.createdAt,
+        completedAt: upload.processingJob?.completedAt,
+      },
+    });
+  } catch (error) {
     res.status(500).json({ error: error.message });
   }
 });
@@ -555,6 +1101,7 @@ router.post('/:id/admin-approve', async (req, res) => {
       data: {
         clientId: upload.clientId,
         type: 'PAYMENT_VERIFIED',
+        category: 'PAYMENT',
         title: 'Paiement Vérifié',
         message: `Paiement en espèces vérifié par l'administrateur pour la demande BI.`,
       },
@@ -564,6 +1111,7 @@ router.post('/:id/admin-approve', async (req, res) => {
       data: {
         clientId: upload.clientId,
         type: 'REQUEST_APPROVED',
+        category: 'REQUEST',
         title: 'Demande BI Approuvée',
         message: `La demande de tableau de bord pour "${businessName || upload.clientId}" a été approuvée.`,
       },

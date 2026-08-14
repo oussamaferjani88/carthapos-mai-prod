@@ -1,0 +1,601 @@
+================================================================================
+CARTHAPOS BI — WAREHOUSE ANALYTICS READINESS AUDIT
+================================================================================
+Audit date      : 2026-08-02
+Method          : READ-ONLY PostgreSQL inspection (no schema/ETL/view/data change)
+Target database : pos_system @ localhost:5432 (public schema)
+Scope           : Restaurant / Coffee Shop / Retail dashboard readiness
+Audit source    : information_schema + pg_* catalogs + live row-level queries
+                  + upstream POS schema (clients/licenses/orders/order_items/
+                  customers/products/appointments) + analytics-cache snapshot
+                  (contents of the POS export ZIP)
+
+================================================================================
+0. EXECUTIVE SUMMARY
+================================================================================
+
+- The warehouse follows a simple star schema (fact tables + dim_time / dim_clients /
+  dim_products) but is ONLY PARTIALLY wired: fact_sales carries a working date key
+  (dimTimeId 2500/2500, 0 orphans) but has NO product key and NO client key
+  (dimProductId and dimClientId are NULL on 100% of rows).
+- There are NO database-level foreign-key constraints on any BI table; joins are
+  by convention only and must be declared manually in Metabase.
+- Data is clean (0 negatives, 0 NULLs on core sales columns, no duplicate sale IDs),
+  but it is DEMO-scale and single-tenant in the warehouse:
+    fact_sales 2 500 rows, fact_inventory 19 rows, fact_kitchen_orders 402 rows,
+    fact_appointments 0 rows, dim_suppliers 0 rows.
+- Inventory is unusable for stock/value/low-stock KPIs: stock = 0 on all 19 rows.
+- Product-level and customer-level sales ARE present in the POS export itself
+  (saleItems 7 358 lines, 100% with productId ; customers 14 ; customerId set on
+  2 172/2 500 sales = 87%) but the ETL warehouse load DROPS those datasets:
+  fact_sales has NO dimProductId and NO dimClientId. So those KPIs are "available
+  at source, not materialized in the warehouse".
+- Hour-of-day KPIs (peak hours, hourly sales) are NOT possible from the warehouse:
+  dim_time stores date only (YYYYMMDD), no hour. Hour granularity exists only in
+  the analytics cache (sale/hour fields parsed from POS timestamps), not in any
+  SQL view.
+- Metabase is installed and connected; 10 BI SQL views already exist.
+
+VERDICT (short):
+  Restaurant dashboard  : START (revenue-centric), with documented gaps. Customer
+                          and true product-per-sale KPIs can be added ONCE the
+                          ETL materializes the saleItems/customers datasets that
+                          already exist in every POS export (see §1 upstream).
+  Coffee shop dashboard : START with limitations (no hourly SQL, no customer in
+                          warehouse; both available at export level only).
+  Retail dashboard      : DO NOT START yet — inventory stock, suppliers missing
+                          (also absent from the POS exports: stockMovements=0).
+
+================================================================================
+1. DATABASE STRUCTURE INSPECTION
+================================================================================
+
+BI warehouse tables (public schema):
+
+DIM_CLIENTS
+  Purpose         : Client/tenant head dimension (1 row per business).
+  Rows            : 1
+  Columns         : id (TEXT PK), tenantId, exportId, name, businessType, createdAt
+  Primary key     : id
+  Foreign keys    : none
+  Indexes         : dim_clients_pkey
+  Tenant field    : tenantId (1 distinct tenant)
+  Last updated    : 2026-06-07
+  Note            : name = tenantId (placeholder value, not a real business name).
+                    businessType = "restaurant" for the only tenant.
+
+DIM_PRODUCTS
+  Purpose         : Product dimension (menu items).
+  Rows            : 19
+  Columns         : id (TEXT PK), tenantId, exportId, productId, name, category,
+                    family, barcode, createdAt
+  Primary key     : id
+  Foreign keys    : none
+  Indexes         : dim_products_pkey, idx_dim_products_tenantid
+  Tenant field    : tenantId (1 tenant)
+  Last updated    : 2026-07-31
+  Quality         : 0 empty names, 0 empty categories, 0 empty families,
+                    0 missing barcodes, 0 duplicate (productId, tenantId).
+  Note            : NO price column — prices live in fact_inventory.price.
+
+DIM_SUPPLIERS
+  Purpose         : Supplier dimension (retail/pharmacy).
+  Rows            : 0        ← EMPTY
+  Columns         : id (TEXT PK), tenantId, exportId, supplierId, name, contact,
+                    phone, email, createdAt
+  Indexes         : dim_suppliers_pkey, idx_dim_suppliers_tenantid
+
+DIM_TIME
+  Purpose         : Calendar dimension; id = YYYYMMDD integer, date = TIMESTAMP.
+  Rows            : 183
+  Date range      : 2026-01-05 .. 2026-08-02
+  Columns         : id (INTEGER PK), date, year, quarter, month, day, dayOfWeek,
+                    isWeekend, createdAt
+  Primary key     : id ; unique on date
+  Quality         : 0 NULL dates, 0 invalid (day/month/year) values.
+
+FACT_SALES
+  Purpose         : POS sales transactions (the primary fact).
+  Rows            : 2 500
+  Columns         : id (TEXT PK), tenantId, exportId, dimClientId, dimProductId,
+                    dimTimeId, saleId, total, tax, discount, paymentMethod, createdAt
+  Primary key     : id
+  Foreign keys    : none (schema migration declares FKs to dim_time/dim_products/
+                    dim_clients, but they are NOT enforced in the DB).
+  Indexes         : fact_sales_pkey, idx_fact_sales_tenantid
+  Tenant field    : tenantId (1 tenant, 0 NULL)
+  Last updated    : 2026-08-02 (load time)
+  Date range      : dimTimeId 20260202 .. 20260801 (181 distinct days)
+
+FACT_INVENTORY
+  Purpose         : Product stock snapshot + sell-through.
+  Rows            : 19
+  Columns         : id (TEXT PK), tenantId, exportId, dimProductId, dimTimeId,
+                    productName, stock, price, timesSold, createdAt, rowIndex
+  Tenant field    : tenantId (1 tenant)
+  Quality         : dimProductId filled 19/19, 0 orphans; prices present.
+                    stock = 0 on ALL 19 rows (see §4).
+
+FACT_KITCHEN_ORDERS
+  Purpose         : Kitchen order status flow (restaurant).
+  Rows            : 402
+  Columns         : id (TEXT PK), tenantId, exportId, dimTimeId, tableNumber,
+                    items, priority, status, createdAt, rowIndex
+  Tenant field    : tenantId (1 tenant)
+  Date range      : 20260202 .. 20260801
+  Quality         : status/priority/table populated; items = '' on ALL 402 rows.
+
+FACT_APPOINTMENTS
+  Purpose         : Appointments (pharmacy/salon).
+  Rows            : 0        ← EMPTY
+  Columns         : id (TEXT PK), tenantId, exportId, dimTimeId, customerName,
+                    customerPhone, serviceId, duration, status, createdAt, rowIndex
+
+BI pipeline / management tables (exist, lower-case unquoted columns):
+  bi_uploads          : 10 rows   (7 COMPLETED, 2 LOAD_CONFIRMED, 1 PREPARED; 2 clients; all restaurant)
+  bi_upload_files     : 0 rows
+  bi_processing_jobs  : 9 rows    (all COMPLETED; total 26 849 records loaded)
+  bi_processing_logs  : 47 rows
+  bi_requests         : 4 rows    (all APPROVED)
+  bi_analysis_requests: 1 row
+  bi_dashboard_templates : 0 rows ← EMPTY (no dashboard templates provisioned yet)
+  bi_dashboards       : 6 rows    (5 DRAFT, 1 READY_FOR_REVIEW)
+  bi_notifications    : 15 rows
+
+BI SQL views (23 total in schema; 10 warehouse views):
+  v_sales, v_revenue_daily, v_inventory, v_product_performance, v_kitchen_orders,
+  v_table_turnover, v_peak_hours, v_appointments, v_suppliers, v_dashboard_kpis
+  (+ v_alerts, v_audit_log, v_content, v_query_log, v_tasks, v_users, etc. from
+   Metabase's own schema mirror)
+
+UPSTREAM POS SCHEMA (same pos_system database, public schema):
+  clients       : 3 rows   (id/name/email/phone/address; real business names)
+                    cmoogzf95000xt2l5hk9yax74 = "Restaurant Le Gourmet"  ← the
+                       warehouse tenant (real name; dim_clients.name is a stub)
+                    cmpb0pfd00000k2bm903auzi1 = "test"
+                    cms36ee38000u6sghhpvc3nej = "maktabi"
+  licenses      : 197 rows (45 for Le Gourmet, 136 for "test", 16 for maktabi;
+                    sector: 179 restaurant, 10 cafe, 5 retail, 2 pharmacy, 1 beauty)
+  orders        : 0 rows   (customerid→customers, userid→users; ordertype/status enums)
+  order_items   : 0 rows   (orderid→orders CASCADE, productid→products RESTRICT)
+  customers     : 0 rows   (name, loyaltypoints)
+  products      : 0 rows   (name, price, category, barcode, stock, isactive)
+  appointments  : 0 rows   (customerid→customers, appointmentdate, duration, status)
+  ── CRITICAL: every transactional POS table (orders, order_items, customers,
+     products, appointments) is EMPTY in PostgreSQL. Live POS transactions are
+     NOT persisted to this database — they live in the POS desktop app and are
+     brought in via exported ZIP files. No other database on this server holds
+     POS tables (elevatehr/maktabi/paris_beauty/parisbeaute/metabase checked).
+
+  Per-client POS export audit scope (bi_uploads):
+    client cmoogzf95000xt2l5hk9yax74 (Restaurant Le Gourmet):
+      2026-07-31T19:26Z  bi_export_1785529575412_c.zip       PREPARED      9 351 rows
+      2026-07-31T19:26Z  bi_export_1785529582755_c.zip       LOAD_CONFIRMED 2 921 rows
+      2026-07-31T19:34Z  iso_check.zip                        LOAD_CONFIRMED 2 921 rows
+      2026-07-31T20:01Z  bi_export.zip                        COMPLETED     2 921 rows
+      2026-07-31T20:03Z  bi_export.zip                        COMPLETED     2 921 rows
+      2026-07-31T20:04Z  stress.zip                           COMPLETED     9 298 rows
+      2026-07-31T20:07Z  bi_export_compatible_1785528570495.zip COMPLETED   2 921 rows
+      2026-08-02T12:08Z  bi_export.zip                        COMPLETED     2 921 rows
+    → Audit scope for the loaded warehouse = the 2026-08-02T12:08 export
+      (7 files, 2 921 rows) which materializes as 2 500 sales + 402 kitchen
+      orders + 19 inventory products (2 921 total). Earlier exports are dev/test
+      loads (stress.zip etc.) superseded by the final COMPLETED export.
+    client cmpb0pfd00000k2bm903auzi1 ("test"):
+      2026-06-28T15:33Z  bi_export_1782663669398.zip  COMPLETED  25 rows
+      2026-06-29T16:03Z  bi_export_1782752568321.zip  COMPLETED   0 rows
+    → This client has NO warehouse rows; its exports carry no meaningful data.
+
+  What each POS export actually contains (analytics cache snapshot,
+  2026-08-02, built from bi_export.zip):
+    sales           2 500   (matches fact_sales; each row has customerId,
+                             tableId, shiftId, userId, hour, dateKey)
+    saleItems       7 358   (product-level line items: saleId, productId,
+                             quantity, unitPrice, lineTotal, vatAmount,
+                             productName, category, family, dateKey, hour;
+                             productId filled on 100 %)
+    customers          14   (customerId, name, email, phone, loyaltyPoints,
+                             totalSpent, visitCount, lastVisitDate, tags)
+    products           19   (matches dim_products)
+    productFamilies     6
+    kitchenOrders     402   (matches fact_kitchen_orders)
+    kitchenOrderItems 1 205 (item lines NOT loaded to warehouse either)
+    shifts 30 / tables 20 / reservations 40 / zReports 30 / cashDrawerEvents 20
+    stockMovements  0   suppliers 0   services 0   appointments 0
+  → The ETL warehouse load persists sales/products/kitchenOrders only; it DROPS
+    saleItems (7 358), kitchenOrderItems (1 205), customers (14), shifts, tables,
+    reservations, zReports, cashDrawerEvents. This is the root cause of the
+    missing product/customer keys on fact_sales, and of the empty dim_suppliers
+    and fact_appointments (the source exports have nothing to load for them).
+
+Notes on catalog:
+  - No BI table carries FK constraints (pg_constraint contype='f' is empty for
+    all dim_*/fact_*). Metabase relationship auto-detection will therefore fail;
+    relationships must be defined manually in the Metabase data model.
+  - Fact join columns (dimTimeId, dimProductId) have no dedicated indexes beyond
+    the tenantId index; adequate at current scale, worth adding later.
+
+================================================================================
+2. STAR SCHEMA VALIDATION
+================================================================================
+
+fact_sales → dim_time        : OK
+  - dimTimeId filled 2 500 / 2 500 (100%)
+  - NULL keys: 0 ; orphan keys (key not in dim_time): 0
+  - All sales dates are covered by dim_time.
+
+fact_sales → dim_products    : BROKEN in warehouse, AVAILABLE at source
+  - dimProductId filled 0 / 2 500 (0%) ← ALL NULL
+  - No sales-level product link exists in the warehouse.
+  - BUT the POS export carries 7 358 saleItems lines, productId filled on 100 %,
+    so true per-sale product data IS available — it is simply not loaded to the
+    warehouse by the current ETL (product performance is approximated today via
+    fact_inventory.timesSold).
+
+fact_sales → dim_clients     : BROKEN in warehouse, PARTIALLY available at source
+  - dimClientId filled 0 / 2 500 (0%) ← ALL NULL
+  - No per-sale client linkage in the warehouse. Tenant isolation uses tenantId,
+    which IS populated, so "which business" is known; "which customer" is not.
+  - At source, 2 172 / 2 500 sales (87 %) carry customerId and a 14-row customers
+    dataset exists — again dropped by the ETL load.
+
+fact_inventory → dim_products : OK
+  - dimProductId filled 19 / 19 (100%), orphan: 0.
+
+fact_kitchen_orders → dim_time : OK
+  - dimTimeId filled 402 / 402, orphan: 0.
+  - No product dimension on kitchen orders (items column is empty text).
+
+fact_appointments → dim_time  : OK (no rows to validate).
+
+Orphan analysis across all facts:
+  - sales_orphan_dates: 0, kitchen_orphan_dates: 0, appointment_orphan_dates: 0.
+
+CONCLUSION: the star schema is structurally present but only the TIME branch is
+actually populated on the main fact. Product and client branches are empty on
+fact_sales, even though the source exports contain everything needed to populate
+them (saleItems + customers). Populating those two keys at ETL time is the single
+highest-value fix for dashboard depth.
+
+================================================================================
+3. DIMENSION TABLE AUDIT
+================================================================================
+
+DIM_TIME
+  Rows              : 183 (2026-01-05 .. 2026-08-02)
+  Keys              : integer YYYYMMDD, unique, monotonic.
+  NULL dates        : 0        Invalid (day=0/month=0/year<2000) : 0
+  Covers sales dates   : YES — all 181 distinct sale dates present.
+  Covers kitchen dates : YES — all 169 distinct kitchen dates present.
+  Covers appt dates    : n/a (0 appointments).
+  Gaps              : dim_time spans 1/5 .. 8/2; sales span 2/2 .. 8/1 — all
+                      referenced dates exist. No calendar row for unused dates
+                      (only 183 of the ~210 days in range are seeded).
+  Granularity       : DATE only. No hour/minute — hourly analytics are impossible
+                      from this dimension (affects peak-hours / hourly sales).
+
+DIM_PRODUCT
+  Count                 : 19
+  Empty names           : 0       Duplicate (productId,tenantId) : 0
+  Missing categories    : 0       Missing families              : 0
+  Missing barcode       : 0       NULL productId                : 0
+  Sample                : Brik à l'Œuf (Entrée), Brochette d'Agneau (Plat),
+                          Tiramisu (Dessert), Café Tunisien (Boisson), Chorba Frik (Entrée)
+  Note                  : Menu is 100% complete and clean. 4 categories represented.
+
+DIM_CLIENT
+  Count            : 1
+  Duplicate tenant : 0        Missing businessType : 0
+  businessType     : restaurant (only value present)
+  Note             : name column holds the raw tenantId — should hold a human
+                     business name for dashboards.
+
+DIM_SUPPLIER
+  Count : 0 ← EMPTY. Retail supplier analysis is not possible.
+
+================================================================================
+4. FACT TABLE ANALYSIS
+================================================================================
+
+FACT_SALES  (2 500 rows, 1 tenant)
+  Revenue total   : 139 869.52 (avg ticket 55.95 ; min 1.01 ; max 226.10)
+  Sales days      : 181 distinct days (2026-02-02 .. 2026-08-01)
+  Per-day volume  : avg 13.8 rows/day (min 3, max 26)
+  Payment mix     : cash 1 211 / 69 438.17 ; mobile 624 / 35 893.52 ; card 665 / 34 537.83
+  Availability:
+    Revenue / Orders / Avg ticket      : AVAILABLE (v_sales, v_revenue_daily)
+    Sales by date                      : AVAILABLE (v_revenue_daily, dim_time)
+    Sales by product                   : NOT AVAILABLE via sales (no dimProductId);
+                                         approximate via fact_inventory.timesSold
+    Sales by payment method            : AVAILABLE (v_sales.payment_method)
+    Sales by customer                  : NOT AVAILABLE (no customer key)
+  Data quality  : 0 NULL on total/tax/discount/paymentMethod/dimTimeId/saleId ;
+                  0 negative totals ; 0 zero totals ; 0 duplicate saleIds ;
+                  recent example (2026-08-01: 6 sales, 378.42).
+
+FACT_INVENTORY  (19 rows, 1 tenant)
+  Stock         : ALL rows have stock = 0 → stock value = 0, low-stock count = 0.
+                  Cannot compute "current stock", "stock value" or "low stock"
+                  meaningfully. This is a DATA problem (source snapshot loaded 0),
+                  not a schema problem.
+  Prices        : present on all 19 rows (0 NULL, 0 zero, 0 negative).
+  timesSold     : present (e.g. Brochette d'Agneau 807, Coca-Cola 33cl 788,
+                  Chorba Frik 772, Brik à l'Œuf 785, Café Tunisien 756).
+  Product link  : OK (19/19).
+  Conclusion    : sell-through / estimated revenue is usable; stock KPIs are not.
+
+FACT_KITCHEN_ORDERS  (402 rows, 1 tenant)
+  Orders by status  : preparing 97, pending 82, served 78, ready 74, completed 71
+  Orders by priority: normal 198, high 109, low 95
+  Tables            : 20 distinct table numbers
+  Availability:
+    Order counts / status / priority     : AVAILABLE
+    Peak hours by order date             : date-level only (dim_time)
+    Preparation time                     : NOT AVAILABLE — no per-order timestamps
+                                           and items is empty ('' on all 402 rows).
+
+FACT_APPOINTMENTS  (0 rows)
+  No appointment data loaded for any tenant. Pharmacy/salon appointment KPIs
+  cannot be validated or built.
+
+================================================================================
+5. DASHBOARD KPI READINESS CHECK
+================================================================================
+
+Legend: READY = derivable today from warehouse views; PARTIAL = derivable with
+caveats/estimates; NOT AVAILABLE = impossible from current warehouse data.
+SRC-ONLY = data exists in the POS export (analytics cache) but NOT in warehouse
+SQL views today — requires an ETL materialization step first.
+CACHE = only computable from the analytics cache (JS), no SQL view exists.
+
+--------------------------------------------------------------------------------
+RESTAURANT DASHBOARD
+--------------------------------------------------------------------------------
+  Revenue                     READY        v_sales / v_revenue_daily / v_dashboard_kpis
+  Number of orders            READY        count of fact_sales
+  Average ticket              READY        v_revenue_daily.avg_ticket
+  Daily / monthly evolution   READY        dim_time.year/quarter/month/day
+  Best sellers                PARTIAL      via fact_inventory.timesSold (estimate,
+                                           not sale-line-based); exact once ETL
+                                           loads saleItems (7 358 lines in export)
+  Product quantity sold       PARTIAL      fact_inventory.timesSold; exact via
+                                           saleItems.quantity at source
+  Category performance        PARTIAL      v_product_performance.category; exact
+                                           via saleItems.category at source
+  Customer count              AVAILABLE AT SOURCE ONLY  customers dataset (14) +
+                                           sales.customerId (87 % of sales) exist
+                                           in export; NOT in warehouse today
+  Returning customers         AVAILABLE AT SOURCE ONLY  customer visitCount /
+                                           totalSpent / lastVisitDate in export;
+                                           NOT in warehouse today
+  Peak hours                  PARTIAL      v_peak_hours = per DAY; true hour-of-day
+                                           only via analytics cache (no SQL view)
+  Kitchen performance         PARTIAL      status/priority/table OK; preparation
+                                           time NOT AVAILABLE (items empty, no timestamps)
+--------------------------------------------------------------------------------
+COFFEE SHOP DASHBOARD
+--------------------------------------------------------------------------------
+  Beverage / product performance   PARTIAL   fact_inventory.timesSold; exact via
+                                           saleItems (export) once loaded
+  Hourly sales                     NOT AVAILABLE in warehouse (date-level only);
+                                    possible only via analytics cache (non-SQL)
+                                    — sale/hour fields exist in every sale and
+                                    saleItems row of the export
+  Average basket                   READY     avg ticket
+  Category analysis                PARTIAL   v_product_performance.category
+  Payment analysis                 READY     v_sales.payment_method
+  Customer frequency               AVAILABLE AT SOURCE ONLY   visitCount/totalSpent
+                                    in export customers; NOT in warehouse today
+--------------------------------------------------------------------------------
+RETAIL DASHBOARD
+--------------------------------------------------------------------------------
+  Revenue / orders                 READY     fact_sales
+  Product performance              PARTIAL   fact_inventory.timesSold
+  Current stock                    NOT AVAILABLE  stock = 0 on all rows
+  Stock value                      NOT AVAILABLE  stock = 0 → value = 0
+  Low stock products               NOT AVAILABLE  stock = 0 (would flag everything)
+  Fast moving products             PARTIAL   timesSold available
+  Slow moving products             PARTIAL   timesSold available
+  Supplier analysis                NOT AVAILABLE  dim_suppliers empty
+--------------------------------------------------------------------------------
+
+KPI availability matrix (warehouse-views only):
+
+  KPI                       Restaurant  Coffee    Retail
+  Revenue                   READY       READY     READY
+  Orders                    READY       READY     READY
+  Average ticket            READY       READY     READY
+  Daily/monthly trend       READY       READY     READY
+  Payment mix               READY       READY     READY
+  Product performance       PARTIAL     PARTIAL   PARTIAL
+  Category analysis         PARTIAL     PARTIAL   PARTIAL
+  Peak hours                PARTIAL     PARTIAL   n/a
+  Kitchen status            PARTIAL     n/a       n/a
+  Customer count/returning  SRC-ONLY   SRC-ONLY  SRC-ONLY   (in export cache:
+                                    customers dataset + sales.customerId; not in
+                                    warehouse SQL views today)
+  Hourly sales              CACHE      CACHE     n/a        (sale/hour per row in
+                                    export cache only)
+  Current stock / value     n/a         n/a       NOT AVAIL
+  Low stock alerts          n/a         n/a       NOT AVAIL
+  Supplier analysis         n/a         n/a       NOT AVAIL
+
+================================================================================
+6. DATA QUALITY CHECK
+================================================================================
+
+NULL values on key columns (percent of rows):
+  fact_sales.total / tax / discount / paymentMethod / dimTimeId / saleId : 0.0 %
+  fact_sales.dimProductId / dimClientId : 100 %  ← structural gap, not bad data
+  fact_inventory.stock / price / productName / dimProductId : 0.0 %
+  fact_kitchen_orders.dimTimeId / status / tableNumber : 0.0 %
+  fact_kitchen_orders.items : 100 % empty
+
+Invalid values:
+  negative revenue           : 0 rows      zero revenue : 0 rows
+  negative tax               : 0 rows
+  negative stock             : 0 rows      zero stock   : 19/19 rows (100 %)
+  negative / zero price      : 0 rows
+  impossible dates           : 0 rows (dim_time + fact date keys validated)
+  empty product names        : 0 rows
+  duplicate business keys    : 0 (saleId per tenant ; productId per tenant)
+
+ETL preparation coverage (does ETL already handle these?):
+  missing required values → null + ERROR ............ YES (data-preparation-service)
+  invalid numbers/dates    → null + ERROR ............ YES
+  negative total/stock/price → WARN .................. YES
+  quantity <= 0            → ERROR ................... YES
+  duplicates removed (fingerprint) ................... YES
+  text normalization / optional defaults ............. YES
+  → The ETL/preparation layer is designed to catch these; current warehouse data
+    confirms the result is clean on all monitored columns except:
+      (a) stock loaded as 0 (source snapshot or mapping) — NOT caught because
+          stock = 0 is a legal value in the rules (out-of-stock allowed).
+      (b) kitchen items not populated (source had none or field mapping).
+
+================================================================================
+7. TENANT / CLIENT DATA ISOLATION
+================================================================================
+
+- Every fact and dimension table has a tenant identifier:
+    fact_sales / fact_inventory / fact_kitchen_orders / fact_appointments : tenantId
+    dim_clients / dim_products / dim_suppliers : tenantId
+  (dim_time is shared calendar data — correctly not tenant-scoped.)
+- 0 rows with NULL tenantId on all fact/dim tables.
+- Warehouse currently holds data for exactly ONE tenant
+  (cmoogzf...x74, restaurant). No mixed-client records.
+- bi_uploads lists a SECOND client (cmpb0pfd..., 2 uploads) but that client has
+  no warehouse rows — uploads never produced warehouse data (or were removed).
+- DASHBOARD FILTERING: yes — every view exposes client_id = tenantId, so a
+  Metabase filter (e.g. WHERE client_id = {{client}}) fully isolates a client.
+  Because only 1 tenant has data, cross-tenant leakage risk is untested at scale,
+  but the design is sound.
+
+================================================================================
+8. METABASE READINESS
+================================================================================
+
+- Metabase IS installed in this database (metabase_database, metabase_table,
+  report_card, report_dashboard, core_user, collection, dashboard_tab, ...) and
+  its own schema-mirror views (v_databases, v_tables, v_fields, ...) exist.
+- The 10 warehouse views are clean, pre-joined, flat surfaces suitable for
+  Metabase questions:
+    v_sales              — complete sales + date dims (client, sale_date, payment)
+    v_revenue_daily      — daily revenue / transaction_count / avg_ticket
+    v_product_performance— best sellers, category, estimated_revenue
+    v_inventory          — stock/price/times_sold snapshot
+    v_kitchen_orders     — kitchen orders + order date
+    v_table_turnover     — orders per table
+    v_peak_hours         — sales by transaction DATE
+    v_appointments       — appointments + date
+    v_suppliers          — supplier directory
+    v_dashboard_kpis     — headline KPIs per client
+- MISSING relationships: no FK constraints → Metabase cannot auto-join. The
+  admin MUST define relationships (fact_sales.dimTimeId → dim_time.id, etc.)
+  in Admin → Data Model, or queries must self-join.
+
+Recommended views to add before/at dashboard build time:
+  vw_sales_daily          : exists as v_revenue_daily (OK, reuse)
+  vw_product_performance  : exists as v_product_performance (OK, reuse; switch
+                            to fact_sales line items after saleItems is loaded)
+  vw_inventory_status     : BLOCKED — stock is all 0; needs real stock data first
+  vw_customer_analysis    : BLOCKED in warehouse — customers dataset (14 rows,
+                            totalSpent/visitCount/loyaltyPoints) exists in the
+                            POS export only; materialize it at ETL time first
+  vw_sales_hourly         : BLOCKED — no hour dimension; only possible from the
+                            analytics cache (JS), not SQL
+  vw_kitchen_performance  : partial — add per-order timestamps to compute prep time
+                            (kitchenOrderItems 1 205 exist in the export, unloaded)
+
+================================================================================
+9. FINAL SCORE
+================================================================================
+
+  Warehouse readiness   : 6 / 10
+    (star structure + clean data + working time dim, but product/client keys
+     missing on fact_sales, no FKs, suppliers/appointments empty, stock=0)
+
+  Dashboard readiness   : 6 / 10
+    (restaurant revenue KPIs all READY; product/customer/hourly KPIs exist at
+     export level but are not materialized in warehouse SQL; stock/supplier
+     KPIs missing at every level)
+
+  ETL output quality    : 6 / 10
+    (clean output, preparation layer catches the documented error classes,
+     duplicates removed; but the loader DROPS the saleItems / kitchenOrderItems /
+     customers datasets that are present in every export, leaving fact_sales
+     without product and customer keys, and stock is loaded as 0)
+
+ANSWERS:
+
+1. Can we start building dashboard templates now?
+   PARTIAL — YES with limitations.
+   - Restaurant: YES — a revenue/orders/avg-ticket/product-estimate dashboard is
+     fully buildable today from the existing views. Customer and exact
+     product-per-sale KPIs become available as soon as the ETL materializes
+     saleItems + customers (data already present in every POS export).
+   - Coffee shop: YES with limits — same as restaurant minus hourly & customer.
+   - Retail: NO — inventory stock and suppliers are not real (and the exports
+     contain no stock movements: stockMovements = 0).
+   Recommend building the RESTAURANT template first (the only tenant in the
+   warehouse is a restaurant) and gating retail until data is fixed.
+
+2. What data is missing?
+   - Warehouse keys: product key (dimProductId) and customer key (dimClientId)
+     on fact_sales — the underlying line-item and customer data EXISTS in the
+     POS export (saleItems 7 358, customers 14) but is dropped during load.
+   - Customer dimension table in the warehouse (customer count, returning,
+     frequency, loyalty).
+   - Hour-of-day in the warehouse (hourly sales, true peak hours) — hour field
+     exists per sale/saleItem in the export cache only.
+   - Real inventory stock quantities (stock value, low stock, stock turnover);
+     source exports report stockMovements = 0.
+   - Supplier data (dim_suppliers empty; exports have suppliers = 0).
+   - Appointment data (fact_appointments empty; exports have appointments = 0).
+   - Kitchen item lines + per-status timestamps (items empty on all rows; the
+     export has kitchenOrderItems 1 205 that are not loaded).
+   - Second tenant's warehouse rows (multi-tenant validation).
+   - NOT missing at source (upstream Postgres): the live POS transactional
+     tables orders / order_items / customers / products / appointments are EMPTY
+     in the database; all real transactions live in the exported ZIPs.
+
+3. What must be fixed before dashboards?
+   - ETL: load the saleItems dataset and write dimProductId on fact_sales
+     (product-level sales, true best sellers).
+   - ETL: materialize a customers dimension + dimClientId on fact_sales
+     (customer KPIs, returning customers).
+   - Fix inventory stock loading so stock reflects real quantities (source
+     stockMovements must be enabled/exported first).
+   - Add a human business name to dim_clients ("Restaurant Le Gourmet" already
+     exists upstream in clients.name — map it in).
+   - Define Metabase relationships manually (no FK constraints).
+
+4. What can be postponed?
+   - Suppliers, appointments, kitchen prep-time, hourly dimension, second-tenant
+     data, per-join-column indexes, FK constraints in the DB.
+   - Metabase embedding / template rows in bi_dashboard_templates (table exists
+     but empty; can be populated after template approval).
+
+--------------------------------------------------------------------------------
+RECOMMENDED NEXT ACTIONS (in order)
+--------------------------------------------------------------------------------
+1. Build the RESTAURANT dashboard template using existing views:
+   v_dashboard_kpis, v_revenue_daily, v_sales (payment mix), v_product_performance
+   (best sellers), v_kitchen_orders (status/priority/table).
+2. In Metabase Admin → Data Model, define relationships:
+   fact_sales.dimTimeId → dim_time.id ; fact_sales.tenantId → dim_clients.tenantId ;
+   fact_inventory.dimProductId → dim_products.id ;
+   fact_kitchen_orders.dimTimeId → dim_time.id.
+3. ETL follow-up (separate ticket, NOT part of this read-only audit):
+   - load the saleItems dataset from each POS export and write dimProductId onto
+     fact_sales (unblocks true best-sellers, quantities, category per sale);
+   - materialize a customers dimension from the export customers dataset and
+     write dimClientId onto fact_sales (unblocks customer count, returning
+     customers, frequency);
+   - populate real stock values (enable stockMovements in the POS export);
+   - set dim_clients.name from upstream clients.name ("Restaurant Le Gourmet").
+4. After those land, unblock vw_inventory_status, vw_customer_analysis and the
+   retail/coffee hourly + customer dashboards.
+================================================================================
+END OF REPORT
+================================================================================

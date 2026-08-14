@@ -19,11 +19,13 @@ const BiDatasetRegistry = require('./BiDatasetRegistry.cjs');
 const FACT_DATASETS = new Set([
   'sales', 'sale_items', 'kitchen_orders', 'stock_movements',
   'shifts', 'cash_drawer_events', 'z_reports', 'appointments', 'inventory',
+  'audit_logs',
 ]);
 
 const DIMENSION_DATASETS = new Set([
-  'products', 'customers', 'suppliers', 'categories', 'product_families',
+  'products', 'customers', 'suppliers', 'product_families',
   'tables', 'kitchen_departments', 'services', 'table_reservations',
+  'vat_rates',
 ]);
 
 const LABELS = {
@@ -32,7 +34,6 @@ const LABELS = {
   products: 'Produits',
   customers: 'Clients',
   inventory: 'Inventaire',
-  categories: 'Categories',
   product_families: 'Familles',
   tables: 'Tables',
   kitchen_orders: 'Commandes cuisine',
@@ -45,6 +46,8 @@ const LABELS = {
   shifts: 'Caisses / Shifts',
   cash_drawer_events: 'Evenements caisse',
   z_reports: 'Rapports Z',
+  audit_logs: 'Journal d\'audit',
+  vat_rates: 'Taux de TVA',
 };
 
 /**

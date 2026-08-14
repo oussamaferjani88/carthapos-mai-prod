@@ -466,6 +466,27 @@ function filterValidConfigurationFields(configuration) {
   return filtered;
 }
 
+/**
+ * Build the complete, unfiltered generator-state snapshot for a POS project.
+ * This preserves 100% of the wizard state (every field the client configured),
+ * regardless of the typed-column whitelist. Stored in LicenseConfiguration.rawConfig
+ * alongside the legacy typed columns for full backward compatibility.
+ * If `modules` is an array of identifiers (ids or names), it is stored as-is so the
+ * wizard can restore the exact module selection.
+ */
+function buildRawConfigSnapshot({ configuration, modules, sector, licenseType, bindingType, expirationDate, posConfigVersion }) {
+  const snapshot = {
+    configuration: configuration && typeof configuration === 'object' ? { ...configuration } : {},
+  };
+  if (Array.isArray(modules)) snapshot.modules = modules;
+  if (sector !== undefined) snapshot.sector = sector;
+  if (licenseType !== undefined) snapshot.licenseType = licenseType;
+  if (bindingType !== undefined) snapshot.bindingType = bindingType;
+  if (expirationDate !== undefined) snapshot.expirationDate = expirationDate;
+  if (posConfigVersion !== undefined) snapshot.posConfigVersion = posConfigVersion;
+  return snapshot;
+}
+
 // Créer une nouvelle licence
 router.post('/', async (req, res) => {
   try {
@@ -631,8 +652,21 @@ router.post('/', async (req, res) => {
         ...configuration
       });
 
+      // Full unfiltered snapshot for POS project restoration (non-breaking add).
+      const rawConfig = buildRawConfigSnapshot({
+        configuration,
+        modules,
+        sector,
+        licenseType,
+        bindingType: req.body.bindingType || 'MACHINE',
+        expirationDate: licenseType === 'SUBSCRIPTION' ? expirationDate : undefined,
+      });
+
       await prisma.licenseConfiguration.create({
-        data: filteredConfig
+        data: {
+          ...filteredConfig,
+          rawConfig,
+        }
       });
     }
 
@@ -749,8 +783,19 @@ router.post('/admin-create', async (req, res) => {
         businessName: configuration.businessName || client.name,
         ...configuration
       });
+      const rawConfig = buildRawConfigSnapshot({
+        configuration,
+        modules: moduleIds,
+        sector,
+        licenseType,
+        bindingType: bindingType || 'MACHINE',
+        expirationDate: licenseType === 'SUBSCRIPTION' ? expirationDate : undefined,
+      });
       await prisma.licenseConfiguration.create({
-        data: filteredConfig
+        data: {
+          ...filteredConfig,
+          rawConfig,
+        }
       });
     }
 
@@ -831,12 +876,33 @@ router.put('/:id', async (req, res) => {
 
     // Mettre à jour la configuration si fournie
     if (configuration) {
+      const existingConfig = await prisma.licenseConfiguration.findUnique({
+        where: { licenseId: id },
+        select: { posConfigVersion: true, rawConfig: true },
+      });
+      const filteredConfig = filterValidConfigurationFields({
+        businessName: configuration.businessName || existingConfig?.rawConfig?.configuration?.businessName || 'Mon Entreprise',
+        ...configuration
+      });
+      const rawConfig = buildRawConfigSnapshot({
+        configuration,
+        modules,
+        sector: sector || existingLicense.sector,
+        licenseType: licenseType || existingLicense.licenseType,
+        bindingType: req.body.bindingType || existingLicense.bindingType || 'MACHINE',
+        expirationDate: licenseType === 'SUBSCRIPTION' ? expirationDate : undefined,
+        posConfigVersion: (existingConfig?.posConfigVersion ?? 1) + 1,
+      });
       await prisma.licenseConfiguration.upsert({
         where: { licenseId: id },
-        update: configuration,
+        update: {
+          ...filteredConfig,
+          rawConfig,
+        },
         create: {
           licenseId: id,
-          ...configuration
+          ...filteredConfig,
+          rawConfig,
         }
       });
     }

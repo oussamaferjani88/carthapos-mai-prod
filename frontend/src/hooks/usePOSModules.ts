@@ -14,10 +14,20 @@ export const usePOSModules = (initialModules: string[] = []) => {
       setError(null);
       const data = await moduleService.getModulesByCategory();
       setModulesByCategory(data && typeof data === 'object' ? data : {});
-      if (selectedModules.length === 0) {
-        const requiredIds = moduleService.getRequiredModuleIds();
-        setSelectedModules(requiredIds);
-      }
+      // Only seed the required modules when nothing is selected yet. A restored
+      // project selection (set via setSelectedModules) must never be clobbered.
+      setSelectedModules((prev) => {
+        if (prev.length > 0) return prev;
+        const allModules = Object.values(data && typeof data === 'object' ? data : {})
+          .flat()
+          .filter(Boolean) as any[];
+        return moduleService
+          .getRequiredModuleIds()
+          .map((nameOrId) => {
+            const match = allModules.find((m) => m.name === nameOrId || m.id === nameOrId);
+            return match?.id || nameOrId;
+          });
+      });
     } catch (err: any) {
       setError(err.message);
       toast.error(err.message);

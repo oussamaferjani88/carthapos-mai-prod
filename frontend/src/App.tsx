@@ -27,7 +27,11 @@ const Dashboard = lazy(() => import("./pages/dashboard/Dashboard"));
 const Generator = lazy(() => import("./pages/dashboard/Generator"));
 const BiExportDeploy = lazy(() => import("./pages/dashboard/BiExportDeploy"));
 const BIDashboardViewer = lazy(() => import("./pages/dashboard/BIDashboardViewer"));
+const BiWorkspace = lazy(() => import("./pages/dashboard/BiWorkspace"));
+const RequestWizard = lazy(() => import("./pages/dashboard/RequestWizard"));
+const RequestDetail = lazy(() => import("./pages/dashboard/RequestDetail"));
 const POSGeneratorPage = lazy(() => import("./pages/pos/POSGeneratorPage"));
+const PosProjects = lazy(() => import("./pages/dashboard/PosProjects"));
 const NotFound = lazy(() => import("./pages/NotFound"));
 
 const queryClient = new QueryClient();
@@ -113,6 +117,11 @@ const App = () => (
                   <Generator />
                 </Suspense>
               } />
+              <Route path="projects" element={
+                <Suspense fallback={<PageSkeleton />}>
+                  <PosProjects />
+                </Suspense>
+              } />
               <Route path="bi-export" element={
                 <Suspense fallback={<PageSkeleton />}>
                   <BiExportDeploy />
@@ -126,6 +135,21 @@ const App = () => (
               <Route path="bi-dashboard/:dashboardId" element={
                 <Suspense fallback={<PageSkeleton />}>
                   <BIDashboardViewer />
+                </Suspense>
+              } />
+              <Route path="bi" element={
+                <Suspense fallback={<PageSkeleton />}>
+                  <BiWorkspace />
+                </Suspense>
+              } />
+              <Route path="bi/requests/new" element={
+                <Suspense fallback={<PageSkeleton />}>
+                  <RequestWizard />
+                </Suspense>
+              } />
+              <Route path="bi/requests/:id" element={
+                <Suspense fallback={<PageSkeleton />}>
+                  <RequestDetail />
                 </Suspense>
               } />
             </Route>

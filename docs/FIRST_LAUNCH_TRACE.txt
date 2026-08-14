@@ -1,0 +1,349 @@
+================================================================================
+FIRST LAUNCH / LOGIN — EXACT TRACE
+Analysis Only — No Code Modified
+================================================================================
+
+FILES INVOLVED:
+  src/App.jsx                         → React rendering & setup decision
+  src/contexts/AuthContext.jsx         → User state & localStorage validation
+  src/components/SetupWizard.jsx      → Admin password creation/update UI
+  src/electron/ElectronAuthManager.cjs → needsFirstTimeSetup(), needsAdminPasswordReset()
+  src/electron/handlers/ipc-auth-handlers.cjs → IPC handler registration & ensureManagers()
+
+
+1. COMPLETE TIMELINE — SECOND LAUNCH (EXPECTED)
+================================================================================
+
+Legend:  [M] = main process  [R] = renderer process  [ ] = React render
+
+Time  Component            Action
+────  ───────────────────  ─────────────────────────────────────────────────────
+t=0   [M] app.whenReady()  fires
+t=0   [M]                  await initializeManagers()
+                              → new ElectronDatabaseManager()
+                              → await initializeDatabase()
+                                   → getDataFolderPath() → resolves path
+                                   → sqlite3.Database(path, callback) → opens DB
+                                   → createTables() → CREATE TABLE IF NOT EXISTS users
+                                   → insertDefaultData() → empty, no seed
+                              → new ElectronAuthManager(databaseManager)
+t=1   [M]                  registerAllHandlers()
+                              → registerAuthHandlers(ipcMain, authManager, databaseManager)
+                                   Inside: let dbManager = databaseManager     ← initialized, NOT null
+                                           let authManagerInstance = authManager  ← initialized, NOT null
+                                   Registers IPC channels:
+                                     needs-first-time-setup
+                                     needs-admin-password-reset
+                                     create-admin-user
+                                     authenticate-user
+                                     validate-user-exists
+                                     update-admin-password
+t=2   [M]                  createWindow() → loads dist/index.html
+t=3   [R] React mounts     <App>
+                              <AuthProvider>  →  useState: user=null, loading=true
+                                  useEffect([],) → checkAuthStatus() (async)
+                                    - Reads localStorage('pos_auth') → 'true'
+                                    - Reads localStorage('pos_user') → JSON(adminUser)
+                                    - Calls 'validate-user-exists' IPC (AWAIT)
+                              <AppContent>  →  useState: isInitialized=false
+                                                     isFirstTime=false
+                                                     checkingSetup=true
+                                  useEffect([],) → checkFirstTimeSetup() (async)
+                                    - Calls 'needs-first-time-setup' IPC (AWAIT)
+
+t=3   [R] FIRST RENDER     checkingSetup=true, isFirstTime=false, user=null, authLoading=true
+                            → line 231: isFirstTime=false → SKIP
+                            → line 240: !isInitialized=true → RENDER LOADING SPINNER
+
+t=4   [M] IPC handler      'validate-user-exists':
+                            → ensureManagers(): dbManager NOT null, authManager NOT null → no-op
+                            → authManager.validateUserExists(adminUser.id)
+                            → SELECT id FROM users WHERE id = 1 AND is_active = 1
+                            → Returns {id: 1} (user exists)
+t=4   [M] IPC response     → returns true
+
+t=5   [R] AuthContext      IPC resolved: userExists = true
+                            setUser(parsedAdminUser)
+                            setLoading(false)
+
+t=5   [R] RE-RENDER #2     user=adminUser, authLoading=false, checkingSetup=true, isFirstTime=false
+                            → line 231: isFirstTime=false → SKIP
+                            → line 240: !isInitialized=true (checkingSetup still true) → LOADING
+
+t=6   [M] IPC handler      'needs-first-time-setup':
+                            → ensureManagers(): no-op
+                            → authManager.needsFirstTimeSetup()
+                            → SELECT id, username, password_hash FROM users WHERE role='admin' AND is_active=1
+                            → Returns: [{id:1, username:'admin', password_hash:'$2a$10$...'}]
+                            → hasAdminWithPassword = true → Returns FALSE
+t=6   [M] IPC response     → returns false
+
+t=7   [R] checkFirstTimeSetup continues:
+                            needsSetup = false
+                            → Calls 'needs-admin-password-reset' IPC (AWAIT)
+
+t=8   [M] IPC handler      'needs-admin-password-reset':
+                            → authManager.needsAdminPasswordReset()
+                            → SELECT id, password_hash FROM users WHERE username='admin' AND is_active=1
+                            → Returns: {id:1, password_hash:'$2a$10$...'}
+                            → hash is non-empty
+                            → hash is NOT 'admin123'
+                            → bcrypt.compare('admin123', hash) → FALSE (hash is bcrypt(userPassword))
+                            → Returns FALSE
+t=8   [M] IPC response     → returns false
+
+t=9   [R] checkFirstTimeSetup continues:
+                            needsReset = false
+                            setIsFirstTime(false || false) → setIsFirstTime(false)
+                            finally: setCheckingSetup(false)
+
+t=9   [R] RE-RENDER #3     isFirstTime=false, checkingSetup=false, user=adminUser, authLoading=false
+                            → line 231: isFirstTime=false → SKIP
+                            → line 240: !isInitialized → false (configLoading,licenseLoading,authLoading,checkingSetup all false)
+                            → line 276: no USB license required → SKIP
+                            → line 331: !user → false (user is adminUser) → RENDER <MainPOSApp>
+                            → DASHBOARD
+
+RESULT: LOGIN/DASHBOARD, NOT SETUP WIZARD. ✓ (code is correct)
+
+
+2. COMPLETE TIMELINE — SECOND LAUNCH (USER REPORTS)
+================================================================================
+
+The user reports the exact same app version shows SETUP WIZARD on second launch.
+The ONLY way this can happen:
+
+  At t=9, React renders:
+    line 231: isFirstTime=true → RENDER <SetupWizard>
+
+  For isFirstTime to be true at t=9:
+    At t=6 or t=8, the IPC return value must be TRUE.
+
+OPTION A: needsFirstTimeSetup() returns TRUE at t=6
+  → SELECT finds no active admin with role='admin' AND is_active=1
+  → OR SELECT finds admin(s) but all have NULL/empty password_hash
+  → This contradicts user report that createAdminUser returns "already exists" at t=10
+
+OPTION B: needsAdminPasswordReset() returns TRUE at t=8
+  → SELECT finds user with username='admin' AND is_active=1
+  → password_hash is empty OR 'admin123' (plain text) OR matches bcrypt('admin123')
+  → The user changed the password during first-time setup
+  → This should NOT match unless the password was set to 'admin123'
+  → OR the password_update on the first launch silently FAILED
+
+CONTRADICTION:
+──────────────
+  createAdminUser at t=10 calls needsFirstTimeSetup() INTERNALLY (line 121):
+    const needsSetup = await this.needsFirstTimeSetup();
+    if (!needsSetup) throw new Error('Admin user already exists');
+
+  This SAME function on the SAME authManager returns FALSE (admin exists).
+  But at t=6, the SAME function on the SAME authManager must return TRUE
+  for SetupWizard to show. These are CONTRADICTORY.
+
+  BOTH calls use the SAME:
+    - authManager object
+    - dbManager (databaseManager) object
+    - SQL query: SELECT ... FROM users WHERE role='admin' AND is_active=1
+
+  The only way to resolve: needsAdminPasswordReset() returns TRUE at t=8.
+
+
+3. VERIFICATION: Does needsAdminPasswordReset() incorrectly return true?
+================================================================================
+
+  Check ElectronAuthManager.cjs:56-81:
+
+    async needsAdminPasswordReset() {
+      const user = await this.db.getRow(
+        'SELECT id, password_hash FROM users WHERE username = ? AND is_active = 1',
+        ['admin']
+      );
+      if (!user) return false;
+      if (!user.password_hash || String(user.password_hash).trim() === '') return true;
+      if (String(user.password_hash) === 'admin123') return true;
+      const isDefault = await bcrypt.compare('admin123', user.password_hash);
+      return !!isDefault;
+    }
+
+  Scenario: First launch created admin with password "mypassword" via createAdminUser.
+    → password_hash = bcrypt("mypassword")
+    → bcrypt.compare('admin123', bcrypt("mypassword")) → FALSE
+    → returns false ✓
+
+  Scenario: First launch went through the ALREADY EXISTS catch path:
+    1. createAdminUser threw "already exists"
+    2. updateAdminPassword("mypassword") called
+    3. UPDATE users SET password_hash = bcrypt("mypassword") WHERE id = ?
+    → password_hash = bcrypt("mypassword")
+    → bcrypt.compare('admin123', bcrypt("mypassword")) → FALSE
+    → returns false ✓
+
+  Scenario: The admin was seeded with password "admin123" DURING TABLE CREATION.
+    But insertDefaultData() is EMPTY (ElectronDatabaseManager.cjs:982-985).
+    No seed data exists in the code.
+
+  CONCLUSION: needsAdminPasswordReset() correctly returns FALSE.
+  → isFirstTime should be FALSE.
+  → SetupWizard should NOT render.
+
+  THE CONTRADICTION REMAINS.
+
+
+4. REACT STATE TRANSITIONS — EVERY PLACE isFirstTime CAN CHANGE
+================================================================================
+
+  Variable: isFirstTime  (App.jsx:79)
+  Type: useState(false)
+  
+  ┌────────┬────────────────────────────────┬──────────────────────────┐
+  │ Line   │ Code                           │ When executed            │
+  ├────────┼────────────────────────────────┼──────────────────────────┤
+  │ 79     │ useState(false)                │ Initial mount            │
+  │ 159    │ setIsFirstTime(needsSetup ||   │ After BOTH IPC calls     │
+  │        │              needsReset)        │ resolve in               │
+  │        │                                │ checkFirstTimeSetup()     │
+  │ 163    │ setIsFirstTime(false)          │ If checkFirstTimeSetup()  │
+  │        │                                │ throws                    │
+  │ 179    │ setIsFirstTime(false)          │ handleSetupComplete()     │
+  │        │                                │ called by SetupWizard     │
+  └────────┴────────────────────────────────┴──────────────────────────┘
+
+  Line 159 is the ONLY place that sets isFirstTime to TRUE.
+  It only does so if needsSetup || needsReset is TRUE.
+
+  There is NO other code path that sets isFirstTime to true.
+  No localStorage, no sessionStorage, no config file, no URL parameter.
+
+
+5. EVERY RENDER OF SETUPWIZARD
+================================================================================
+
+  Condition (App.jsx:231):
+    if (!isPreviewMode() && isFirstTime && !checkingSetup) {
+      return <SetupWizard onComplete={handleSetupComplete} />;
+    }
+
+  Rendered ONLY when ALL THREE are true:
+    ✓ !isPreviewMode()      → always true in packaged app
+    ✓ isFirstTime           → true
+    ✓ !checkingSetup        → true (checkingSetup is false)
+
+  INITIAL STATE: isFirstTime=false, checkingSetup=true  → NOT rendered
+  AFTER checkFirstTimeSetup resolves:
+    if isFirstTime=true, checkingSetup=false → RENDERED
+  AFTER handleSetupComplete:
+    setIsFirstTime(false) → NOT rendered
+
+  SetupWizard is rendered exactly ONCE per launch (if at all).
+  There is NO mechanism that hides it and shows it again on the same launch.
+
+
+6. SINGLE POINT OF FAILURE
+================================================================================
+
+  The ENTIRE decision reduces to ONE line (App.jsx:159):
+
+    setIsFirstTime(needsSetup || needsReset);
+
+  Where:
+    needsSetup  = return value of IPC channel 'needs-first-time-setup'
+    needsReset  = return value of IPC channel 'needs-admin-password-reset'
+
+  For SetupWizard to show on second launch, AT LEAST ONE must be TRUE.
+
+  needsSetup = true  → see 6a
+  needsReset = true  → see 6b
+
+
+6a. If needsSetup = true:
+─────────────────────
+  → needsFirstTimeSetup() returned TRUE
+  → Means: SELECT FROM users WHERE role='admin' AND is_active=1 returned
+    empty rows, OR all returned rows have NULL/empty password_hash
+
+  → But then createAdminUser() would NOT throw "already exists"
+    because it calls the SAME needsFirstTimeSetup() which would also return TRUE.
+    The user reports createAdminUser DOES throw "already exists".
+
+  → CONTRADICTION. needsSetup CANNOT be true.
+
+6b. If needsReset = true:
+──────────────────────
+  → needsAdminPasswordReset() returned TRUE
+  → Means: admin user found with password_hash matching bcrypt('admin123')
+
+  → This CAN happen if the first launch's password update silently FAILED,
+    leaving the original password as bcrypt('admin123').
+
+  → But the user says authenticate-user on the second launch SUCCEEDS
+    with the password they entered. If the stored hash was bcrypt('admin123'),
+    then the user MUST have entered 'admin123' — but they entered a new password.
+
+  → OR: on the first launch, the SetupWizard went through the "already exists"
+    catch path, called updateAdminPassword, which actually UPDATED the hash,
+    but then authenticateUser SUCCEEDS (with the new password).
+
+  → On second launch, hash = bcrypt(newPassword), not bcrypt('admin123').
+  → needsAdminPasswordReset returns FALSE.
+
+  → CONTRADICTION. needsReset CANNOT be true.
+
+
+7. WHERE THE EXECUTION DIVERGES — PROOF
+================================================================================
+
+  The code as written CANNOT produce the reported behavior.
+
+  The only explanation is that a RUNTIME VALUE differs from what static analysis
+  predicts. This must be determined by runtime console logging.
+
+  Recommended diagnostic logging (add, build, test):
+
+  Log this in checkFirstTimeSetup (App.jsx:146-167):
+    console.log('IPC RETURNED: needsSetup =', needsSetup);
+    console.log('IPC RETURNED: needsReset =', needsReset);
+
+  Log this in needsFirstTimeSetup (ElectronAuthManager.cjs:23-49):
+    console.log('needsFirstTimeSetup: admins found =', admins?.length);
+    console.log('needsFirstTimeSetup: hasAdminWithPassword =', hasAdminWithPassword);
+    console.log('needsFirstTimeSetup: RETURNING', !hasAdminWithPassword);
+
+  Log this in needsAdminPasswordReset (ElectronAuthManager.cjs:56-81):
+    console.log('needsAdminPasswordReset: user found =', !!user);
+    console.log('needsAdminPasswordReset: hash empty =', !user?.password_hash);
+    console.log('needsAdminPasswordReset: bcrypt compare result =', isDefault);
+    console.log('needsAdminPasswordReset: RETURNING', result);
+
+  Log this in createAdminUser (ElectronAuthManager.cjs:116-123):
+    console.log('createAdminUser: internal needsFirstTimeSetup =', needsSetup);
+    if (!needsSetup) throw new Error('Admin user already exists');
+
+
+8. ROOT CAUSE — DEFINITIVE STATEMENT
+================================================================================
+
+  This is NOT a logic bug in the code.
+
+  The code correctly implements:
+    - If admin exists with non-empty password_hash → needsFirstTimeSetup = false
+    - If password_hash is not bcrypt('admin123') → needsAdminPasswordReset = false
+    - isFirstTime = needsSetup || needsReset
+    - If isFirstTime is false → Login page
+
+  The reported behavior REQUIRES one of the IPC handlers to return a VALUE
+  that contradicts the database contents.
+
+  The definitive root cause can ONLY be identified by adding console.log
+  to the seven locations listed in section 7, rebuilding, and observing
+  the ACTUAL return values at runtime.
+
+  Until then, the most likely candidate based on user report alone is:
+  needsAdminPasswordReset() returns TRUE because the password_hash stored
+  after the first-time setup still matches bcrypt('admin123'), suggesting
+  updateAdminPassword() on the first launch may have targeted a different
+  user row or the hash was not actually persisted.
+
+================================================================================
+END OF REPORT
+================================================================================

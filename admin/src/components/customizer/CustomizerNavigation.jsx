@@ -1,14 +1,14 @@
 import React from 'react';
-import { Building, Palette, Paintbrush, Type, Sparkles, Layout, Settings } from 'lucide-react';
+import { Palette, Paintbrush, Type, Sparkles, Store, LayoutGrid, Settings } from 'lucide-react';
 
-const sections = [
-  { id: 'brand', label: 'Brand', icon: Building, tab: 'design' },
-  { id: 'themes', label: 'Thèmes', icon: Palette, tab: 'design' },
-  { id: 'colors', label: 'Couleurs', icon: Paintbrush, tab: 'design' },
-  { id: 'typography', label: 'Typo', icon: Type, tab: 'design' },
-  { id: 'effects', label: 'Effets', icon: Sparkles, tab: 'design' },
-  { id: 'components', label: 'Layout', icon: Layout, tab: 'layout' },
-  { id: 'advanced', label: 'Avancé', icon: Settings, tab: 'advanced' },
+const SECTIONS = [
+  { id: 'brand', label: 'Marque', icon: Store, tab: 'design', subTab: 'brand' },
+  { id: 'themes', label: 'Thème', icon: Palette, tab: 'design', subTab: 'themes' },
+  { id: 'colors', label: 'Couleurs', icon: Paintbrush, tab: 'design', subTab: 'colors' },
+  { id: 'typography', label: 'Typo', icon: Type, tab: 'design', subTab: 'typography' },
+  { id: 'effects', label: 'Effets', icon: Sparkles, tab: 'design', subTab: 'effects' },
+  { id: 'layout', label: 'Layout', icon: LayoutGrid, tab: 'layout', subTab: 'components' },
+  { id: 'advanced', label: 'Avancé', icon: Settings, tab: 'advanced', subTab: null },
 ];
 
 const CustomizerNavigation = ({
@@ -18,36 +18,47 @@ const CustomizerNavigation = ({
   setSelectedSubTab,
   mode = 'inline',
 }) => {
-  const activeSection = selectedTab === 'advanced' ? 'advanced' : selectedSubTab;
+  const activeSection = selectedTab === 'advanced'
+    ? 'advanced'
+    : selectedTab === 'layout'
+      ? 'layout'
+      : selectedSubTab;
 
   const handleSectionClick = (section) => {
     setSelectedTab(section.tab);
-    if (section.id !== 'advanced') {
-      setSelectedSubTab(section.id);
-    }
+    setSelectedSubTab(section.subTab || section.id);
   };
 
   return (
-    <nav className="w-12 h-full bg-white border-r border-gray-200 flex flex-col items-center py-2 gap-1 shrink-0">
-      {sections.map((section) => {
+    <nav
+      className={`w-14 h-full bg-background border-r border-border flex flex-col items-stretch py-2 gap-1 shrink-0 ${mode === 'inline' ? 'hidden sm:flex' : 'flex'}`}
+      aria-label="Sections de personnalisation"
+    >
+      {SECTIONS.map((section) => {
         const Icon = section.icon;
         const isActive = activeSection === section.id;
         return (
           <button
             key={section.id}
             onClick={() => handleSectionClick(section)}
+            title={section.label}
             className={`
-              w-10 h-10 flex flex-col items-center justify-center rounded-lg
-              transition-all duration-150
+              relative w-full flex flex-col items-center justify-center gap-1 py-2.5 rounded-md
+              transition-colors duration-150 group
               ${isActive
-                ? 'bg-blue-50 text-blue-600 border-l-2 border-blue-600'
-                : 'text-gray-500 hover:bg-gray-100 border-l-2 border-transparent'
+                ? 'bg-blue-50 text-blue-600'
+                : 'text-muted-foreground hover:bg-accent hover:text-foreground'
               }
             `}
-            title={section.label}
           >
-            <Icon className="w-4 h-4" strokeWidth={isActive ? 2.5 : 2} />
-            <span className="text-[9px] mt-0.5 font-medium leading-none">{section.label}</span>
+            {isActive && (
+              <span className="absolute left-0 top-1/2 -translate-y-1/2 h-6 w-[3px] rounded-r-full bg-blue-600" />
+            )}
+            <Icon
+              className="w-[18px] h-[18px]"
+              strokeWidth={isActive ? 2.4 : 2}
+            />
+            <span className="text-[9px] font-medium leading-none tracking-tight">{section.label}</span>
           </button>
         );
       })}

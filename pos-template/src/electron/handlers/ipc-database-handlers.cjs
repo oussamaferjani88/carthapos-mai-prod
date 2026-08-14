@@ -697,7 +697,7 @@ function registerDatabaseHandlers(getDatabase) {
             try {
               db.run(
                 `INSERT INTO audit_logs (timestamp, user_id, user_name, action_type, entity_type, new_value, notes)
-                 VALUES (datetime('now','localtime'), 0, 'System', 'FAMILY_MOVE', 'family', ?, ?)`,
+                 VALUES (datetime('now'), 0, 'System', 'FAMILY_MOVE', 'family', ?, ?)`,
                 [JSON.stringify({ from: oldFamily, to: newFamily, count: this.changes }),
                  `Famille "${oldFamily}" renommée en "${newFamily}" (${this.changes} produits déplacés)`]
               );
@@ -791,7 +791,7 @@ function registerDatabaseHandlers(getDatabase) {
                       try {
                         db.run(
                           `INSERT INTO audit_logs (timestamp, user_id, user_name, action_type, entity_type, entity_id, new_value, notes)
-                           VALUES (datetime('now','localtime'), 0, 'System', 'FAMILY_CREATE', 'family', ?, ?, ?)`,
+                           VALUES (datetime('now'), 0, 'System', 'FAMILY_CREATE', 'family', ?, ?, ?)`,
                           [row.id, JSON.stringify({ name: trimmed }), `Famille "${trimmed}" créée`]
                         );
                       } catch (e) { /* non-critical */ }
@@ -861,7 +861,7 @@ function registerDatabaseHandlers(getDatabase) {
         if (db) {
           db.run(
             `INSERT INTO audit_logs (timestamp, user_id, user_name, action_type, entity_type, old_value, notes)
-             VALUES (datetime('now','localtime'), 0, 'System', 'FAMILY_DELETE', 'family', ?, ?)`,
+             VALUES (datetime('now'), 0, 'System', 'FAMILY_DELETE', 'family', ?, ?)`,
             [JSON.stringify({ name: name }), `Famille "${name}" supprimée`]
           );
         }

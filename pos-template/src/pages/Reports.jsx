@@ -373,9 +373,14 @@ export default function Reports() {
     setXReportLoading(true);
     try {
       const res = await window.electronAPI.generateXReport({ period: selectedPeriod, start: periodOpts.start, end: periodOpts.end });
-      setXReportData(res);
+      if (res?.error) {
+        setXReportData({ error: res.error });
+      } else {
+        setXReportData(res?.data || null);
+      }
     } catch (err) {
       console.error('X Report load error:', err);
+      setXReportData({ error: err.message || 'Erreur lors du chargement du rapport X' });
     } finally {
       setXReportLoading(false);
     }
@@ -1476,8 +1481,18 @@ export default function Reports() {
                 <FileSpreadsheet className="h-8 w-8 mx-auto mb-2 opacity-40" />
                 <p>Appuyez sur Actualiser pour charger le rapport X</p>
               </div>
+            ) : xReportData.error ? (
+              <div className="text-center py-8 text-muted-foreground text-sm">
+                <FileSpreadsheet className="h-8 w-8 mx-auto mb-2 opacity-40" />
+                <p className="text-red-500">{xReportData.error}</p>
+              </div>
             ) : (
               <div className="space-y-4">
+                <div className="flex items-center gap-2 text-xs text-muted-foreground mb-2">
+                  <span>Shift #{xReportData.shiftId}</span>
+                  {xReportData.shiftUser && <span>— {xReportData.shiftUser}</span>}
+                  <span>— {xReportData.shiftOpen ? 'En cours' : 'Fermé'}</span>
+                </div>
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
                   <div className="p-3 bg-muted/50 rounded-xl">
                     <p className="text-xs text-muted-foreground">Ventes</p>

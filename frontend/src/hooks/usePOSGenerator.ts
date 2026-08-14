@@ -19,6 +19,8 @@ export const usePOSGenerator = () => {
 
   const [isFormVisible, setIsFormVisible] = useState(true);
   const [showCustomizer, setShowCustomizer] = useState(false);
+  const [loadingProject, setLoadingProject] = useState(false);
+  const [activeLicenseId, setActiveLicenseId] = useState<string | null>(null);
   const [expandedSections, setExpandedSections] = useState({
     themes: false,
     business: false,
@@ -250,6 +252,60 @@ export const usePOSGenerator = () => {
     setProgressError(null);
     setIsFormVisible(true);
     setShowCustomizer(false);
+    setActiveLicenseId(null);
+  };
+
+  /**
+   * Load a saved POS project so the wizard can be restored from its
+   * configuration snapshot (rawConfig). Returns the normalized project data
+   * for the page to seed usePOSConfiguration / usePOSModules / formData.
+   * Legacy projects without rawConfig fall back to the typed columns.
+   */
+  const loadProject = async (licenseId: string) => {
+    setLoadingProject(true);
+    try {
+      const license = await licenseService.getLicenseById(licenseId);
+      const raw = license?.configuration?.rawConfig || {};
+      const snapshotConfig =
+        raw?.configuration && typeof raw.configuration === 'object'
+          ? raw.configuration
+          : license?.configuration || {};
+      // Module selection is keyed by module ID (cuid) everywhere in the UI
+      // (ModuleGrid matches selectedList.includes(module.id)). rawConfig.modules
+      // may contain names or ids, so resolve every identifier to its module ID
+      // using the license's own module relation.
+      const licenseModules = Array.isArray(license?.modules) ? license.modules : [];
+      const resolveModuleId = (identifier: string) => {
+        const match = licenseModules.find(
+          (m: any) =>
+            m?.module?.id === identifier ||
+            m?.module?.name === identifier ||
+            (identifier && m?.module?.code === identifier)
+        );
+        return match?.module?.id || identifier;
+      };
+      const rawModules = Array.isArray(raw?.modules) ? raw.modules : [];
+      const snapshotModules = rawModules.length
+        ? rawModules.map(resolveModuleId).filter(Boolean)
+        : licenseModules
+            .filter((m: any) => m && m.isEnabled !== false)
+            .map((m: any) => m?.module?.id)
+            .filter(Boolean);
+      setActiveLicenseId(licenseId);
+      return {
+        licenseId,
+        clientId: license?.clientId || '',
+        sector: raw?.sector || license?.sector || '',
+        licenseType: raw?.licenseType || license?.licenseType || 'LIFETIME',
+        bindingType: raw?.bindingType || license?.bindingType || 'MACHINE',
+        expirationDate: raw?.expirationDate || '',
+        modules: snapshotModules,
+        configuration: snapshotConfig,
+        posConfigVersion: raw?.posConfigVersion ?? license?.configuration?.posConfigVersion ?? 1,
+      };
+    } finally {
+      setLoadingProject(false);
+    }
   };
 
   const startWithTemplate = () => {
@@ -288,6 +344,8 @@ export const usePOSGenerator = () => {
     isFormVisible,
     showCustomizer,
     expandedSections,
+    loadingProject,
+    activeLicenseId,
 
     nextStep,
     previousStep,
@@ -302,6 +360,7 @@ export const usePOSGenerator = () => {
     directConvert,
     quickTest,
     resetGenerator,
+    loadProject,
 
     startWithTemplate,
     startCustomization,

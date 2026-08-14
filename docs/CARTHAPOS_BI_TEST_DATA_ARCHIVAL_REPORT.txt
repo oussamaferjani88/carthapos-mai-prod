@@ -1,0 +1,100 @@
+================================================================================
+CARTHAPOS BI — TEST DATA ARCHIVAL REPORT
+Date: 2026-08-02
+================================================================================
+
+OBJECTIVE
+--------------------------------------------------------------------------------
+Archive old test exports so analytics-cache-service no longer treats them as
+active BI sources (status COMPLETED), while preserving full BI upload history.
+Constraints honored: no rows deleted, schema/migrations/ETL/analytics-cache-
+service untouched, warehouse tables and POS source tables untouched, audit
+history preserved.
+
+1. STATUSES BEFORE / AFTER
+--------------------------------------------------------------------------------
+  BEFORE                       AFTER
+  ---------------------------  ---------------------------
+  COMPLETED         6          ARCHIVED         10
+  LOAD_CONFIRMED    2          (no COMPLETED uploads remain)
+  PREPARED          1
+  COMPLETED         1
+  (TOTAL 10)
+
+  Only the bi_uploads.status column was updated (SET status = 'ARCHIVED').
+  id, clientId, fileName, createdAt, totalRows, processing history and all
+  other columns were NOT modified. No rows deleted.
+
+2. ARCHIVED UPLOADS (10) — IDs, files, statuses
+--------------------------------------------------------------------------------
+  ID                        FILE                                              BEFORE         AFTER
+  ------------------------  ------------------------------------------------  --------------  --------
+  cmsbtgfbf0001f7cz88jnolkl bi_export.zip (11,484 rows, T1 main test load)   COMPLETED      ARCHIVED
+  cms9foty00003mawpig5v284v bi_export_compatible_1785528570495.zip           COMPLETED      ARCHIVED
+  cms9fkoy3029ota8bhdsrxj1g stress.zip (9,298 rows)                          COMPLETED      ARCHIVED
+  cms9fjli30001ta8bemfmh10c bi_export.zip (2,921 rows)                       COMPLETED      ARCHIVED
+  cms9fh8t30001qqqtlkyf92hl bi_export.zip (2,921 rows)                       COMPLETED      ARCHIVED
+  cms9ehr9m0ye7ixgwz3ru88g3 iso_check.zip (2,921 rows)                       LOAD_CONFIRMED  ARCHIVED
+  cms9e7npi0cjvixgw2oosn7ll bi_export_1785529582755_c.zip                    LOAD_CONFIRMED  ARCHIVED
+  cms9e7ib204isixgwe13jvydf bi_export_1785529575412_c.zip (9,351 rows)       PREPARED       ARCHIVED
+  cmqzgvu9f0009vrcr1ucp9cju bi_export_1782752568321.zip (T2, 0 rows)         COMPLETED      ARCHIVED
+  cmqy0d9jm0001zhis5jvqeifj bi_export_1782663669398.zip (T2, 25 rows)        COMPLETED      ARCHIVED
+
+  All uploads were development/test ZIP exports created before the clean
+  reset; none are real client data. Archived in a single transaction
+  (BEGIN -> UPDATE -> COMMIT), preserving every other field.
+
+3. CACHE CLEANUP RESULT
+--------------------------------------------------------------------------------
+  analytics-cache/ (D:\Carthapos\backend\analytics-cache\) was cleared AFTER
+  the bi_uploads archival:
+    - Removed snapshot file cmsbtgfbf0001f7cz88jnolkl.json (3,367,884 bytes)
+      and meta.json (if present).
+    - Backend restarted to flush the in-memory LRU.
+  Post-cleanup: analytics-cache/ is EMPTY and STAYS EMPTY across repeated
+  analytics requests (verified — 0 files after all endpoint calls).
+
+  Why it now stays empty: with no COMPLETED uploads in bi_uploads, the cache
+  service's latestUpload() returns null and ensureCache() returns
+  'NO_COMPLETED_UPLOAD' instead of rebuilding from a ZIP. The cache mechanism
+  itself is unchanged.
+
+4. ENDPOINT VERIFICATION (after archival + cache cleanup)
+--------------------------------------------------------------------------------
+  Warehouse-backed (prisma/warehouse), all empty:
+    /api/bi-uploads/:id/summary
+      revenueDays       = []          (0 days)
+      topProducts       = []          (0)
+      averageTicket     = { average: 0, count: 0, total: 0 }
+      tableTurnover     = []          (0)
+      kitchenPerformance= { total: 0, byStatus: {}, byPriority: {} }
+      peakHours         = []          (0)
+
+  Cache-backed (analytics enrichment), all empty (templates/zeroed):
+    /api/bi/analytics/overview       -> KPIs all 0
+    /api/bi/analytics/trend          -> points []
+    /api/bi/analytics/payment-mix    -> empty
+    /api/bi/analytics/peak-hours     -> 24-hour axis, all revenue/orders/items 0
+    /api/bi/analytics/weekday        -> 7-day axis, all revenue/orders 0
+    /api/bi/analytics/categories     -> empty
+    /api/bi/analytics/products       -> empty
+    /api/bi/analytics/customers      -> totalCustomers 0
+    /api/bi/analytics/tables         -> empty
+    /api/bi/analytics/kitchen        -> totalOrders 0, status/priority/depts []
+    /api/bi/analytics/shifts         -> empty
+    /api/bi/analytics/reservations   -> empty
+    /api/bi/analytics/inventory      -> totalProducts 0, totalValue 0
+
+  Confirmed: no old test values (revenue 139,869.52 / 24-hour peaks / 14
+  customers / kitchen volumes) appear in any endpoint.
+
+5. FINAL STATE
+--------------------------------------------------------------------------------
+  bi_uploads : 10 rows, all ARCHIVED, history fully preserved
+  analytics-cache/ : empty (no snapshots, no meta)
+  Warehouse : empty (from previous clean reset)
+  No COMPLETED uploads exist until a real client export is loaded; at that
+  point the standard upload -> prepare -> load -> cache-build flow starts fresh.
+================================================================================
+END REPORT
+================================================================================

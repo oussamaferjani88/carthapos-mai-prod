@@ -11,28 +11,47 @@
  */
 
 const { PrismaClient } = require('@prisma/client');
+const analyticsCache = require('./analytics-cache-service');
+
 const prisma = new PrismaClient();
+
+// dimTimeId is an int in YYYYMMDD form (the business transaction date).
+// Analytics MUST bucket by dimTimeId — createdAt is only the ETL load time.
+function toDimInt(date) {
+  const dt = new Date(date);
+  if (isNaN(dt.getTime())) return null;
+  return dt.getUTCFullYear() * 10000 + (dt.getUTCMonth() + 1) * 100 + dt.getUTCDate();
+}
+
+function dimToDateKey(dimTimeId) {
+  if (dimTimeId === null || dimTimeId === undefined) return null;
+  const s = String(dimTimeId).padStart(8, '0');
+  return `${s.slice(0, 4)}-${s.slice(4, 6)}-${s.slice(6, 8)}`;
+}
 
 class WarehouseService {
 
   // ─── Revenue ──────────────────────────────────────────────────
 
+  // Revenue bucketed by TRANSACTION DATE (dimTimeId = YYYYMMDD).
+  // Previously this grouped by createdAt (ETL load time), which shifted
+  // revenue onto the upload date instead of the sale date.
   async getRevenueByDay(tenantId, days = 30, timezone = 'UTC') {
-    const startDate = new Date();
-    startDate.setDate(startDate.getDate() - days);
+    const startDim = toDimInt(Date.now() - days * 86400000);
 
     const sales = await prisma.factSale.findMany({
       where: {
         tenantId,
-        createdAt: { gte: startDate },
+        dimTimeId: { gte: startDim },
       },
-      include: { dimTime: true },
-      orderBy: { createdAt: 'asc' },
+      select: { dimTimeId: true, total: true },
+      orderBy: { dimTimeId: 'asc' },
     });
 
     const byDay = {};
     for (const s of sales) {
-      const key = this._getDateInTimezone(s.createdAt, timezone);
+      const key = dimToDateKey(s.dimTimeId);
+      if (!key) continue;
       byDay[key] = (byDay[key] || 0) + s.total;
     }
 
@@ -96,14 +115,14 @@ class WarehouseService {
 
   // ─── Kitchen Performance ──────────────────────────────────────
 
+  // Window is applied to the ORDER DATE (dimTimeId), not the load time.
   async getKitchenPerformance(tenantId, days = 7) {
-    const startDate = new Date();
-    startDate.setDate(startDate.getDate() - days);
+    const startDim = toDimInt(Date.now() - days * 86400000);
 
     const orders = await prisma.factKitchenOrder.findMany({
       where: {
         tenantId,
-        createdAt: { gte: startDate },
+        dimTimeId: { gte: startDim },
       },
     });
 
@@ -143,15 +162,19 @@ class WarehouseService {
 
   // ─── Peak Hours (cafe) ────────────────────────────────────────
 
+  // The warehouse only stores the transaction DATE (dimTimeId, YYYYMMDD) —
+  // hour-of-day is not in the warehouse schema. Transaction hours come from
+  // the analytics cache, which is parsed from the POS export's created_at
+  // (the real transaction timestamp). Using load-time createdAt here would
+  // report upload hours instead of business hours, so it is not used.
   async getPeakHours(tenantId, timezone = 'UTC') {
-    const sales = await prisma.factSale.findMany({
-      where: { tenantId },
-    });
+    const { snapshot } = await analyticsCache.getSnapshot(tenantId);
+    const sales = (snapshot && snapshot.datasets && snapshot.datasets.sales) || [];
 
     const byHour = {};
     for (const s of sales) {
-      const hour = this._getHourInTimezone(s.createdAt, timezone);
-      byHour[hour] = (byHour[hour] || 0) + 1;
+      if (s.hour === null || s.hour === undefined) continue;
+      byHour[s.hour] = (byHour[s.hour] || 0) + 1;
     }
 
     return Object.entries(byHour)
@@ -161,15 +184,16 @@ class WarehouseService {
 
   // ─── Average Ticket ───────────────────────────────────────────
 
+  // Window is applied to the TRANSACTION DATE (dimTimeId), not the load time.
   async getAverageTicket(tenantId, days = 30) {
-    const startDate = new Date();
-    startDate.setDate(startDate.getDate() - days);
+    const startDim = toDimInt(Date.now() - days * 86400000);
 
     const sales = await prisma.factSale.findMany({
       where: {
         tenantId,
-        createdAt: { gte: startDate },
+        dimTimeId: { gte: startDim },
       },
+      select: { total: true },
     });
 
     if (sales.length === 0) return { average: 0, count: 0, total: 0 };
@@ -215,32 +239,6 @@ class WarehouseService {
     }
 
     return summary;
-  }
-
-  // ─── Timezone helpers ─────────────────────────────────────────
-
-  _getHourInTimezone(date, timezone) {
-    if (!timezone || timezone === 'UTC') {
-      return new Date(date).getUTCHours();
-    }
-    try {
-      return parseInt(new Date(date).toLocaleString('en-US', {
-        timeZone: timezone, hour: 'numeric', hour12: false,
-      }), 10);
-    } catch {
-      return new Date(date).getUTCHours();
-    }
-  }
-
-  _getDateInTimezone(date, timezone) {
-    if (!timezone || timezone === 'UTC') {
-      return date.toISOString().substring(0, 10);
-    }
-    try {
-      return new Date(date).toLocaleDateString('en-CA', { timeZone: timezone });
-    } catch {
-      return date.toISOString().substring(0, 10);
-    }
   }
 
   // ─── Helper ───────────────────────────────────────────────────

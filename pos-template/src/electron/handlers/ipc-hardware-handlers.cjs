@@ -281,9 +281,9 @@ function registerHardwareHandlers(ipcMain, databaseManager) {
       const session = activeSessions.get(event.sender.id);
       const user = session?.userData;
       await runRun(
-        `INSERT INTO cash_drawer_events (user_id, action, amount_expected, amount_actual, notes)
-         VALUES (?, 'open', NULL, NULL, ?)`,
-        [user?.id || 0, 'Ouverture manuelle']
+        `INSERT INTO cash_drawer_events (user_id, user_name, action, amount_expected, amount_actual, notes)
+         VALUES (?, ?, 'drawer_open', NULL, NULL, ?)`,
+        [user?.id || 0, user?.username || user?.fullName || 'Inconnu', 'Ouverture manuelle']
       );
       return { success: true, message: 'Tiroir ouvert' };
     } catch (err) {
@@ -293,9 +293,9 @@ function registerHardwareHandlers(ipcMain, databaseManager) {
 
   ipcMain.handle('hardware:getCashDrawerStatus', async (event) => {
     const last = await runGet(
-      `SELECT * FROM cash_drawer_events WHERE action = 'open' ORDER BY timestamp DESC LIMIT 1`
+      `SELECT * FROM cash_drawer_events WHERE action = 'drawer_open' ORDER BY timestamp DESC LIMIT 1`
     );
-    const count = await runGet('SELECT COUNT(*) as cnt FROM cash_drawer_events WHERE action = \'open\'');
+    const count = await runGet('SELECT COUNT(*) as cnt FROM cash_drawer_events WHERE action = \'drawer_open\'');
     return {
       isOpen: false,
       isConnected: true,

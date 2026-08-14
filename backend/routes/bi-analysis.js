@@ -15,12 +15,14 @@ router.get('/', async (req, res) => {
     if (status) where.status = status;
     if (businessType) where.businessType = businessType;
 
-    const skip = (parseInt(page) - 1) * parseInt(pageSize);
+    const parsedPage = Math.max(parseInt(String(page || '1'), 10) || 1, 1);
+    const parsedPageSize = Math.min(Math.max(parseInt(String(pageSize || '50'), 10) || 50, 1), 100);
+    const skip = (parsedPage - 1) * parsedPageSize;
     const [items, total] = await Promise.all([
       prisma.biAnalysisRequest.findMany({
         where,
         skip,
-        take: parseInt(pageSize),
+        take: parsedPageSize,
         orderBy: { createdAt: 'desc' },
         include: {
           upload: { select: { id: true, fileName: true, totalRows: true, createdAt: true } },
@@ -31,7 +33,7 @@ router.get('/', async (req, res) => {
 
     res.json({
       success: true,
-      data: { items, total, page: parseInt(page), pageSize: parseInt(pageSize), totalPages: Math.ceil(total / parseInt(pageSize)) },
+      data: { items, total, page: parsedPage, pageSize: parsedPageSize, totalPages: Math.ceil(total / parsedPageSize) },
     });
   } catch (error) {
     console.error('[ANALYSIS] List failed:', error);

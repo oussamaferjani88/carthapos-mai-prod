@@ -1,0 +1,419 @@
+═══ CarthaPOS License System Report ═══
+Date: 2026-07-04
+
+═══════════════════════════════════════════════════════════════════
+1. LICENSE DATA MODEL
+═══════════════════════════════════════════════════════════════════
+
+Model: License (backend/prisma/schema.prisma)
+
+  Field              Type            SQL Map            Description
+  ────────────────────────────────────────────────────────────────────────
+  id                 String (cuid)   —                  Primary key
+  clientId           String          clientid           FK → Client
+  licenseKey         String (unique) licensekey         Human-readable key
+  sector             String          —                  Business sector
+  licenseType        LicenseType     licensetype        SUBSCRIPTION or LIFETIME
+  expirationDate     DateTime?       expirationdate     Null for LIFETIME
+  isActive           Boolean         isactive           Soft enable/disable
+  machineId          String?         machineid          Hardware binding (optional)
+  buildStatus        String?         buildstatus        pending/building/completed/
+                                                         failed/source_ready/cleaned
+  buildProjectPath   String?         buildprojectpath   FS path to generated POS
+  buildProjectName   String?         buildprojectname   Generated project folder name
+  buildRunId         String?         buildrunid         GitHub Actions workflow run ID
+  createdAt          DateTime        createdat          Creation timestamp
+  updatedAt          DateTime        updatedat          Last update timestamp
+
+Relations:
+  • client            Client                    FK to clients (Cascade on delete)
+  • configuration     LicenseConfiguration?     1:1 — theme/business settings
+  • modules           LicenseModule[]           1:N — enabled modules
+  • UserPosConfig     UserPosConfiguration?     1:1 — per-user POS build config
+  • biDashboards      BiDashboard[]             1:N — BI dashboards
+  • biAnalysisRequests BiAnalysisRequest[]      1:N — BI analysis requests
+
+Enums:
+  LicenseType: SUBSCRIPTION | LIFETIME
+
+═══════════════════════════════════════════════════════════════════
+2. LICENSE KEY GENERATION
+═══════════════════════════════════════════════════════════════════
+
+File: backend/utils/license.js
+
+  Two generators exist:
+
+  Legacy (line 5-9):
+    Format:  POS-{timestamp_base36}-{8_random_hex_bytes}.toUpperCase()
+    Example: POS-K3M2F-1A2B3C4D5E6F7G8H
+
+  Service-level (backend/src/services/licenseService.js, line 141-147):
+    Format:  {8_hex}-{8_hex}-{8_hex}-{8_hex}
+    Example: 1A2B3C4D-5E6F7890-ABCD1234-EF567890
+
+═══════════════════════════════════════════════════════════════════
+3. LICENSE MODULE SYSTEM
+═══════════════════════════════════════════════════════════════════
+
+Join table: LicenseModule (prisma schema lines 65-75)
+  • licenseId + moduleId (unique together)
+  • isEnabled (Boolean, default true)
+
+Module model fields: name (unique), displayName, description, category, isCore
+
+Categories with pricing (backend/routes/license.js, lines 12-21):
+  core:           €0    (always included, non-optional)
+  inventory:      €39   per module
+  restaurant:     €49   per module
+  service:        €29   per module (deprecated — merged into restaurant)
+  customer:       €35   per module
+  payment:        €45   per module
+  specialized:    €59   per module
+  administration: €25   per module
+
+Module upgrade flow (backend/routes/license.js):
+  • POST /:id/module-upgrade-quote (lines 728-782)
+    — Receives desired module IDs
+    — Calculates price by category for new modules
+    — Returns { newModules[], amountDue, currency: 'EUR' }
+  • POST /:id/module-upgrade-purchase (lines 785-879)
+    — Validates payment amount >= amountDue
+    — Creates LicenseModule records
+    — Records transaction to JSON file
+
+═══════════════════════════════════════════════════════════════════
+4. LICENSE CREATION FLOW
+═══════════════════════════════════════════════════════════════════
+
+Route: POST /api/licenses (backend/routes/license.js, lines 413-569)
+
+  Parameters:
+    • clientId (or userId for portal mode)
+    • sector
+    • licenseType (SUBSCRIPTION | LIFETIME)
+    • expirationDate (required for SUBSCRIPTION)
+    • modules[] (array of module IDs)
+    • configuration { businessName, colors, fonts, etc. }
+
+  Flow:
+    1. Resolve client (by clientId admin mode, or auto-create in portal mode)
+    2. Generate unique license key
+    3. Create License record
+    4. Create LicenseModule records for each selected module
+    5. Create LicenseConfiguration record with filtered config fields
+
+  Validation (Joi schema in backend/src/validators/licenseValidator.js):
+    • clientId required
+    • sector must be one of: restaurant, cafe, boutique, pharmacy, bakery, grocery, other
+    • licenseType must be SUBSCRIPTION or LIFETIME
+    • expirationDate required for SUBSCRIPTION, forbidden for LIFETIME
+
+═══════════════════════════════════════════════════════════════════
+5. LICENSE CONFIGURATION (LicenseConfiguration)
+═══════════════════════════════════════════════════════════════════
+
+50+ fields stored per license for POS customization:
+
+  Identity:     businessName, logo, favicon, appTitle
+  Colors:       primaryColor, secondaryColor, accentColor, backgroundColor,
+                textColor, textMutedColor, borderColor, cardBackgroundColor
+  Typography:   fontFamily, fontSize, fontWeight
+  Regional:     currency, taxRate, language, timezone
+  Layout:       navbarPosition, navbarStyle, compactMode, maxWidth, spacingScale
+  Visual:       borderRadius, buttonStyle, cardStyle, tableStyle, modalStyle,
+                theme, shadows, shadowIntensity, opacity, glassEffect,
+                gradientBackgrounds, backdropBlur, reducedMotion
+  Behavior:     autoSave, autoModeSwitch, splashScreen, responsiveMode,
+                largeTextMode, highContrastMode
+  Dashboard:    dashboardLayout, widgetSizes, showQuickActions,
+                showBreadcrumbs, showModuleIcons, showModuleBadges
+  Advanced:     customCSS, brandWatermark, hoverEffects, animations
+
+═══════════════════════════════════════════════════════════════════
+6. POS BUILD/GENERATION PIPELINE
+═══════════════════════════════════════════════════════════════════
+
+Trigger: POST /api/pos/generate (backend/routes/pos.js, lines 19-211)
+
+  Three build modes:
+    • LOCAL_BUILD=true    → Full local Electron build (.exe)
+    • FAST_GENERATION     → Source code only, no build
+    • Default             → Source + GitHub Actions build
+
+  Pipeline (backend/utils/generators/index.js, 10 steps):
+
+    Step 1 — Validate License (line 32)
+      File: backend/utils/config/license-validator.js
+      Checks: required fields, key format, client name, active status
+      Processes configuration defaults for missing fields
+
+    Step 2 — Initialize Project (line 36-43)
+      File: backend/utils/generators/ProjectBuilder.js
+      Creates: {GENERATED_POS_PATH}/pos-{clientName}-{licenseKey}/
+      Cleans existing project if present
+
+    Step 3 — Copy Template (line 50-53)
+      File: backend/utils/generators/AssetManager.js (line 37-58)
+      Recursively copies pos-template/ to project directory
+      Skips: node_modules, .git, dist
+
+    Step 4 — Create Config Files (line 64-66)
+      File: backend/utils/generators/AssetManager.js (line 286-401)
+      • Creates resources/config.json with business metadata
+      • Creates public/app-config.json with embedded license data
+        (license key, enabled modules, theme, database config)
+      • Generates SQLite database filename from business name
+      • Sets requireUSBLicense flag (default true, anti-piracy)
+
+    Step 5 — Preload Script (line 55-57)
+      File: backend/utils/generators/AssetManager.js (line 175-255)
+      Creates Electron preload.cjs with IPC bridge for:
+      database ops, license validation, window control,
+      file system, settings, notifications
+
+    Step 6 — Filter Modules (line 69-99)
+      File: backend/utils/generators/ModuleFilter.js
+      • Removes page files for disabled modules
+      • Comments out navbar items for disabled modules
+      • Cleans up route imports for disabled modules
+
+    Step 7 — Install Dependencies (line 101-123)
+      File: backend/utils/generators/DependencyManager.js
+      • Updates package.json with build scripts
+      • Installs Tailwind CSS v4 dependencies
+      • Copies node_modules via robocopy (Windows) or npm ci
+
+    Step 8 — Theme Customization (line 126-146)
+      File: backend/utils/generators/ThemeCustomizer.js
+      • Writes CSS custom properties as :root variables
+      • Updates Tailwind config with theme colors
+      • Patches component styles (Header, Sidebar, Button)
+      • Generates app-config.json with full theme
+
+    Step 9 — File Patches (line 148-189)
+      File: backend/utils/generators/FilePatcher.js
+      • Removes unnecessary files (pnpm-lock, .env.example, etc.)
+      • Fixes Electron entry point files
+      • Creates PostCSS config with @tailwindcss/postcss v4
+      • Generates ESM vite.config.js
+      • Copies critical shadcn/ui components
+      • Patches package.json: unique name, productName, appId,
+        artifactName, NSIS shortcutName
+
+    Step 10 — Build (line 191-209)
+      File: backend/utils/generators/BuildSystemManager.js
+      • Validates build environment
+      • Runs: npx vite build --mode production
+      • Runs: npx electron-builder --win --x64
+      • Finds .exe in dist/, release/, out/
+      • Cleans up build directories
+
+═══════════════════════════════════════════════════════════════════
+7. BUILD STATUS LIFECYCLE
+═══════════════════════════════════════════════════════════════════
+
+  pending       → Default on license creation
+  building      → GitHub Actions triggered or local build started
+  source_ready  → Source generation complete (fast mode, no build)
+  completed     → Build succeeded (local or GitHub)
+  failed        → Build failed (detected via GitHub status or local error)
+  cleaned       → Build artifacts manually cleaned up
+
+  Status polling: GET /api/pos/build-status/:licenseId
+    • Checks stored buildRunId
+    • Queries GitHub Actions API
+    • Updates DB status accordingly
+
+═══════════════════════════════════════════════════════════════════
+8. LICENSE FILE ENCRYPTION & VALIDATION
+═══════════════════════════════════════════════════════════════════
+
+File: backend/utils/license.js
+
+  createLicenseFile() (lines 75-133):
+    • Builds licenseData: { licenseKey, clientId, clientName, sector,
+      type, expiry, modules[], config }
+    • Creates HMAC-SHA256 signature
+    • Creates SHA-256 checksum
+    • AES-encrypts full payload
+    • Returns encrypted string
+
+  validateLicenseFile() (lines 136-189):
+    • Decrypts AES payload
+    • Verifies checksum (anti-tamper)
+    • Verifies HMAC signature (anti-forgery)
+    • Checks expiration for SUBSCRIPTION type
+    • Checks isActive flag
+    • Returns { isValid, data, message }
+
+  validateMachineBinding() (lines 192-208):
+    • Compares stored machineId against current machine hash
+    • Machine ID = SHA-256 of { platform, arch, hostname,
+      cpuCount, totalMemory }
+
+═══════════════════════════════════════════════════════════════════
+9. LICENSE VALIDATION IN GENERATED POS
+═══════════════════════════════════════════════════════════════════
+
+  useLicense() hook (pos-template/src/hooks/useLicense.js):
+    • Checks for window.electronAPI (Electron context)
+    • If Electron: calls validateLicense() IPC handler
+    • If valid: stores license data
+    • If browser/dev: uses fallback "DEV-LICENSE"
+
+  LicenseCheck component (pos-template/src/components/LicenseCheck.jsx):
+    • Shows when validation fails
+    • Provides USB drive detection button
+    • Retry and Quit buttons
+    • Checks for USB license key via IPC
+
+  App.jsx integration (pos-template/src/App.jsx):
+    • useLicense() on mount
+    • If invalid + production: render LicenseCheck
+    • If first-time setup: render SetupWizard
+    • Else: render POS interface
+
+═══════════════════════════════════════════════════════════════════
+10. GITHUB ACTIONS BUILD INTEGRATION
+═══════════════════════════════════════════════════════════════════
+
+File: backend/utils/githubActionsService.js
+
+  Trigger: POST /repos/{owner}/{repo}/actions/workflows/build-pos.yml/dispatches
+    Inputs: project_name, license_key, business_name
+
+  Status check: GET /repos/{owner}/{repo}/actions/runs/{runId}
+    Returns: { status, conclusion, url }
+
+  Artifact download:
+    • Gets artifact list
+    • Finds by name {projectName}-installer
+    • Downloads ZIP
+
+  Credentials: GITHUB_TOKEN, GITHUB_OWNER, GITHUB_REPO env vars
+
+═══════════════════════════════════════════════════════════════════
+11. FULL LICENSE LIFECYCLE (END TO END)
+═══════════════════════════════════════════════════════════════════
+
+  ┌─────────────────────────────────────────────────────┐
+  │  1. ADMIN creates client (if not existing)           │
+  │     ↓                                                │
+  │  2. ADMIN creates license:                           │
+  │     • Selects client                                 │
+  │     • Chooses sector                                 │
+  │     • Picks license type (LIFETIME / SUBSCRIPTION)   │
+  │     • Selects modules from grid                      │
+  │     • Configures theme (colors, fonts, language)     │
+  │     • System generates unique license key            │
+  │     • Creates License + LicenseConfiguration +       │
+  │       LicenseModule records in DB                    │
+  │     ↓                                                │
+  │  3. ADMIN triggers POS generation:                   │
+  │     • POST /api/pos/generate                         │
+  │     • 10-step pipeline runs (validate → build)       │
+  │     • Status: pending → building → completed         │
+  │     ↓                                                │
+  │  4. CLIENT downloads installer:                      │
+  │     • GET /api/pos/download                          │
+  │     • Receives .exe (or GitHub artifact)             │
+  │     ↓                                                │
+  │  5. CLIENT runs POS:                                 │
+  │     • Electron app launches                          │
+  │     • useLicense() validates embedded license        │
+  │     • If valid: SetupWizard → Login → POS            │
+  │     • If invalid: LicenseCheck (USB key prompt)      │
+  │     ↓                                                │
+  │  6. CLIENT uses POS with selected modules only       │
+  │     (disabled modules: pages removed, nav hidden)    │
+  └─────────────────────────────────────────────────────┘
+
+═══════════════════════════════════════════════════════════════════
+12. API ENDPOINT SUMMARY
+═══════════════════════════════════════════════════════════════════
+
+  Legacy routes (backend/routes/license.js):
+    GET    /api/licenses                          List all
+    GET    /api/licenses/:id                      Get by ID
+    POST   /api/licenses                          Create
+    PUT    /api/licenses/:id                      Update
+    DELETE /api/licenses/:id                      Delete
+    POST   /api/licenses/:id/generate-file        Generate encrypted license file
+    POST   /api/licenses/:id/module-upgrade-quote Calculate upgrade cost
+    POST   /api/licenses/:id/module-upgrade-purchase Purchase module upgrade
+    GET    /api/licenses/:id/module-upgrade-transactions Payment history
+
+  New API routes (backend/src/routes/license.js):
+    GET    /api/v1/licenses/active                Active licenses
+    GET    /api/v1/licenses/expiring?days=30      Expiring soon
+    GET    /api/v1/licenses/key/:licenseKey       Lookup by key
+    GET    /api/v1/licenses/client/:clientId      By client
+    POST   /api/v1/licenses                       Create (validated)
+    PUT    /api/v1/licenses/:id                   Update
+    PUT    /api/v1/licenses/:id/configuration     Update config only
+    PATCH  /api/v1/licenses/:id/toggle            Toggle active/inactive
+    POST   /api/v1/licenses/:id/generate-file     Generate license file
+    POST   /api/v1/licenses/:id/modules/:moduleId Attach module
+    DELETE /api/v1/licenses/:id/modules/:moduleId Detach module
+    PATCH  /api/v1/licenses/:id/modules/:moduleId/toggle Toggle module
+
+  POS routes (backend/routes/pos.js):
+    POST   /api/pos/generate                      Generate POS app
+    POST   /api/pos/build                         Build existing project
+    GET    /api/pos/build-status/:licenseId        Poll build status
+    GET    /api/pos/download                       Download installer
+    DELETE /api/pos/cleanup/:licenseId             Clean build artifacts
+
+  Module routes (backend/routes/modules.js):
+    GET    /api/modules                           List all
+    GET    /api/modules/by-category               Grouped by category
+    POST   /api/modules                           Create
+    PUT    /api/modules/:id                       Update
+    DELETE /api/modules/:id                       Delete
+
+═══════════════════════════════════════════════════════════════════
+13. KEY FILES REFERENCE
+═══════════════════════════════════════════════════════════════════
+
+  Data Model:
+    backend/prisma/schema.prisma                    License, LicenseConfiguration,
+                                                     LicenseModule, Module models
+
+  License Logic:
+    backend/routes/license.js                        Legacy REST routes
+    backend/src/routes/license.js                    New API routes
+    backend/src/controllers/licenseController.js     Controller
+    backend/src/services/licenseService.js           Business logic
+    backend/src/repositories/licenseRepository.js    DB access
+    backend/src/validators/licenseValidator.js       Joi validation
+    backend/utils/license.js                         Key generation, encryption,
+                                                     license file validation
+    backend/utils/config/license-validator.js        POS generation validation
+
+  POS Generation:
+    backend/routes/pos.js                            Generation/download routes
+    backend/utils/pos-generator.js                   Entry point
+    backend/utils/generators/index.js                10-step pipeline
+    backend/utils/generators/ProjectBuilder.js       Project directory setup
+    backend/utils/generators/AssetManager.js         Config files, template copy
+    backend/utils/generators/ModuleFilter.js         Module file gating
+    backend/utils/generators/ThemeCustomizer.js      Theme CSS injection
+    backend/utils/generators/FilePatcher.js          Package.json, Vite, PostCSS
+    backend/utils/generators/DependencyManager.js    npm dependencies
+    backend/utils/generators/BuildSystemManager.js   Electron build
+    backend/utils/githubActionsService.js            GitHub CI integration
+
+  POS Template (what gets generated):
+    pos-template/src/hooks/useLicense.js             License validation hook
+    pos-template/src/components/LicenseCheck.jsx      Invalid license UI
+    pos-template/src/App.jsx                          Main app with license check
+    pos-template/src/config/AppConfig.js              Runtime config
+    pos-template/src/utils/environment.js             Preview vs production detect
+
+  Admin UI:
+    admin/src/pages/Licenses.jsx                     License list + management
+    admin/src/services/licenseService.js              REST calls
+    admin/src/components/pos/forms/LicenseConfigurator.jsx License creation form
+    admin/src/components/pos/forms/ModuleGrid.jsx     Module selection grid
+    admin/src/pages/Modules.jsx                       Module CRUD management

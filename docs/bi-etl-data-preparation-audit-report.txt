@@ -1,0 +1,573 @@
+================================================================================
+CARTHAPOS BI ETL — DATA PREPARATION AUDIT REPORT
+READ-ONLY ANALYSIS — NO CODE MODIFICATION
+Date: 2026-08-02
+Scope: Does the ETL behave like a real BI data preparation process?
+Auditor viewpoint: BI engineer responsible for preparing dirty operational data.
+================================================================================
+
+Key files reviewed:
+  backend/services/etl-pipeline.js           (ETL core: extract/validate/load)
+  backend/services/bi-schema-registry.js     (server-side schema + type checks)
+  backend/services/warehouse-service.js      (analytics query service)
+  backend/services/analytics-cache-service.js(granular ZIP reader/cache)
+  backend/routes/bi-uploads.js               (upload + wizard API)
+  backend/prisma/schema.prisma               (warehouse models, lines 541-682)
+  pos-template/src/electron/bi/BiSchemaContract.cjs  (21-dataset contract v2.2.0)
+  pos-template/src/electron/bi/BiDataMapper.cjs       (POS export mappers)
+  pos-template/src/electron/bi/BiValidator.cjs        (POS-side validation)
+  pos-template/src/electron/bi/BiDatasetRegistry.cjs  (export dataset registry)
+
+================================================================================
+1. PIPELINE STAGES — IMPLEMENTED vs MISSING
+================================================================================
+
+Flow under review:
+
+  POS Export ZIP → Upload → ZIP Extraction → CSV Parsing → Data Validation
+  → Data Cleaning/Preparation → Transformation → Warehouse Loading
+  → Dashboard Consumption
+
+Stage-by-stage:
+
+--------------------------------------------------------------------------------
+1a. POS EXPORT (source)
+--------------------------------------------------------------------------------
+What it does: POS side (BiDataMapper.cjs + BiValidator.cjs + BiDatasetRegistry.cjs)
+reads live DB rows, maps to 21 canonical datasets, validates, writes CSV files
++ metadata.json, zips them.
+Input: raw operational DB rows (sale, sale_item, product, customer, ...).
+Output: ZIP with metadata.json + up to 20 dataset CSVs (registry lists 21
+datasets incl. sale_items; contract SCHEMAS define 20 — audit_logs/vat_rates and
+sale_items are generated but NO employees/users dataset exists at all).
+Validations (POS-side only): schema column presence, 200-row sampling of
+required-null + type checks, cross-dataset orphan detection (sale_items→sales,
+sale_items→products, sales→customers, products→supplier, sales→tables,
+reservations→tables, appointments→services) — ALL as warnings, non-fatal.
+Transformations: mapper defaults `row.x ?? 0 / ?? null / ?? '' / ?? 'paid'` —
+real data cleaning happens HERE, silently, before the ETL ever sees it.
+Missing: no empty-value policy, no business rules, no normalization; orphan
+detection is warning-only and never surfaces server-side.
+
+--------------------------------------------------------------------------------
+1b. UPLOAD
+--------------------------------------------------------------------------------
+What it does: bi-uploads.js POST / — multer (100 MB cap, .zip only), validates
+clientId exists, validates requestId if given (must be APPROVED), computes
+SHA-256, dedups identical files (409 reject; auto-replace if prior FAILED),
+creates BiUpload row with status PENDING_PAYMENT_VERIFICATION.
+Input: ZIP + clientId + optional businessType/requestId.
+Output: persisted ZIP + BiUpload record.
+Validations: file size, extension, client existence, request approval,
+SHA-256 file dedup. NO content validation at this stage (expected).
+Transformations: none.
+Missing: nothing critical here — this stage is sound.
+
+--------------------------------------------------------------------------------
+1c. ZIP EXTRACTION
+--------------------------------------------------------------------------------
+What it does: _extractZipSync → mkdtemp, execSync `unzip` (60s timeout),
+falls back to AdmZip.
+Input: uploaded ZIP path.
+Output: temp dir with CSVs + metadata.json.
+Validations: none on archive integrity.
+Transformations: none.
+Missing: no entry-size/path checks (zip-slip style path traversal not mitigated;
+file count/size not bounded beyond the 100 MB upload cap).
+
+--------------------------------------------------------------------------------
+1d. CSV PARSING
+--------------------------------------------------------------------------------
+What it does: parseCsvRow (bi-schema-registry) — splits header by comma,
+trims each token, lowercases header names, handles double-quoted fields
+(basic), converts empty cells to null.
+Input: raw CSV text.
+Output: array of row objects keyed by lowercased header.
+Validations: none at parse time.
+Transformations: trim values, strip surrounding quotes, empty→null.
+Missing/defects:
+  - Line split is `split('\n')` with `filter(l => l.trim())` — any quoted
+    field containing an embedded newline corrupts every subsequent row.
+  - The ETL's split is `\n` only; analytics-cache-service uses `\r?\n` — the
+    two parsers disagree (CRLF files: ETL leaves `\r` inside values, cache
+    strips it).
+  - No delimiter/quote edge-case handling beyond the above; no encoding
+    detection (utf8 assumed).
+  - Empty→null happens BEFORE type validation (see 1e) which silently disables
+    required-field checks.
+
+--------------------------------------------------------------------------------
+1e. DATA VALIDATION
+--------------------------------------------------------------------------------
+What it does: _validateDatasets →
+  (a) required files present (sales, products, customers, inventory must exist
+      as files — else upload FAILED);
+  (b) column presence via validateCsvColumns (required columns must exist in
+      header);
+  (c) type validation via validateCsvTypes (regex per column: integer, real,
+      datetime via Date.parse, text always valid);
+  (d) duplicate-row detection via JSON fingerprint (counted, reported only).
+Input: parsed CSV rows for the 9 datasets the SERVER knows about.
+Output: validation map (OK / SKIPPED / error) + typed row arrays.
+Validations that exist: file presence, column presence, weak type regex,
+schema-version gate (metadata.biSchemaVersion === '2.2.0').
+CRITICAL DEFECTS:
+  - validateCsvTypes SKIPS null values ("Skip null/undefined"), and
+    parseCsvRow has ALREADY turned empty cells into null. Therefore a REQUIRED
+    column (e.g. sales.total, sales.created_at) that is entirely empty in a row
+    passes validation. The only enforcement is column existence in the header,
+    not value presence in the row.
+  - Type regexes are loose: integer accepts `/\d+/` inside arbitrary text
+    (`"abc123"` passes); datetime uses Date.parse (lenient, accepts junk).
+  - Only 8 of the 21 datasets are contract-validated server-side
+    (bi-schema-registry defines sales, products, customers, inventory, tables,
+    kitchen_orders, suppliers, services, appointments = 9; sale_items, the
+    single most important granular dataset, is NOT validated at all — it is
+    parsed only later by analytics-cache-service).
+  - Validation failure = whole upload FAILED. There is NO row-level rejection,
+    NO quarantine, NO "N of M rows invalid" tolerance.
+  - Duplicate detection is informational only in the classic path — dups are
+    loaded anyway (see 5).
+
+--------------------------------------------------------------------------------
+1f. DATA CLEANING / PREPARATION
+--------------------------------------------------------------------------------
+What it does: prepareWarehouse (wizard path only) — removes exact duplicate
+rows (JSON.stringify equality) and converts empty strings → null, recording
+counters (duplicatesRemoved, nullValuesFixed). The CLASSIC path (etlPipeline.run)
+has NO cleaning stage at all — after validation it goes straight to load.
+Input: rawDatasets (wizard) / validated datasets (classic).
+Output: cleanedDatasets + stats (wizard) / nothing (classic).
+Validations: none during cleaning.
+Transformations that exist:
+  - Exact-duplicate removal (wizard only).
+  - Empty string → null (wizard only; and it is cosmetic — the loader re-coerces
+    nulls with `|| 0` / `|| ''`).
+What a BI prep step SHOULD do but does NOT:
+  - Detect invalid vs missing vs blank values (all collapsed to null/0).
+  - Remove useless records (voided/refunded sales are not filtered).
+  - Standardize formats (dates, phone, case, spacing).
+  - Correct inconsistencies (mismatched totals, negative values).
+  - Create analytics-ready structures beyond one flat snapshot per tenant.
+
+--------------------------------------------------------------------------------
+1g. TRANSFORMATION
+--------------------------------------------------------------------------------
+What it does: _loadDimensions/_loadFacts — build star-schema rows:
+  - DimTime: int id YYYYMMDD, from sales.created_at substring(0,10) ONLY
+    (dates present only in kitchen/appointments are never added to dim_time).
+  - DimClient: tenantId = upload.clientId (metadata.clientId overridden).
+  - DimProduct: id `prod_{tenantId}_{product_id}`, name/category/family/barcode.
+  - DimSupplier: id `supp_{tenantId}_{supplier_id}`.
+  - FactSale: saleId string, total/tax/discount floats, dimTimeId int or null,
+    dimProductId/dimClientId NEVER set.
+  - FactInventory: rowIndex, dimProductId composite, stock/price/timesSold.
+  - FactAppointment/FactKitchenOrder: dimTimeId from respective date columns.
+Input: validated/cleaned CSV row arrays + metadata.
+Output: in-memory dimension + fact row arrays.
+Transformations that exist: composite surrogate keys, int date keys, string ids.
+Defects:
+  - Money coercion `parseFloat(row.total) || 0` turns "abc", "", or null into
+    0.00 silently (data-integrity risk — see 4).
+  - `parseInt(row.stock) || 0` same coercion for integers.
+  - table_number parsing is a regex hack
+    (`replace(/^[^\d-]+/, '')` then parseInt) — non-numeric table labels
+    (e.g. "T1", "B01") collapse or become null.
+  - dim_time built from sales only; appointments/kitchen rows reference
+    dimTimeId values that may have NO dim_time row → orphan facts.
+  - dimProductId/dimClientId on fact_sales are never populated (schema declares
+    the relations; loader leaves them null) — sale grain cannot join to
+    product/client dimensions. Verified live: dimProductId=0, dimClientId=0 on
+    all 2500 fact_sales rows.
+
+--------------------------------------------------------------------------------
+1h. WAREHOUSE LOADING
+--------------------------------------------------------------------------------
+What it does: single $transaction (120s timeout) — upsert job → delete previous
+tenant snapshot (deleteMany by tenantId on all 4 fact tables) → chunked
+createMany (1000/batch, skipDuplicates) → COMPLETED → create BiAnalysisRequest
+(classic path only) → commit.
+Input: transformed rows.
+Output: replaced tenant snapshot in fact_sales/fact_inventory/fact_appointments/
+fact_kitchen_orders.
+Validations: transaction rollback on error; @@unique([exportId, saleId]) drops
+same-key rows silently (count skew).
+Defects:
+  - delete-then-insert with NO staging, NO row-count sanity, NO empty-export
+    guard. A 0-row COMPLETED upload erases a prior good snapshot (confirmed
+    live: client cmpb0pfd has a 0-row COMPLETED upload after a 25-row one).
+  - skipDuplicates masks duplicate sale_id within an export (validation already
+    counted them but classic path loads them anyway).
+  - BiAnalysisRequest created only on the classic path; wizard path has no
+    request/analysis wiring parity.
+
+--------------------------------------------------------------------------------
+1i. DASHBOARD CONSUMPTION
+--------------------------------------------------------------------------------
+What it does: three consumers read the warehouse:
+  - warehouse-service.js (used by /bi-uploads/:id/summary and /bi-analysis/:id/
+    metrics): buckets by createdAt (LOAD time) not dimTimeId (SALE date) for
+    getRevenueByDay/getPeakHours/getAverageTicket/getKitchenPerformance; the
+    v_peak_hours SQL view has the same bug. So "last 30 days revenue" is really
+    "revenue of whatever was loaded in the last 30 days" → all revenue collapses
+    onto the load date.
+  - bi-analytics.js: CORRECT — groups by dimTimeId (the healthy reference).
+  - analytics-cache-service.js: re-reads the retained ZIP to serve granular
+    data (sale_items, customers, products, shifts, etc.) that never made it to
+    the warehouse; LRU 32 + JSON cache keyed by uploadId. If ZIPs or cache are
+    purged, granular analytics vanish.
+Output: JSON for dashboards/Metabase.
+Defects: inconsistent time grain between services; granular datasets live only
+in cache, not warehouse; no pre-aggregated tables.
+
+--------------------------------------------------------------------------------
+1j. STAGES THAT DO NOT EXIST AT ALL
+--------------------------------------------------------------------------------
+  - No data profiling / quality stats (null %, type-error %, dup %) surfaced.
+  - No row-level rejection or quarantine.
+  - No business-rule engine (see 7).
+  - No master-data management (product/customer name canonicalization).
+  - No currency/unit normalization.
+  - No timezone handling (naive local time treated as if UTC; contract says
+    "UTC" but POS writes local).
+  - No incremental/history retention (snapshot-only, single copy).
+
+================================================================================
+2. MAIN AUDIT QUESTION — Does the ETL behave like a real BI analyst?
+================================================================================
+
+Responsibilities of a BI analyst vs what this ETL does:
+
+  detecting invalid values      → PARTIAL. Type regexes exist but are loose and
+       null values skip validation entirely. Invalid numeric text becomes 0.
+  handling missing values       → NO. Missing → null → then silently coerced to
+       0 / '' / 'paid'. No "Unknown", no rejection, no flag.
+  removing useless records      → NO. Exact-duplicate removal exists only in the
+       wizard prepare step; no filtering of voided/refunded/junk rows.
+  standardizing formats         → MINIMAL. Trims cells, lowercases headers.
+       Dates are only accepted in one prefix format; text case never
+       normalized; phone/currency untouched.
+  correcting inconsistencies    → NO. total ≠ subtotal−discount+tax is never
+       checked; negative values never flagged.
+  creating analytics-ready
+       structures               → PARTIAL. Proper surrogate keys and int date
+       keys exist, but dim_product/dim_client links on facts are null, and the
+       single most important grain (sale_items) is not in the warehouse.
+  ensuring dashboards receive
+       clean data               → NO. warehouse-service reports revenue by load
+       date (createdAt), a confirmed data-integrity defect.
+
+VERDICT ON SECTION 2: The pipeline is a competent STRUCTURAL VALIDATOR and
+LOADER. It is NOT a data preparation process. It moves data; it does not make
+it trustworthy. The only genuine cleaning happens inside the POS-side mappers
+(BiDataMapper defaults) and wizard-only duplicate removal — and both are
+silent, undocumented, and inconsistent with the server loader's own coercion.
+
+================================================================================
+3. DATA CLEANING AUDIT — EMPTY VALUES
+================================================================================
+
+Mechanics (affects ALL datasets):
+  - parseCsvRow: empty cell → null (before validation).
+  - validateCsvTypes: null → skipped (so required-null passes).
+  - Loaders: numeric null → 0 (`|| 0`); text null → '' (`|| ''`); date null →
+    dimTimeId null (no dim_time row).
+
+Per-dataset findings:
+
+  sales
+    Columns that can be empty: total (required!), created_at (required!),
+      tax, discount, payment_method, customer_id/name/email, table_id.
+    Current: total empty → 0.00 sale; created_at empty → dimTimeId null
+      (invisible to every time-based KPI).
+    Correct for BI? NO. A sale with no total is NOT a free sale.
+    Recommended: reject/flag rows missing total or created_at; never coerce
+      money to 0; at minimum record a quality flag.
+
+  sale_items
+    Columns: sale_item_id, sale_id, product_id, quantity, unit_price required.
+    Current: NOT validated by the ETL at all (server registry has no schema);
+      cache loader does `toNumber(v) || 0` for quantity.
+    Correct for BI? NO — this dataset is the product-grain source and is
+      outside the data-quality perimeter.
+    Recommended: add schema + validation; quantity missing → reject line.
+
+  products
+    Columns: product_id, name, price required.
+    Current: name empty → '' in dim_products (no "Unknown Product"); price
+      empty → 0.00 (looks like a free product; margin/stock-value wrong).
+    Correct for BI? NO.
+    Recommended: "Unknown Product" substitution for blank names; price null
+      kept null and excluded from price-based metrics rather than faked to 0.
+
+  customers
+    Columns: customer_id, name required.
+    Current: name empty → '' (customers dataset never reaches warehouse
+      anyway — lives only in cache). Required-null passes validation.
+    Correct for BI? NO (for loyalty/frequency KPIs a blank name breaks labels).
+    Recommended: "Unknown Customer".
+
+  suppliers
+    Columns: supplier_id, name required.
+    Current: dim_suppliers gets '' for blank name; phone/email/contact null OK.
+    Correct for BI? Acceptable for optional; name should fall back.
+
+  inventory
+    Columns: product_id, product_name required.
+    Current: product_name empty → '' in fact_inventory; stock null → 0.
+    Correct for BI? stock 0 is valid (see 4); blank name should be replaced.
+    Recommended: "Unknown Product" for blank names; keep stock null semantics.
+
+  kitchen_orders
+    Columns: order_id required only.
+    Current: table_number empty → null (fine); priority/status default
+      'normal'/'pending' only when null — explicit empty → '' (not the default,
+      because `row.priority || 'normal'` uses || which fires on '' too... note
+      the loader uses `row.priority || 'normal'`, so '' → 'normal'. Consistent
+      enough.)
+    Recommended: valid.
+
+  appointments
+    Columns: appointment_id, customer_name, appointment_date required.
+    Current: customer_name empty → ''; appointment_date empty → dimTimeId null.
+    Correct for BI? NO for date.
+    Recommended: reject rows without appointment_date (core fact).
+
+Overall empty-value verdict:
+  - Optional fields → null is correct behavior.
+  - Required fields → the pipeline DOES NOT enforce value presence (only header
+    presence). This is the single biggest data-quality gap. Missing required
+    money/dates become 0/null and silently corrupt KPIs.
+
+================================================================================
+4. ZERO VALUE ANALYSIS
+================================================================================
+
+  Inventory stock = 0           → VALID (out of stock). Stored 0.
+      getInventoryTurnover correctly filters stock>0. No action needed.
+  Inventory price = 0           → SUSPICIOUS (free item or missing data).
+      Currently indistinguishable from a real free item.
+  Sale total = 0                → SUSPICIOUS (voided/refunded/hold sale).
+      Currently counted in revenue with no status filtering → deflates
+      average ticket and pollutes revenue. The pipeline does NOT differentiate
+      valid zeros from bad zeros.
+  Sale discount = 0             → VALID (no discount). Fine.
+  Sale tax = 0                  → VALID for zero-rated; suspicious for others.
+  Sale quantity = 0             → INVALID in sale_items (must be ≥1).
+      Cache loader keeps 0; ETL never sees sale_items.
+  Product price = 0             → SUSPICIOUS (see products above).
+  times_sold = 0                → VALID (never sold). Fine.
+  opening_float / closing_actual=0 → VALID (a shift may open with 0 float).
+  difference = 0                → VALID (balanced drawer).
+
+Verdict: no zero-classification exists. The loader coerces null to 0, which
+fuses "missing" and "legitimately zero" into a single value — exactly what a
+data prep step must NOT do.
+
+================================================================================
+5. DUPLICATE DATA HANDLING
+================================================================================
+
+  Duplicate uploads (same file): SHA-256 file hash → 409 reject; prior FAILED
+      upload auto-replaced. STRONG. Correct BI behavior.
+  Duplicate rows within a dataset: JSON fingerprint detected and counted in
+      validation; wizard prepare removes exact dups; CLASSIC path loads them
+      anyway (they are later dropped by @@unique([exportId, saleId]) on
+      fact_sales → count skew, silently).
+  Duplicate products/customers by natural key: NOT detected. Two rows with the
+      same product name or same customer phone create two dim rows. No
+      canonicalization, no name-based dedup.
+  Repeated imports: snapshot replacement (delete by tenantId then insert) —
+      intentional "replace not accumulate", but there is NO same-tenant re-import
+      guard; an empty export destroys history (see 1h).
+
+Expected BI behavior: dedupe by natural/business key (sale_id across exports for
+incremental loads, product barcode/name), keep audit trail of dedupe counts,
+never silently drop same-key rows without recording them. Current pipeline does
+only byte-level (file) dedup and row-exact dedup in one code path.
+
+================================================================================
+6. DATA TYPE AND FORMAT CLEANING
+================================================================================
+
+  Dates:
+    - Input format: POS writes naive local "YYYY-MM-DD HH:MM:SS". Contract
+      declares "UTC" — mismatch never reconciled (no tz conversion anywhere).
+    - Parse: dimTimeId = `created_at.substring(0,10)` + new Date. Only works
+      for a leading YYYY-MM-DD. "DD/MM/YYYY", "MM-DD-YYYY", ISO-with-T are all
+      misparsed (NaN → dimTimeId 0/null). ValidateCsvTypes' Date.parse is
+      lenient and accepts formats the loader then mis-buckets.
+    - Time of day is discarded in the warehouse (dim_time is day-grain);
+      hour-of-day only exists in the analytics cache (sale_items/shifts),
+      and warehouse-service's getPeakHours wrongly uses createdAt.
+  Numbers:
+    - Decimal formats: parseFloat/parseInt only; no thousands separators
+      handling; no locale-aware parse ("1.234,56" → NaN → 0).
+    - Currency: no normalization, no multi-currency; metadata.currency is read
+      but never applied. Assumes a single TTC currency.
+    - Negative numbers: regexes allow '-' for integer/real (no sign semantics);
+      loaders store negatives unchecked (negative total/stock possible).
+  Text:
+    - parseCsvRow trims cells and lowercases HEADERS only, not values.
+    - No case folding, no inner-space collapse, no unicode normalization.
+    - " coca cola " → stored as-is with surrounding spaces intact (trim only
+      removes CSV-edge whitespace when the whole cell is quoted... in practice
+      inner cells get `.trim()` in parseCsvRow — so cells ARE trimmed).
+      "Coca Cola" vs "coca cola" remain two different products. The pipeline
+      has NO capability to make them the same product.
+
+Verdict: only cosmetic normalization (trim, header lowercase, int date key)
+exists. Nothing resembling format standardization or master-data normalization.
+
+================================================================================
+7. BUSINESS LOGIC VALIDATION
+================================================================================
+
+Rules that EXIST:
+  - schema-version gate (biSchemaVersion === 2.2.0).
+  - required FILE presence for sales/products/customers/inventory.
+  - required COLUMN presence in headers.
+  - weak type regexes (integer/real/datetime).
+  - duplicate-row counting.
+  - metadata.clientId overridden by upload.clientId (tenant isolation).
+  - POS-side orphan detection (warning-only, never server-side).
+
+Rules that are MISSING (all currently unverified):
+  Sales:  quantity ≥ 0 (and ≥1 at item grain)
+          total ≥ 0
+          total ≈ subtotal − discount + tax (reconciliation)
+          created_at present and not in the future
+          status in {paid, refunded, voided, ...} and exclusions for refunds
+          payment_method ∈ known set
+  Products: name present; price > 0; category present (category is optional in
+          schema, so "product must have a category" is NOT enforced);
+          stock ≥ 0
+  Inventory: stock ≥ 0; price > 0
+  Kitchen:  status/priority ∈ known sets
+  Customers: email format; phone format
+  Stock movements: movement_type ∈ {in, out, adjustment, ...}; stock_before/
+          stock_after monotonicity
+  Cross-table: FK existence (sale→customer, sale_item→sale, sale_item→product)
+          enforced server-side (only POS-side warning).
+
+Verdict: business-rule validation is effectively ABSENT server-side. Nothing
+prevents negative revenue, free sales, or orphan facts from entering the
+warehouse.
+
+================================================================================
+8. WAREHOUSE READINESS
+================================================================================
+
+  Dimensions:
+    - dim_time: correct int keys (YYYYMMDD) and calendar fields (year/quarter/
+      month/day/dayOfWeek/isWeekend) — BUT built only from sales dates; dates
+      present solely in appointments/kitchen lack dim_time rows (orphan facts).
+    - dim_products: composite key `prod_{tenant}_{product_id}`; name/category/
+      family/barcode. Category may be null (optional) → KPI by category is
+      incomplete by design.
+    - dim_clients/dim_suppliers: present but trivial (name = clientId).
+  Fact tables:
+    - fact_sales: total/tax/discount/paymentMethod; but dimProductId/dimClientId
+      ALWAYS null → cannot join to product/client dims. Sale grain has no
+      product link (that lives in sale_items — not in the warehouse).
+    - fact_inventory: snapshot of stock/price/timesSold; stock int NOT null.
+    - fact_appointments/fact_kitchen_orders: dimTimeId set, but tableNumber is
+      lossy (regex parse).
+  Relationships: relations are declared in Prisma but ~0% populated
+  (live check: dimProductId=0, dimClientId=0, dimTimeId=0 on 2500 fact_sales).
+  Aggregation readiness: no aggregate tables; queries scan full fact tables;
+  fine at current scale (2500 rows), fragile at scale.
+  Time grain consistency: fact data is day-grain (dimTimeId) — correct — but
+  warehouse-service buckets by createdAt → time-based KPIs are WRONG despite
+  correct warehouse grain.
+  Granularity gap: item-level (product, quantity, line_total), customer-level
+  and shift-level data exist ONLY in the analytics JSON cache, not the
+  warehouse → Metabase cannot query product mix, best-sellers, or customer
+  frequency from DB.
+
+Verdict: a reasonable flat-snapshot skeleton with a correct time key, but the
+star-schema links are empty, the item grain is missing from the warehouse, and
+the consumer service ignores the time key. NOT dashboard-ready as-is.
+
+================================================================================
+9. ETL MATURITY SCORE
+================================================================================
+
+Score: 4 / 10  →  "Basic ETL"
+
+Scoring:
+  +1  schema versioning + contract-driven column validation
+  +1  atomic transactional load, chunked inserts, job/log audit trail
+  +1  snapshot semantics (replace), tenant isolation, SHA-256 upload dedup
+  +1  surrogate keys + int time keys (right skeleton)
+  −   data cleaning: only wizard-side exact-dup removal; no null policy,
+      no business rules, no normalization, no outlier handling
+  −   missing-money coercion to 0; required-null passes validation
+  −   time-bucketing defect in the consuming service (createdAt)
+  −   granular datasets outside the warehouse and outside validation
+  −   no row-level rejection/quarantine/profiling
+
+It is a reliable, well-transactional LOADER. It is not a BI ETL: the E in
+"Extract" and the T in "Transform" are thin; the L ("Load") is the strongest
+part. Data preparation responsibilities (sections 2–7) are largely unmet.
+
+================================================================================
+10. FINAL VERDICT
+================================================================================
+
+1. Does the current ETL match the goal of a BI data preparation pipeline?
+   PARTIALLY — closer to NO on "preparation". It validates file structure and
+   loads cleanly, but it does not clean, standardize, or validate business
+   correctness. It behaves like a data LOADER, not an analyst.
+
+2. What percentage is already completed?
+   ~50% overall.
+     - Extraction + validation + loading plumbing: 70–75% done (solid skeleton).
+     - Data preparation quality (cleaning, rules, normalization, correct
+       time bucketing): 20–25% done.
+   Weighted toward the audit question ("preparation"), the honest answer is
+   around 45–55% complete for a BI-ready pipeline.
+
+3. Minimum missing features REQUIRED before building dashboards:
+   (a) Fix time integrity: warehouse-service (and v_peak_hours) must bucket by
+       dimTimeId, not createdAt — dashboards built on current numbers are wrong.
+   (b) Required-value enforcement: reject/flag rows missing required money or
+       date; stop coercing null money to 0.
+   (c) Empty-export guard + safe snapshot swap (no wiping history on a 0-row
+       or failed import).
+   (d) Load sale_items (item grain) into the warehouse, or dashboards cannot
+       answer product mix/best-sellers — the #1 restaurant/coffee KPI.
+   (e) Populate fact_sales.dimProductId/dimClientId (or drop the fake links).
+   (f) Index on (tenantId, dimTimeId) for time-based KPI queries.
+   With (a)–(f) done, the EXISTING dimTimeId skeleton is capable of producing
+   correct core KPIs.
+
+4. What should be implemented first?
+   (a) time bucketing fix, then (b) null/money policy, then (c) empty-export
+   guard, then (d) sale_items warehouse load. In that order: correct numbers
+   first, safety second, granularity third.
+
+5. What can be postponed?
+   - Text/master-data canonicalization ("Coca Cola" vs "coca cola"), currency/
+     multi-currency, locale parsing — only needed for advanced analytics.
+   - Per-tenant Metabase schemas and signed embeds (dependent on warehouse
+     correctness, not on these gaps).
+   - Pre-aggregated tables and performance work (fine at current scale).
+   - POS-side export improvements (orphan warnings, mapper defaults) — useful
+     but the server must not rely on the source to clean its own data.
+
+================================================================================
+APPENDIX A — CONFIRMED LIVE DATA FACTS
+================================================================================
+  fact_sales: 2500 rows, client cmoogzf95000xt2l5hk9yax74, dimTimeId span
+  20260202..20260801, dimProductId=0 / dimClientId=0 / dimTimeId=0 for all
+  rows; createdAt = single load timestamp (2026-08-02T12:08:39-40) — proves the
+  createdAt-vs-dimTimeId divergence is real in data, not just in code.
+  Data-loss confirmed: client cmpb0pfd has a 0-row COMPLETED upload after a
+  25-row COMPLETED upload (snapshot replacement without empty guard).
+  0 bi_dashboard_templates rows; Metabase tables empty; warehouse fact tables
+  contain only 4 of 21 datasets.
+
+================================================================================
+END OF REPORT
+================================================================================

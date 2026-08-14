@@ -1,0 +1,301 @@
+================================================================================
+CARTHAPOS BI — DATA PREPARATION + REVIEW WORKFLOW ENHANCEMENT
+IMPLEMENTATION ANALYSIS (READ-ONLY — NO CODE MODIFICATION)
+Date: 2026-08-02
+Goal: practical, transparent, human-reviewable BI data preparation layer.
+================================================================================
+
+--------------------------------------------------------------------------------
+1. CURRENT PREPARATION WORKFLOW ANALYSIS
+--------------------------------------------------------------------------------
+
+The wizard (admin/src/pages/wizard/) already implements the target workflow
+shape. Current flow:
+
+  Step2 Validation   POST /:id/validate
+      → etlPipeline.extractAndValidate(): extract ZIP, read metadata.json,
+        schema-version gate (2.2.0), validateCsvColumns (required columns in
+        header), validateCsvTypes (weak regex), duplicate-row COUNT via JSON
+        fingerprint.
+      → stores preview JSON file: { metadata, validation, rawDatasets,
+        wizardStep:'validated' }.
+
+  Step4 Preparation  POST /:id/prepare
+      → etlPipeline.prepareWarehouse(): removes exact-duplicate rows
+        (JSON.stringify equality), converts empty strings → null, then builds
+        dims (DimTime/DimClient/DimProduct/DimSupplier) and facts
+        (FactSale/FactInventory/FactAppointment/FactKitchenOrder) IN MEMORY.
+      → saves preview.cleanedDatasets, preview.warehouse, preview.statistics
+        ({rowsRead, duplicatesRemoved, nullValuesFixed, warnings}),
+        wizardStep:'prepared'.
+
+  Step5 Before/After POST /:id/transformation-preview (GET)
+      → returns summary counts {raw, cleaned, dimensions, facts} + per-table
+        rows. UI (Step5TransformationPreview.jsx) displays TABS for
+        cleaned/dimensions/facts only — RAW data is returned by the API but
+        NOT shown in the UI. Counts comparison exists; cell-level before→after
+        comparison does NOT.
+
+  Step6 Corrections  POST /:id/correct
+      → body { section, table, rowIndex, changes }. Object.assign() mutates
+        the preview JSON IN PLACE (cleaned/dimensions/facts).
+      → UI (Step6Corrections.jsx) lets admin pick a row + field + new value +
+        optional reason. Reason is kept only in React state and is NOT
+        persisted anywhere.
+
+  Step7 Approve Load POST /:id/confirm-load
+      → etlPipeline.loadIntoWarehouse(preview): $transaction → reset job →
+        _loadDimensions + _loadFacts from preview.cleanedDatasets →
+        deleteMany previous tenant snapshot → chunked createMany (1000/batch) →
+        upload COMPLETED → preview JSON file DELETED.
+
+Key structural facts:
+  - "Original" dataset exists ONLY as transient rawDatasets in the preview file
+    (deleted after confirm-load). Never persisted in the DB.
+  - "Prepared" dataset exists ONLY as cleanedDatasets in the same transient
+    file. Never persisted in the DB.
+  - Preparation results = preview.statistics (counts only). No per-row issue
+    ledger.
+  - Modification history = NONE. correct endpoint overwrites in place; nothing
+    records what changed, why, or by whom. BiProcessingLog only records ETL
+    steps, not review decisions.
+  - Loaded after approval = only the 4 fact tables + dims. Granular datasets
+    (sale_items, customers, ...) are NOT in the warehouse. Original raw values
+    never reach the DB, so "what was wrong" is lost.
+
+--------------------------------------------------------------------------------
+2. EXISTING CAPABILITIES (reusable building blocks)
+--------------------------------------------------------------------------------
+  ✓ Wizard workflow already: validate → prepare → preview → correct → load.
+  ✓ Transient preview JSON as a working document between steps.
+  ✓ Schema contract with required/type metadata per column (BiSchemaContract,
+    mirrored in bi-schema-registry).
+  ✓ Column-level validation (header presence) + weak type validation.
+  ✓ Duplicate row detection (JSON fingerprint) with counts.
+  ✓ prepareWarehouse statistics object (rowsRead, duplicatesRemoved,
+    nullValuesFixed).
+  ✓ transformation-preview endpoint supporting raw/cleaned/dimensions/facts.
+  ✓ correct endpoint (in-place, per-cell manual edits).
+  ✓ confirm-load inside a single $transaction with chunked inserts.
+  ✓ Schema-version gate and tenantId override (metadata.clientId →
+    upload.clientId).
+
+--------------------------------------------------------------------------------
+3. MISSING CAPABILITIES
+--------------------------------------------------------------------------------
+  (a) Per-row / per-field QUALITY ISSUE LEDGER.
+      Nothing records "which row, which column, what was wrong, what the
+      prepared value is". Required for accept/manual/reject per row.
+  (b) Required-value enforcement.
+      validateCsvTypes SKIPS null values, and parseCsvRow has already turned
+      empty cells → null. So a row with empty sales.total or sales.created_at
+      passes validation and is later coerced to 0 / dimTimeId null. No
+      MISSING_REQUIRED detection exists.
+  (c) Safe numeric handling ("abc" → null + INVALID_NUMBER, never 0).
+      Loaders use `parseFloat(x) || 0` / `parseInt(x) || 0` — fuses "missing"
+      and "invalid" into 0.
+  (d) Date validation without fake dates (INVALID_DATE → null, not bucket 0).
+  (e) Text normalization: trim + collapse duplicate inner spaces ("  Coca Cola "
+      → "Coca Cola"). No merging, per constraints.
+  (f) Duplicate removal that is VISIBLE: current classic path loads dups
+      silently; wizard path removes exact dups with only a count — admin cannot
+      see WHICH rows were removed.
+  (g) Basic business checks: negative total, quantity ≤ 0, negative stock,
+      identifier/date missing. None exist server-side.
+  (h) Automatic vs review classification: MISSING_OPTIONAL → auto-fix
+      ("Unknown Category", discount→0, tax→0); MISSING_REQUIRED → Needs
+      review. Nothing classifies today.
+  (i) Traceability: accept/manual/reject decisions persisted (who/what/when/
+      why), not lost with React state.
+  (j) Server-side schema for sale_items (and item-level datasets). The item
+      grain — the #1 product KPI source — is outside the quality perimeter.
+  (k) Review gate before load: nothing forces resolution of ERROR issues;
+      confirm-load runs regardless.
+  (l) Empty-export guard + safe snapshot swap (from the ETL audit: a 0-row
+      COMPLETED upload wipes a good snapshot).
+
+--------------------------------------------------------------------------------
+4. PROPOSED ARCHITECTURE
+--------------------------------------------------------------------------------
+
+Keep the existing wizard flow. Insert a dedicated, pure preparation engine and
+a persistent issue ledger. No ML, no MDM, no ETL redesign.
+
+  NEW module: backend/services/data-prepare-service.js
+    Pure functions, per dataset, driven by the schema registry.
+    Input:  raw dataset rows + schema metadata + options.
+    Output: {
+      preparedRows,      // analytics-ready values (auto-fixed where safe)
+      issues,            // [{ rowIndex, column, issueCode, severity,
+                         //    status, originalValue, preparedValue, reason }]
+      stats,             // per-dataset + totals (autoFixes, needsReview, ...)
+      removedDuplicates, // array of removed rows (for display)
+      status             // READY_FOR_REVIEW | NEEDS_REVIEW
+    }
+
+  Rule engine (simple, ordered, per column type):
+    1. Capture original value verbatim (even if invalid) — never discard.
+    2. MISSING_REQUIRED (column required + null/empty):
+         prepared = null, severity=ERROR, status=needs_review. No invented value.
+    3. MISSING_OPTIONAL (column optional + null/empty):
+         auto-fix by safe default (category→'Unknown Category', discount→0,
+         tax→0, name→'Unknown Product'/'Unknown Customer'), severity=INFO,
+         status=auto_fixed.
+    4. INVALID_NUMBER ("abc", "1,5", thousands-separated junk):
+         prepared = null, severity=ERROR, status=needs_review. Original kept.
+    5. INVALID_DATE (wrong format, non-date, impossible date):
+         prepared = null, severity=ERROR, status=needs_review. No fake dates.
+    6. TEXT normalization: trim + collapse inner spaces (INFO, auto_fixed).
+    7. NEGATIVE_TOTAL / NEGATIVE_STOCK / QUANTITY_ZERO / QUANTITY_NEGATIVE:
+         severity=ERROR (quantity) or WARN (negative total), needs_review.
+       stock = 0 → allowed, NO issue (valid business value).
+    8. DUPLICATE_ROW: exact-dup → removed (kept in removedDuplicates, INFO).
+       DUPLICATE_IDENTIFIER: same sale_id/product_id within export → WARN,
+       needs_review (not silently dropped).
+    9. Empty-export guard: any required dataset with 0 rows after prep →
+         status REJECTED, load blocked (protects prior snapshot).
+
+  Persistence (new Prisma models + migration):
+    BiPreparationRun  (uploadId, clientId, status, stats Json, startedAt,
+                       completedAt, approvedAt, approvedBy)
+    BiPreparationIssue(rowIndex, dataset, column, issueCode, severity, status,
+                       originalValue, preparedValue, reason, createdAt,
+                       resolvedAt, resolvedBy, resolution)  FK → run
+  Optionally BiUpload.qualitySummary Json (roll-up) for the list view.
+
+  Working data stays in the preview JSON (raw + prepared + issues) so the
+  wizard remains stateless-per-request; the DB rows provide the durable audit
+  trail. On confirm-load: preview kept until approved; issues ledger survives
+  in DB after preview deletion.
+
+  Review interface (Step6 rewrite, issue-driven):
+    - List issues grouped by dataset/severity.
+    - Per issue: original value | prepared value | reason | status.
+    - Actions: Accept auto-correction (→ prepared value used),
+               Modify manually (override prepared value + reason),
+               Reject row (exclude from load).
+    - Every action posts to /issues/:id with resolution + reason → row in
+      BiPreparationIssue + BiProcessingLog entry (audit).
+  Confirm-load gate:
+    - Block if any ERROR-severity issue is unresolved AND not explicitly
+      accepted; return count of remaining issues.
+    - Safe swap: stage into temp/target, verify row counts vs previous
+      snapshot, then delete-and-insert inside the transaction; rollback keeps
+      the prior snapshot.
+
+--------------------------------------------------------------------------------
+5. FILES TO MODIFY
+--------------------------------------------------------------------------------
+  Backend
+    NEW  backend/services/data-prepare-service.js     — preparation engine.
+    MOD  backend/services/bi-schema-registry.js       — add sale_items schema
+         (+ kitchen_order_items if needed), enforce required-null in
+         validateCsvTypes, per-column quality metadata (nullable, allowZero).
+    MOD  backend/services/etl-pipeline.js             — prepareWarehouse calls
+         the engine; loadIntoWarehouse consumes prepared rows + resolved
+         issues; remove `|| 0` coercions in _loadFacts; add empty-export guard
+         and safe snapshot swap in _loadFacts.
+    MOD  backend/routes/bi-uploads.js                 — persist run/issues on
+         /prepare; new GET /:id/issues, POST /:id/issues/:issueId (accept/
+         manual/reject); extend /transformation-preview with cell diffs and
+         removedDuplicates; gate /confirm-load.
+    MOD  backend/prisma/schema.prisma + migration     — BiPreparationRun,
+         BiPreparationIssue (+ optional BiUpload.qualitySummary).
+  Frontend (admin)
+    MOD  admin/src/pages/wizard/Step4Preparation.jsx  — show auto-fix vs
+         needs-review summary + status READY_FOR_REVIEW.
+    MOD  admin/src/pages/wizard/Step5TransformationPreview.jsx — show raw AND
+         prepared side by side with issue highlighting + removed-duplicates
+         list.
+    MOD  admin/src/pages/wizard/Step6Corrections.jsx  — issue-driven review
+         (accept / manual / reject row) with traceable reasons.
+    MOD  admin/src/pages/wizard/Step7LoadConfirm.jsx  — show unresolved-issue
+         gate before confirming.
+  Tests
+    NEW  backend/tests/data-prepare-service.test.js   — per-rule unit tests.
+    (verify test command/runner before writing — none confirmed in repo yet)
+
+  Unchanged: bi-analytics.js, warehouse-service.js (its createdAt-vs-dimTimeId
+  bug is tracked separately), analytics-cache-service.js, POS-side export code.
+
+--------------------------------------------------------------------------------
+6. DATABASE CHANGES
+--------------------------------------------------------------------------------
+  Two new tables (additive; no change to existing BI tables):
+
+  bi_preparation_run
+    id            String   @id @default(cuid())
+    uploadId      String   @unique
+    clientId      String?
+    status        String   // PENDING | READY_FOR_REVIEW | APPROVED | REJECTED
+    stats         Json?    // roll-up: originalRows, preparedRows,
+                           // autoFixes, duplicatesRemoved, issuesByCode
+    startedAt     DateTime @default(now())
+    completedAt   DateTime?
+    approvedAt    DateTime?
+    approvedBy    String?
+
+  bi_preparation_issue
+    id            String   @id @default(cuid())
+    runId         String
+    dataset       String
+    rowIndex      Int
+    column        String
+    issueCode     String   // MISSING_REQUIRED_TOTAL, INVALID_PRICE, INVALID_DATE,
+                           // NEGATIVE_TOTAL, QUANTITY_ZERO, NEGATIVE_STOCK,
+                           // DUPLICATE_ROW, DUPLICATE_IDENTIFIER, ... 
+    severity      String   // ERROR | WARN | INFO
+    status        String   // needs_review | auto_fixed | accepted | modified |
+                           // rejected
+    originalValue String?
+    preparedValue String?
+    reason        String?
+    resolution    String?  // reviewer note
+    createdAt     DateTime @default(now())
+    resolvedAt    DateTime?
+    resolvedBy    String?
+    @@index([runId, status])
+
+  Optional: add qualitySummary Json? to BiUpload (list-view roll-up).
+
+  Migration file: backend/prisma/migrations/<ts>_add_bi_preparation/migration.sql
+
+--------------------------------------------------------------------------------
+7. IMPLEMENTATION STEPS (waiting for approval)
+--------------------------------------------------------------------------------
+  Phase A — Engine + registry (no UI)
+    A1  bi-schema-registry: add sale_items schema; fix validateCsvTypes to
+        flag required-null (do not skip); add column quality metadata.
+    A2  data-prepare-service.js: implement rules 1–9 as pure functions.
+    A3  Unit tests for each rule (safe numbers, dates, text, required vs
+        optional, business checks, duplicate detection, empty-export guard).
+  Phase B — Persistence + API
+    B1  Prisma models + migration (section 6).
+    B2  /prepare writes BiPreparationRun + BiPreparationIssue.
+    B3  New GET /:id/issues and POST /:id/issues/:issueId (accept/manual/
+        reject, with reason + audit log entry).
+    B4  /transformation-preview extended: cell-level original→prepared diffs,
+        removedDuplicates list, issue counts.
+  Phase C — Load safety
+    C1  loadIntoWarehouse consumes prepared rows + resolved issues (no `|| 0`).
+    C2  confirm-load gate: block while ERROR issues unresolved; empty-export
+        guard; safe snapshot swap (stage + count check + rollback).
+  Phase D — Review UI
+    D1  Step4 summary (auto vs review, READY_FOR_REVIEW status).
+    D2  Step5 before/after with issue highlighting + removed-duplicates.
+    D3  Step6 issue-driven review (accept / manual / reject).
+    D4  Step7 unresolved-issue gate.
+  Phase E — End-to-end verification
+    E1  Dirty fixture ZIP (empty totals, invalid dates, "abc" numbers, dup
+        rows, negative values, blank names) through validate → prepare →
+        review → load; assert issues ledger, gate behavior, and loaded values.
+
+  Sequencing note: A must precede B–D (UI depends on issue ledger). C2
+  (safe swap / empty guard) is independent and can land first if prioritized.
+
+  Out of scope (per constraints): no ML cleaning, no automatic product/customer
+  merging, no multi-currency, no full ETL redesign, no MDM.
+
+================================================================================
+END OF ANALYSIS — AWAITING APPROVAL BEFORE ANY CODE CHANGE
+================================================================================

@@ -125,7 +125,7 @@ export default function USBManager() {
     <div className="space-y-6">
       <div className="flex justify-between items-center">
         <div>
-          <h1 className="text-3xl font-bold">Gestion USB</h1>
+          <h1 className="text-xl font-semibold tracking-tight">Gestion USB</h1>
           <p className="text-muted-foreground">
             Gérez les clés USB et les fichiers de licence
           </p>

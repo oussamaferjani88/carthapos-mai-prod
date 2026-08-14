@@ -8,18 +8,21 @@ datasource db {
 }
 
 model Client {
-  id                 String              @id @default(cuid())
-  name               String
-  email              String              @unique
-  phone              String?
-  address            String?
-  createdAt          DateTime            @default(now()) @map("createdat")
-  updatedAt          DateTime            @updatedAt @map("updatedat")
-  licenses           License[]
-  biDashboards       BiDashboard[]
-  biNotifications    BiNotification[]
-  biAnalysisRequests BiAnalysisRequest[]
-  biRequests         BiRequest[]
+  id                     String                    @id @default(cuid())
+  name                   String
+  email                  String                    @unique
+  phone                  String?
+  address                String?
+  userId                 String?                   @unique @map("userid")
+  createdAt              DateTime                  @default(now()) @map("createdat")
+  updatedAt              DateTime                  @updatedAt @map("updatedat")
+  user                   User?                     @relation(fields: [userId], references: [id])
+  licenses               License[]
+  biDashboards           BiDashboard[]
+  biNotifications        BiNotification[]
+  biAnalysisRequests     BiAnalysisRequest[]
+  biRequests             BiRequest[]
+  biDashboardAssignments BiDashboardAssignment[]
 
   @@map("clients")
 }
@@ -139,6 +142,8 @@ model LicenseConfiguration {
   spacingScale        Float   @default(1.0) @map("spacingscale")
   theme               String  @default("light")
   shadowIntensity     Float   @default(1.0) @map("shadowintensity")
+  rawConfig           Json?   @map("rawconfig")
+  posConfigVersion    Int     @default(1) @map("posconfigversion")
   license             License @relation(fields: [licenseId], references: [id], onDelete: Cascade)
 
   @@map("license_configurations")
@@ -165,6 +170,7 @@ model User {
   totalReferrals       Int                    @default(0) @map("totalreferrals")
   verificationStatus   VerificationStatus     @default(PENDING) @map("verificationstatus")
   verifiedAt           DateTime?              @map("verifiedat")
+  client               Client?
   UserPosConfiguration UserPosConfiguration[]
   orders               Order[]
   affiliateOwner       Referral[]             @relation("AffiliateOwner")
@@ -339,17 +345,45 @@ model BiDashboard {
   status          String    @default("DRAFT")
   dashboardType   String    @default("custom") @map("dashboardtype")
   dashboardConfig Json?     @map("dashboardconfig")
+  version         Int       @default(1)
+  templateUsed    String?   @map("templateused")
+  metabaseDashboardId Int?  @map("metabasedashboardid")
+  generator       String    @default("wizard")
+  generatedAt     DateTime? @map("generatedat")
   createdBy       String?   @map("createdby")
   assignedAt      DateTime? @map("assignedat")
   createdAt       DateTime  @default(now()) @map("createdat")
   updatedAt       DateTime  @updatedAt @map("updatedat")
 
-  client        Client           @relation(fields: [clientId], references: [id], onDelete: Cascade)
-  license       License?         @relation(fields: [licenseId], references: [id])
-  upload        BiUpload?        @relation(fields: [uploadId], references: [id])
+  client        Client                    @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  license       License?                  @relation(fields: [licenseId], references: [id])
+  upload        BiUpload?                 @relation(fields: [uploadId], references: [id])
+  request       BiRequest?                @relation(fields: [requestId], references: [id], onDelete: SetNull)
+  requestId     String?                   @map("requestid")
   notifications BiNotification[]
+  assignments   BiDashboardAssignment[]
 
+  @@index([clientId])
+  @@index([uploadId])
+  @@index([requestId])
   @@map("bi_dashboards")
+}
+
+model BiDashboardAssignment {
+  id          String      @id @default(cuid())
+  clientId    String      @map("clientid")
+  dashboardId String      @map("dashboardid")
+  version     Int         @default(1)
+  status      String      @default("ACTIVE")
+  assignedAt  DateTime    @default(now()) @map("assignedat")
+  createdAt   DateTime    @default(now()) @map("createdat")
+
+  client    Client      @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  dashboard BiDashboard @relation(fields: [dashboardId], references: [id], onDelete: Cascade)
+
+  @@index([clientId])
+  @@index([dashboardId])
+  @@map("bi_dashboard_assignments")
 }
 
 // ─── Metabase Dashboard Template Registry ──────────────────
@@ -360,6 +394,10 @@ model BiDashboardTemplate {
   metabaseDashboardId Int      @map("metabasedashboardid")
   name                String
   description         String?
+  kpis                Json?
+  dimensions          Json?
+  facts               Json?
+  image               String?
   active              Boolean  @default(true)
   embedType           String   @map("embedtype") @default("none")
   embedPublicUuid     String?  @map("embedpublicuuid")
@@ -372,16 +410,24 @@ model BiDashboardTemplate {
 model BiNotification {
   id          String   @id @default(cuid())
   clientId    String?  @map("clientid")
+  requestId   String?  @map("requestid")
   dashboardId String?  @map("dashboardid")
   title       String
   message     String
   type        String   @default("DASHBOARD_READY")
+  category    String   @default("SYSTEM")
+  role        String   @default("CLIENT")
   isRead      Boolean  @default(false) @map("isread")
   createdAt   DateTime @default(now()) @map("createdat")
 
   client    Client?      @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  request   BiRequest?   @relation(fields: [requestId], references: [id], onDelete: Cascade)
   dashboard BiDashboard? @relation(fields: [dashboardId], references: [id], onDelete: SetNull)
 
+  @@index([clientId])
+  @@index([requestId])
+  @@index([role])
+  @@index([category])
   @@map("bi_notifications")
 }
 
@@ -434,12 +480,15 @@ model BiRequest {
 
   dashboardType String? @map("dashboardtype")
 
+  dashboardTemplate String? @map("dashboardtemplate")
+  paymentRequired   Boolean @default(false) @map("paymentrequired")
+
   userId    String? @map("userid")
   userEmail String? @map("useremail")
 
   status String @default("PENDING_REVIEW")
 
-  paymentStatus String  @default("PENDING")
+  paymentStatus String @default("NOT_REQUIRED")
   paymentMethod String? @map("paymentmethod")
   paymentNotes  String? @map("paymentnotes")
 
@@ -451,15 +500,35 @@ model BiRequest {
   createdAt DateTime @default(now()) @map("createdat")
   updatedAt DateTime @updatedAt @map("updatedat")
 
-  client  Client     @relation(fields: [clientId], references: [id], onDelete: Restrict)
-  license License?   @relation(fields: [licenseId], references: [id], onDelete: SetNull)
-  uploads BiUpload[]
+  client     Client           @relation(fields: [clientId], references: [id], onDelete: Restrict)
+  license    License?         @relation(fields: [licenseId], references: [id], onDelete: SetNull)
+  uploads    BiUpload[]
+  events     BiRequestEvent[]
+  dashboards BiDashboard[]
+  notifications BiNotification[]
 
   @@index([clientId])
   @@index([licenseId])
   @@index([status])
   @@index([paymentStatus])
   @@map("bi_requests")
+}
+
+model BiRequestEvent {
+  id              String    @id @default(cuid())
+  requestId       String    @map("requestid")
+  type            String
+  message         String?
+  metadata        Json?
+  performedBy     String?   @map("performedby")
+  performedByRole String?   @map("performedbyrole")
+  performedAt     DateTime  @map("performedat")
+  createdAt       DateTime  @default(now()) @map("createdat")
+
+  request BiRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+
+  @@index([requestId])
+  @@map("bi_request_events")
 }
 
 // ──────────────────────────────────────────────
@@ -546,6 +615,8 @@ model DimClient {
   businessType String?
   createdAt    DateTime   @default(now())
   factSales    FactSale[]
+  factSaleItems FactSaleItem[]
+  factKitchenOrderItems FactKitchenOrderItem[]
 
   @@map("dim_clients")
 }
@@ -562,6 +633,7 @@ model DimProduct {
   createdAt     DateTime        @default(now())
   factSales     FactSale[]
   factInventory FactInventory[]
+  factSaleItems FactSaleItem[]
 
   @@map("dim_products")
 }
@@ -580,6 +652,27 @@ model DimSupplier {
   @@map("dim_suppliers")
 }
 
+model DimCustomer {
+  id           String    @id @default(cuid())
+  tenantId     String?
+  exportId     String?
+  customerId   String?
+  name         String
+  email        String?
+  phone        String?
+  address      String?
+  loyaltyPoints Int?
+  totalSpent   Float?
+  visitCount   Int?
+  lastVisitDate DateTime?
+  tags         String?
+  isActive     Int?
+  createdAt    DateTime  @default(now())
+  factSales    FactSale[]
+
+  @@map("dim_customers")
+}
+
 model DimTime {
   id                Int                @id
   date              DateTime           @unique
@@ -594,6 +687,8 @@ model DimTime {
   factInventory     FactInventory[]
   factAppointments  FactAppointment[]
   factKitchenOrders FactKitchenOrder[]
+  factSaleItems     FactSaleItem[]
+  factKitchenOrderItems FactKitchenOrderItem[]
 
   @@map("dim_time")
 }
@@ -609,16 +704,20 @@ model FactSale {
   dimClientId   String?
   dimProductId  String?
   dimTimeId     Int?
+  dimCustomerId String?
   saleId        String?
+  customerId    String?
   total         Float
   tax           Float?
   discount      Float?
   paymentMethod String?
+  transactionHour Int?
   createdAt     DateTime @default(now())
 
-  dimClient  DimClient?  @relation(fields: [dimClientId], references: [id])
-  dimProduct DimProduct? @relation(fields: [dimProductId], references: [id])
-  dimTime    DimTime?    @relation(fields: [dimTimeId], references: [id])
+  dimClient   DimClient?   @relation(fields: [dimClientId], references: [id])
+  dimProduct  DimProduct?  @relation(fields: [dimProductId], references: [id])
+  dimTime     DimTime?     @relation(fields: [dimTimeId], references: [id])
+  dimCustomer DimCustomer? @relation(fields: [dimCustomerId], references: [id])
 
   @@unique([exportId, saleId])
   @@map("fact_sales")
@@ -669,16 +768,77 @@ model FactKitchenOrder {
   exportId    String
   rowIndex    Int
   dimTimeId   Int?
+  orderId     String?
   tableNumber Int?
   items       String?
   priority    String?
   status      String
+  transactionHour Int?
+  startedAt   DateTime?
+  readyAt     DateTime?
+  completedAt DateTime?
   createdAt   DateTime @default(now())
 
   dimTime DimTime? @relation(fields: [dimTimeId], references: [id])
 
   @@unique([exportId, rowIndex])
   @@map("fact_kitchen_orders")
+}
+
+model FactSaleItem {
+  id            String   @id @default(cuid())
+  tenantId      String?
+  exportId      String?
+  dimClientId   String?
+  dimProductId  String?
+  dimTimeId     Int?
+  saleItemId    String?
+  saleId        String?
+  productId     String?
+  quantity      Int
+  unitPrice     Float?
+  lineTotal     Float?
+  vatRate       Float?
+  vatAmount     Float?
+  paymentMethod String?
+  productName   String?
+  category      String?
+  family        String?
+  transactionHour Int?
+  createdAt     DateTime @default(now())
+
+  dimClient  DimClient?  @relation(fields: [dimClientId], references: [id])
+  dimProduct DimProduct? @relation(fields: [dimProductId], references: [id])
+  dimTime    DimTime?    @relation(fields: [dimTimeId], references: [id])
+
+  @@unique([exportId, saleItemId])
+  @@map("fact_sale_items")
+}
+
+model FactKitchenOrderItem {
+  id                 String   @id @default(cuid())
+  tenantId           String?
+  exportId           String?
+  dimClientId        String?
+  dimTimeId          Int?
+  kitchenOrderItemId String?
+  orderId            String?
+  saleId             String?
+  productId          String?
+  productName        String?
+  quantity           Int
+  unitPrice          Float?
+  lineTotal          Float?
+  department         String?
+  preparationTime    Int?
+  transactionHour    Int?
+  createdAt          DateTime @default(now())
+
+  dimClient DimClient? @relation(fields: [dimClientId], references: [id])
+  dimTime   DimTime?   @relation(fields: [dimTimeId], references: [id])
+
+  @@unique([exportId, kitchenOrderItemId])
+  @@map("fact_kitchen_order_items")
 }
 
 enum LicenseType {
@@ -691,6 +851,7 @@ enum UserRole {
   MANAGER
   CASHIER
   KITCHEN
+  CLIENT
 }
 
 enum OrderType {

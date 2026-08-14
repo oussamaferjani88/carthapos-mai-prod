@@ -1,0 +1,92 @@
+================================================================================
+CARTHAPOS BI — CACHE CLEANUP REPORT
+Date: 2026-08-02
+================================================================================
+
+OBJECTIVE
+--------------------------------------------------------------------------------
+Remove all cached BI analytics snapshots built from previous test exports so
+the analytics layer starts from a clean slate for real client data.
+Constraints honored: analytics-cache-service.js NOT modified, ETL NOT modified,
+database schema NOT modified, warehouse tables NOT deleted, no other data
+touched. The cache mechanism is unchanged.
+
+1. CACHE LOCATION
+--------------------------------------------------------------------------------
+  analytics-cache-service.js (services/analytics-cache-service.js) persists
+  snapshots to the file system:
+    Directory : D:\Carthapos\backend\analytics-cache\
+    Files     :
+      <uploadId>.json   -> one read-only snapshot per built upload
+      meta.json         -> map: clientId -> { uploadId, builtAt, fileName }
+    In-memory: module-level LRU (clientId -> snapshot), max 32 entries,
+               cleared on process restart.
+
+  Cached snapshots identified before cleanup:
+    cmsbtgfbf0001f7cz88jnolkl.json   3,367,884 bytes  (tenant T1 test export)
+    meta.json                                  160 bytes (1 tenant mapping)
+
+2. ENTRIES REMOVED
+--------------------------------------------------------------------------------
+  Removed from D:\Carthapos\backend\analytics-cache\:
+    - cmsbtgfbf0001f7cz88jnolkl.json   (test-export analytics snapshot, 3.4 MB)
+    - meta.json                        (clientId -> uploadId invalidation map)
+  Backend restarted to clear the in-memory LRU.
+  Final on-disk state: analytics-cache/ is EMPTY (verified).
+  No other tenants had cached snapshots (meta.json contained T1 only).
+
+3. VERIFICATION RESULTS
+--------------------------------------------------------------------------------
+  A. Warehouse-backed BI endpoints (post-reset, post-clear) — CLEAN:
+       /api/bi-uploads/:id/summary
+         revenueDays        = 0      (empty)
+         topProducts        = []     (empty)
+         averageTicket      = { average: 0, count: 0, total: 0 }
+         tableTurnover      = []     (empty)
+         kitchenPerformance = { total: 0, byStatus: {}, byPriority: {} }
+       => revenue 0 / empty, topProducts [] CONFIRMED.
+
+  B. Cache-backed analytics endpoints — REBUILD BEHAVIOR (documented):
+       /api/bi/analytics/peak-hours  -> 24 hours (test-derived)
+       /api/bi/analytics/customers   -> 14 customers (test-derived)
+     Cause (mechanism unchanged, verified empirically):
+       analytics-cache-service.ensureCache() finds the LATEST COMPLETED upload
+       for the tenant in bi_uploads (still the test export
+       cmsbtgfbf0001f7cz88jnolkl, status COMPLETED) and, when the snapshot file
+       or meta mapping is missing, REBUILDS the cache from that ZIP on the
+       first analytics request. The cache dir was observed to re-populate
+       (3.4 MB file + meta) immediately after the first cache-backed call.
+     Implication: peakHours = [] / customer & kitchen analytics = empty CANNOT
+       be guaranteed by file deletion alone while the test export remains the
+       tenant's latest COMPLETED upload. This is the intended cache design
+       (parse-once, rebuild-on-missing) and it was NOT modified.
+
+4. STATUS
+--------------------------------------------------------------------------------
+  - Cache files cleared: YES (verified empty).
+  - Mechanism/code/schema/ETL/warehouse: unchanged.
+  - Warehouse-backed KPIs after reset: all empty.
+  - Cache-backed analytics: currently empty on disk, but the FIRST analytics
+    request will rebuild from the latest COMPLETED upload. As long as the test
+    export is the latest COMPLETED upload for a tenant, cache-backed endpoints
+    will serve test-derived values again.
+
+5. RECOMMENDED RESOLUTION FOR CACHE-BACKED EMPTINESS (requires a decision)
+--------------------------------------------------------------------------------
+  To make cache-backed endpoints (peak-hours, customers, kitchen enrichment,
+  etc.) return empty until real data arrives, one of the following is needed:
+    Option 1 (preferred): Load real client POS data now. The new export
+            becomes the latest COMPLETED upload (newer createdAt) and the cache
+            builds from real data; test-derived values are fully superseded.
+            No code/schema changes.
+    Option 2: Mark the test exports in bi_uploads as no longer COMPLETED
+            (e.g., status 'ARCHIVED') so latestUpload() stops selecting them.
+            This touches BI management data (bi_uploads) and affects load
+            history/wizard state, so it requires explicit approval — it was
+            flagged as protected in the previous reset task.
+    Option 3: Leave as-is and accept that cache-backed enrichment endpoints
+            rebuild from the retained test exports until real data is loaded
+            (the /summary KPI cards already read the warehouse and show empty).
+================================================================================
+END REPORT
+================================================================================

@@ -389,6 +389,7 @@ window.addEventListener('DOMContentLoaded', () => {
         theme: {
           // Ensure businessName is prominently set in theme
           businessName: businessName,
+          sector: license.sector || 'retail',
           ...( license.configuration || {}), // Spread all theme settings from configuration
           // Ensure these core properties exist
           primaryColor: license.configuration?.primaryColor || '#3B82F6',

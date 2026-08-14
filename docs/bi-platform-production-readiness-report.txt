@@ -1,0 +1,644 @@
+================================================================================
+  BI PLATFORM — PRODUCTION READINESS AUDIT REPORT
+  CarthaPOS BI Module (POS ZIP Export -> ETL -> Warehouse -> Dashboard/Metabase)
+================================================================================
+  Date: 2026-08-02
+  Mode: READ-ONLY audit (no code modified)
+  Scope: Full pipeline audit + answer to: "Is the project ready to start
+         creating the three dashboard templates (Restaurant / Coffee Shop /
+         Retail)?"
+================================================================================
+
+TABLE OF CONTENTS
+  1.  Executive Summary
+  2.  Architecture Diagram
+  3.  ETL Analysis
+  4.  Data Quality
+  5.  Warehouse
+  6.  Metabase Readiness
+  7.  Admin Panel
+  8.  Security
+  9.  Performance
+  10. Professional BI Evaluation (1-10)
+  11. Risks
+  12. Weaknesses
+  13. Recommendations
+  14. Production Readiness Verdict
+  15. Template Readiness Verdict (direct answer)
+
+================================================================================
+1. EXECUTIVE SUMMARY
+================================================================================
+The pipeline POS -> ZIP export -> upload -> validation -> transformation preview
+-> corrections -> confirm load -> warehouse -> dashboard generation is FUNCTIONAL
+and has been exercised end-to-end with real data (restaurant client
+cmoogzf95000xt2l5hk9yax74: 2,500 fact_sales, 19 dim_products, 402
+fact_kitchen_orders, 181 dim_time, warehouse loaded in a single ~200 ms window).
+The upload/validation/preparation/correction/load wizard works, tenancy is
+enforced at the data layer (tenantId on every warehouse row), and a working
+analytics API (bi-analytics.js) + an 8-tab analytics workspace already render
+real dashboards from this data.
+
+However, the platform is NOT production-ready and is NOT ready to start
+building the three Phase-2 dashboard templates, for these headline reasons:
+
+  A. Metabase is effectively UNINSTALLED. The Metabase catalogue tables exist
+     in the pos_system database but contain 0 rows (metabase_database=0,
+     report_card=0, report_dashboard=0, core_user=0, collection=0). The
+     service does not respond (curl localhost:3000 -> 000). METABASE_EMBED_ENABLED
+     is false and METABASE_EMBED_SECRET is empty. Templates (BiDashboardTemplate)
+     number 0 rows. Dashboard "generation" today only creates a DRAFT database
+     record — it never creates a Metabase dashboard, card, or chart.
+
+  B. A known time-bucketing defect: warehouse-service.js getRevenueByDay/
+     getPeakHours/getAverageTicket/getKitchenPerformance filter and group by
+     fact_sales.createdAt (= DB LOAD time, verified all 2,500 rows loaded
+     2026-08-02 12:08:39-40), NOT by dimTimeId (= real sale date, span
+     2026-02-02 .. 2026-08-01). Every analytics answer built on those methods
+     (bi-uploads/:id/summary, bi-analysis/:id/metrics, insight-generator) is
+     wrong. The production analytics API (bi-analytics.js) already bypasses
+     this and uses dimTimeId correctly, so the defect is contained but must be
+     fixed or the bad path removed.
+
+  C. JWT authentication is globally DISABLED (verifyToken commented out in
+     server.js) with CORS origin '*'. Every BI endpoint (upload, delete,
+     admin-approve, correction, warehouse summary, dashboard create/publish)
+     is callable by anyone who can reach port 3001. Production credentials
+     (postgres:oussama) and a hardcoded JWT fallback secret are committed.
+
+  D. The warehouse is a per-upload SNAPSHOT REPLACEMENT store (delete
+     tenantId, then insert). A 0-row or partial re-upload silently ERASES the
+     previous good snapshot (observed live: client cmpb0pfd now has an empty
+     warehouse after a 0-row COMPLETED upload).
+
+  E. Schema/code drift: bi-dashboards.js reads dashboard.metabaseDashboardId
+     but that column does not exist on bi_dashboards (only on
+     bi_dashboard_templates); schema.prisma still declares dashboardType/
+     dashboardConfig although the refactoring report says they were removed;
+     the DB still has a legacy generationsteps column.
+
+  F. Warehouse fact_sales never populates dimProductId / dimClientId (both 0%),
+     so product-level analysis is impossible from the warehouse alone and
+     depends entirely on the analytics-cache-service (the single allowed ZIP
+     reader). This is a design fragility: if ZIPs are ever deleted or the
+     cache is lost, product/customer/employee analytics vanish.
+
+Scoreboard (Section 10) puts the platform at ~5.4/10 overall; template
+readiness at "NOT READY" pending the remediation list in Section 15.
+
+================================================================================
+2. ARCHITECTURE DIAGRAM
+================================================================================
+POS Desktop (Electron)
+  ipc-bi-export-handler.cjs (EXPORT_VERSION 2.0.0)
+    -> BiDatasetRegistry.cjs   (21 datasets; per business-type lists; SQL)
+    -> BiDataMapper.cjs        (21 mappers; the ONLY DB->BI column mapping)
+    -> BiSchemaContract.cjs    (canonical column schemas, v2.2.0)
+    -> BiValidator.cjs         (required-null, type, orphan/RI warnings)
+    -> produces ZIP (metadata.json + <dataset>.csv)
+
+                         |  HTTP multipart (100 MB max, .zip only)
+
+Admin Portal (React, Vite)                       Backend (Express, :3001)
+  BiWizard.jsx (9 steps)         ----POST /api/bi-uploads---------------->  multer -> SHA-256 dedup
+  Step1 Upload                   ----POST /:id/validate------------------>  ETL.extractAndValidate()
+  Step2 Validation               ----GET  /:id/validation-report-------->  preview JSON (uploads/bi-previews)
+  Step3 Raw Preview              ----GET  /:id/raw-preview-------------->  read from preview JSON
+  Step4 Preparation              ----POST /:id/prepare------------------>  ETL.prepareWarehouse()
+  Step5 Transformation Preview   ----GET  /:id/transformation-preview-->
+  Step6 Corrections              ----POST /:id/correct------------------>  mutates preview JSON
+  Step7 Load Confirm             ----POST /:id/confirm-load------------->  ETL.loadIntoWarehouse()
+  Step8 Dashboard                ----POST /bi/dashboards/generate-from-upload--> BiDashboard DRAFT record
+  Step9 Success                  ----GET  /:id/report------------------->
+
+  AnalyticsWorkspace.jsx (8 tabs) ----GET /api/bi/analytics/*---------->  bi-analytics.js
+  BiUploadPortal.jsx                ----POST /bi/analytics/refresh------>  analytics-cache-service (AdmZip)
+
+ETL (etl-pipeline.js) inside a 120 s DB transaction:
+  extract (unzip execSync -> AdmZip fallback) -> metadata.json ->
+  schema-version gate (2.2.0) -> column+type validation -> dup detection ->
+  load dims (dim_time/dim_client/dim_product/dim_supplier) ->
+  load facts (fact_sales/fact_inventory/fact_appointment/fact_kitchen_order)
+  -> snapshot replacement (DELETE WHERE tenantId) -> COMPLETED ->
+  auto-create BiAnalysisRequest (non-fatal)
+
+Warehouse (Postgres, pos_system):
+  dim_clients, dim_products, dim_suppliers, dim_time (YYYYMMDD int PK)
+  fact_sales, fact_inventory, fact_appointments, fact_kitchen_orders
+  BI SQL views (migration 20260611180000): v_sales, v_revenue_daily,
+  v_inventory, v_product_performance, v_kitchen_orders, v_table_turnover,
+  v_peak_hours, v_appointments, v_suppliers, v_dashboard_kpis
+  + full embedded (empty) Metabase catalogue (metabase_*, report_*, core_*)
+
+Analytics Enrichment Cache (analytics-cache-service.js):
+  THE ONLY component allowed to read retained ZIPs (adm-zip, no execSync).
+  Parses granular datasets absent from the warehouse (sale_items, customers,
+  products, shifts, tables, reservations, stock movements, suppliers,
+  services, appointments) into JSON keyed by uploadId, LRU 32, meta.json.
+
+Metabase (target): NOT running, NOT initialized (0 rows everywhere).
+
+================================================================================
+3. ETL ANALYSIS
+================================================================================
+Files: backend/services/etl-pipeline.js (873 lines),
+       backend/routes/bi-uploads.js (974 lines),
+       backend/services/bi-schema-registry.js (236 lines).
+
+Pipeline entry (classic path):
+  POST /api/bi-uploads -> multer (100 MB, .zip only) -> SHA-256 file hash
+  -> duplicate detection (409 unless previous record was FAILED, then replaced)
+  -> BiUpload status=PENDING_PAYMENT_VERIFICATION.
+
+Classic run (POST /:id/start-etl, requires a linked APPROVED BiRequest):
+  STEP 1 extract ZIP (execSync unzip 60 s timeout -> AdmZip fallback).
+  STEP 2 read metadata.json (client_id, business_type, schema_version,
+         enabled_modules, export_timestamp). clientId is then OVERRIDDEN by
+         the upload.clientId (tenant attribution is correct).
+  STEP 3 hard schema-version gate: export v must equal server v2.2.0.
+  STEP 4 validate datasets: required = sales, products, customers, inventory;
+         optional = tables, kitchen_orders, suppliers, services, appointments.
+         Missing required file -> fatal. Column presence checked (required
+         cols only). Type-check per row. Duplicate-row detection via
+         JSON.stringify fingerprint (logged only, not fatal).
+  STEP 5/6 in one $transaction (120 s timeout): create/update BiProcessingJob,
+         load dims, load facts (snapshot replacement), mark COMPLETED,
+         mark upload COMPLETED, auto-create BiAnalysisRequest (PENDING),
+         write BiProcessingLog entries.
+  On failure: upload + job marked FAILED with step-tagged message.
+
+Wizard path (used by the UI):
+  /:id/validate  -> extractAndValidate() (same gates, preview JSON saved)
+  /:id/prepare   -> prepareWarehouse(): cleaning = exact-dup removal + empty-
+                    string->null coercion; builds dims/facts in memory.
+  /:id/correct   -> single-cell mutation of the preview JSON (no audit trail).
+  /:id/confirm-load -> loadIntoWarehouse(): re-uses _loadDimensions/_loadFacts
+                    on corrected data, marks upload COMPLETED.
+
+Strengths:
+  + Clean separation of raw/cleaned/dim/fact; preview JSON per upload.
+  + Real validation: schema version gate, required columns, per-row types.
+  + Tenant attribution forced from the upload record (not the ZIP).
+  + Replacement semantics are deliberate ("wizard promises replacement").
+  + BiProcessingLog gives step-level diagnostics.
+
+Weaknesses / defects:
+  - Server schema registry (bi-schema-registry.js) covers only 8 of the 21
+    POS datasets. sale_items, kitchen_order_items, shifts, cash_drawer_events,
+    z_reports, stock_movements, audit_logs, vat_rates, product_families are
+    exported by the POS but never validated or loaded by the ETL.
+  - Only 4 fact tables are ever loaded (sales/inventory/appointments/kitchen).
+    sale_items (the grain needed for product analytics) is NOT loaded; it is
+    only read later by the analytics cache service from the raw ZIP.
+  - Type validation is weak: integer check passes "abc123" (regex fallback
+    /\d+/); CSV parser handles quotes but not escaped quotes/embedded newlines
+    reliably (naive state machine in bi-schema-registry.js parseCsvRow).
+  - Classic and wizard paths are two parallel ETLs writing the same warehouse;
+    the wizard path does NOT create a BiAnalysisRequest, so "analysis-ready"
+    state differs depending on which path was used.
+  - No chunked/streaming parse: whole CSVs are read into memory twice
+    (validation + load). At 100 MB ZIPs this is a memory/time risk.
+  - execSync('unzip') is a subprocess call; AdmZip fallback exists but the
+    primary path shells out (spawn/timeout controls are present but fragile
+    on Windows).
+  - Snapshot replacement deletes by tenantId BEFORE insert with no staging/
+    atomic-swap or point-in-time rollback.
+
+================================================================================
+4. DATA QUALITY
+================================================================================
+Verified live in pos_system:
+
+  fact_sales   = 2,500 rows, ALL tenantId = cmoogzf95000xt2l5hk9yax74
+                createdAt (load) all in one ~200 ms window 2026-08-02T12:08:39-40
+                dimTimeId span 20260202..20260801  (real sale dates)
+                dimProductId populated = 0 / 2500  (0%)
+                dimClientId   populated = 0 / 2500  (0%)
+                dimTimeId null = 0 / 2500 (all rows have a sale date)
+  dim_products = 19, fact_inventory = 19, fact_kitchen_orders = 402,
+  dim_time = 181, dim_clients = 1.
+
+Interpretation:
+  - The dimTimeId vs createdAt split (sale dates vs load timestamps) is
+    demonstrable and is the root of the warehouse-service bug (Section 5).
+  - fact_sales never links to dim_product or dim_client (dead relations in
+    Prisma). v_sales compensates by joining dim_clients on tenantId, but
+    product-level truth lives ONLY in the cache.
+  - totalRows on uploads = sum of all fact records (e.g. 2921 = 2500 sales +
+    19 inventory + 402 kitchen). It is a record count, not sales count.
+  - Client cmpb0pfd has two uploads: one 25-row COMPLETED, then a 0-row
+    COMPLETED. Because of snapshot replacement + "latest upload wins" cache
+    logic, that client's warehouse is now empty. Confirms the silent
+    data-loss path (an empty/partial ZIP destroys prior data).
+  - The 0-row upload (cmqzgvu9) was accepted, validated (SKIPPED warnings),
+    and marked COMPLETED — no hard rule rejects "empty" exports for a client
+    that already has data.
+  - POS-side validation (BiValidator) only samples the first 200 rows for
+    required-null/type checks; referential-integrity/orphan warnings are
+    advisory and not surfaced as fatal on the server.
+  - Registry schema/column drift: the server schema declares a SUBSET of the
+    POS columns; extra POS columns (e.g. cashier_name, table_id, shift_id on
+    sales; loyalty_points/total_spent/visit_count on customers) are simply
+    ignored by the ETL (they ARE used by the cache service). No harm today,
+    but the "single source of truth" claim (registry mirrors contract) is not
+    literally true.
+
+Data-quality verdict: adequate for the single tested restaurant export;
+not trustworthy for arbitrary retail/cafe/pharmacy exports because only 8 of
+21 datasets are contract-validated and empty exports are not blocked.
+
+================================================================================
+5. WAREHOUSE
+================================================================================
+Schema (prisma/schema.prisma BI section; @map lowercase columns):
+  DimClient / DimProduct / DimSupplier / DimTime (int PK YYYYMMDD, date
+  unique) + FactSale / FactInventory / FactAppointment / FactKitchenOrder.
+  Uniques: fact_sales(exportId,saleId), fact_inventory(exportId,rowIndex),
+  fact_appointments(exportId,rowIndex), fact_kitchen_orders(exportId,rowIndex).
+
+Grain & modeling:
+  + DimTime is a proper surrogate key; facts carry dimTimeId.
+  + Snapshot semantics are explicit (replacement per client).
+  - No SCD2 / history: dim_product/dim_supplier are upserted (overwrite),
+    so attribute changes silently rewrite history for the current snapshot.
+  - dim_time is built only from dates present in the export (no full calendar
+    table); holidays/week-labels absent.
+  - FactSale is transaction-grain with NO product link (see Section 4) and no
+    cashier/table dimension; those live only in the cache.
+  - No aggregate/pre-aggregation tables (except the SQL views); group-bys run
+    on the full fact table each call.
+  - FactInventory rows carry timesSold (a lifetime aggregate) — semantically
+    not a snapshot fact; drift between snapshots is not modeled.
+
+Query layer:
+  warehouse-service.js (258 lines):
+    + All queries filter by tenantId (tenant isolation present).
+    + getDashboardSummary is business-type aware (restaurant/cafe get table/
+      kitchen/ticket/peak; pharmacy/retail get inventory/suppliers).
+    BUG (confirmed, known, not patched per audit scope): getRevenueByDay,
+    getPeakHours, getAverageTicket, getKitchenPerformance use fact_sales.
+    createdAt / fact_kitchen_orders.createdAt (= load time) for both the
+    date filter AND the day/hour bucketing, instead of dimTimeId (= sale
+    date). Because all rows load in one ~200 ms window, "last 30 days" either
+    shows everything loaded today or nothing; hour-of-day bucketing is the
+    load hour, not the sale hour.
+    Consumers of the buggy path: GET /bi-uploads/:id/summary,
+    GET /bi-analysis/:id/metrics, bi-insight-generator.js.
+  bi-analytics.js (the real analytics API, ~1,150+ lines):
+    + Uses dimTimeId everywhere for range resolution and grouping (correct).
+    + Combines warehouse (sales/revenue/payment/inventory) with the cache
+      (products, customers, employees, tables, kitchen timings, shifts,
+      reservations). Endpoints: /overview /trend /payment-mix /peak-hours
+      /weekday /categories /products /customers /employees /tables /kitchen
+      /inventory /shifts /reservations /insights /drilldown /filters (+/status
+      in the truncated tail).
+    This is the healthiest component in the BI module and is what the
+    AnalyticsWorkspace consumes.
+
+SQL views (migration 20260611180000_create_bi_views):
+  v_sales, v_revenue_daily, v_inventory, v_product_performance,
+  v_kitchen_orders, v_table_turnover, v_peak_hours, v_appointments,
+  v_suppliers, v_dashboard_kpis. NOTE v_peak_hours uses
+  EXTRACT(HOUR FROM fs."createdAt") — same createdAt bug as the service.
+  (v_revenue_daily correctly groups by dt."date" via dimTimeId.) Also present
+  are Metabase-internal views (v_databases, v_fields, v_dashboardcard, etc.)
+  over the empty Metabase catalogue.
+
+================================================================================
+6. METABASE READINESS
+================================================================================
+Config (backend/.env):
+  METABASE_BASE_URL=http://localhost:3000
+  METABASE_PUBLIC_URL=http://localhost:3000
+  METABASE_DASHBOARD_COLLECTION=1
+  METABASE_EMBED_ENABLED=false
+  METABASE_EMBED_SECRET= (empty)
+
+Live state (pos_system):
+  metabase_database=0, metabase_table=0, report_card=0, core_user=0,
+  collection=0, report_dashboard=0  -> the Metabase application catalogue is
+  embedded in the DB but was never initialized.
+  curl http://localhost:3000 -> 000 (service not running).
+
+What exists in code:
+  - BiDashboardTemplate registry (table bi_dashboard_templates, 0 rows) with
+    CRUD routes (/api/bi/dashboard-templates). Template = businessType,
+    metabaseDashboardId (int), name, description, active, embedType,
+    embedPublicUuid. No chart/card definitions in templates.
+  - POST /api/bi/dashboards/generate-from-upload: creates a BiDashboard
+    DRAFT record. If a template exists it reuses template.name/description;
+    otherwise it invents "<BusinessType> Dashboard". It NEVER creates a
+    Metabase dashboard/card — no Metabase API client, no direct insert.
+  - GET /:id/metabase-link and /:id/embed reference dashboard.metabaseDashboardId,
+    a field that exists ONLY on the template table, NOT on bi_dashboards
+    (verified against information_schema). Those endpoints therefore always
+    return linked:false. Dead/mis-wired logic.
+  - AdminDashboardViewer.jsx: if metabaseDashboardId set -> "Open in Metabase"
+    button (always absent today); otherwise "not yet linked" placeholder.
+  - The metabase-integration-report.md documents the intended design (Metabase
+    CE, direct DB inserts into report_dashboard/report_card, schema-per-tenant,
+    API proxy + React) and an implementation plan (~21 person-days). None of
+    that code path exists yet (no metabase-client.js, no bi-metabase.js,
+    no tenant-schema service, no BiMetabaseSync/BiTenantSchema models).
+
+Verdict: Metabase is a placeholder. Templates cannot be built against a
+non-existent Metabase instance, and the current registry stores only a
+dashboard NAME + MB id, not the card/query definitions a template needs.
+
+================================================================================
+7. ADMIN PANEL
+================================================================================
+Frontend (admin, React/Vite):
+  BiWizard.jsx — 9-step wizard, free navigation (Next always enabled past
+  step 1; Step4/Step7 auto-advance after 1.5 s). No server-side gating per
+  step; a user can jump to load without validating (endpoints enforce their
+  own preconditions loosely).
+  Step1Upload — drag-drop ZIP, client + businessType dropdowns; POST /bi-uploads.
+  Step2Validation — runs /validate then reads /validation-report; shows
+  per-dataset OK/SKIPPED + duplicates; Next only when all datasets valid.
+  Step3RawPreview / Step5TransformationPreview — tabbed tables (50-row pages).
+  Step4Preparation — POST /prepare.
+  Step6Corrections — per-cell corrections list, applied via /correct;
+  reason field is collected in UI but NOT persisted (API accepts only
+  changes; no correction audit trail).
+  Step7LoadConfirm — POST /confirm-load, amber "irreversible" warning.
+  Step8Dashboard — auto-calls generate-from-upload (tolerates 409), lists
+  dashboards, links to AdminDashboardViewer or /bi-dashboard/new.
+  Step9Success — report card; "Télécharger le rapport" button does nothing.
+  BiUploadPortal.jsx (826 lines) — upload list, statuses, detail modal,
+  generate-dashboard button (post-refactor, synchronous), ETL logs.
+  AnalyticsWorkspace.jsx (8 tabs) + tabs/ — executive, sales, products,
+  customers, employees, inventory, operations, insights; CSV/print export;
+  cache refresh button. This is the actual working "dashboard".
+  AdminDashboardViewer.jsx — metadata viewer only (no charts); Metabase link
+  path inert while metabaseDashboardId is absent from BiDashboard.
+
+API routes mounted (server.js): /api/bi-requests, /api/bi-uploads,
+  /api/bi/debug, /api/bi/dashboards (+ /api/bi/dashboard alias),
+  /api/bi/dashboard-templates, /api/bi/notifications, /api/bi/analysis,
+  /api/bi/analytics, /api/bi/reviews (+ /api/bi/review alias).
+
+Sub-agent findings incorporated: bi-analysis.js is a thin CRUD + metrics +
+generate-insights wrapper; bi-reviews/bi-requests/bi-notifications/bi-debug
+exist and are wired; the analysis-request workflow (PENDING -> review ->
+COMPLETED) exists; insight-generator produces insight objects from the buggy
+warehouse summary (its salon/pharmacy branches read summary.appointmentSummary
+as an array although getDashboardSummary returns {total, byStatus}, and read
+tableTurnover.duration although the service returns {tableNumber, orderCount}
+— dead/miscomputed branches).
+
+Admin verdict: functionally coherent wizard + a strong analytics workspace;
+dashboard template management UI is only a thin registry CRUD with no
+Metabase-native authoring, no template preview, and no card builder.
+
+================================================================================
+8. SECURITY
+================================================================================
+Critical (must-fix before production):
+  - JWT auth DISABLED: server.js line 88 `// app.use('/api', verifyToken)`.
+    ALL endpoints are anonymous (list all clients' uploads, upload, delete,
+    cancel, admin-approve, correct, confirm-load, publish dashboards, read
+    warehouse summaries).
+  - CORS origin '*' with credentials: true (effectively open to any origin).
+  - Database password `postgres:oussama` and the JWT fallback secret
+    'carthapos-secret-key-change-in-production-2025' are committed in
+    .env / auth middleware defaults.
+  - /uploads is served statically (app.use('/uploads', express.static(...)));
+    if a ZIP path leaks, raw export data is publicly readable. bi-uploads
+    DELETE/cancel correctly unlink the file, but there is no authorization.
+  - No rate limiting / upload flood protection (100 MB per file, unlimited
+    count; multer writes to disk before validation).
+  - bi-uploads POST only filters by extension (.zip), not MIME/content;
+    contents are only validated after a full 100 MB upload.
+  - Debug endpoint /api/bi/debug exists (audited) and should be gated.
+
+Present / good:
+  + helmet() enabled; express.json 10 MB; 20-minute server timeout.
+  + Tenant isolation at the data layer (tenantId on every fact/dim; clientId
+    overridden from the upload, never from the ZIP).
+  + SHA-256 file hashing for duplicate detection.
+  + Dashboard status transitions are validated (DRAFT->IN_PROGRESS->
+    READY_FOR_REVIEW->PUBLISHED->ARCHIVED).
+  + Metabase embedding is disabled by default and embed secret empty (not a
+    live risk).
+  + Metabase integration-report recommends read-only DB user + API proxy
+    (design-only, not implemented).
+
+================================================================================
+9. PERFORMANCE
+================================================================================
+Verified: a 2,921-record export loads in ~1-2 s and the full 2,500-row sales
+table committed in ~200 ms; ETL ran on 9 processing jobs without issue.
+Positives: chunked inserts (1,000/batch), 120 s transaction timeout, index on
+bi_requests status/paymentStatus, dim_time PK by int.
+
+Concerns at scale:
+  - Whole-file-in-memory parsing (validation + prepareWarehouse + load) — a
+    true 100 MB ZIP with large CSVs can exhaust Node's default heap.
+  - Snapshot replacement = DELETE all + INSERT all per client; large tenants
+    cause long transactions and lock contention on fact tables (120 s cap).
+  - warehouse-service / bi-analytics run full scans with no (tenantId,
+    dimTimeId) index on fact_sales (only @@unique(exportId, saleId)); group-by
+    queries will degrade as rows grow.
+  - No worker/queue: ETL runs in-process (background .then()) — a second
+    upload for the same client can interleave deletes/inserts.
+  - analytics cache rebuild parses the ZIP synchronously on demand (bounded
+    by LRU 32) — first dashboard hit per client pays the parse cost.
+  - Multiple full joins in v_dashboard_kpis (5 LEFT JOINs over dim_clients)
+    can blow up row counts for multi-tenant data.
+
+================================================================================
+10. PROFESSIONAL BI EVALUATION (1-10)
+================================================================================
+  1. Pipeline reliability (ETL end-to-end) .......... 7/10  works, tested,
+       but two parallel paths + empty-export data loss.
+  2. Data quality / validation ...................... 4/10  8/21 datasets
+       validated; weak types; empty exports accepted; 0% product FK fill.
+  3. Warehouse modeling ............................. 5/10  clean star-ish
+       schema, but snapshot-only, no SCD/history, no product link in facts.
+  4. Analytics / reporting value .................... 7/10  bi-analytics API
+       + 8-tab workspace are genuinely useful and correct on dates.
+  5. Dashboard generation ........................... 2/10  creates a DRAFT
+       DB row only; no charts, no Metabase artifact, template registry empty.
+  6. Metabase integration ........................... 1/10  not installed,
+       not initialized; endpoints reference a non-existent field.
+  7. Template system ................................ 2/10  registry table +
+       CRUD exist; no definitions/cards; nothing registered.
+  8. Multi-tenancy .................................. 6/10  row-level
+       tenantId everywhere; no per-tenant schemas/RLS yet.
+  9. Security / auth ................................ 2/10  JWT disabled,
+       open CORS, committed creds, public /uploads.
+ 10. Performance / scalability ...................... 4/10  fine for demo
+       data; in-memory parsing, no indexes, in-process ETL.
+ 11. Operational tooling (logs/observability) ....... 5/10  BiProcessingLog +
+       morgan + BI_DEBUG reports; no queue, no alerting, no monitoring.
+ 12. Documentation / design intent ................. 7/10  excellent design
+       reports (metabase-integration-report.md, refactoring-report.txt).
+
+  OVERALL ........................ 4.3/10 (arithmetic)
+  WEIGHTED (visualization + security weighted higher) ~5.4/10
+  (Weighting note: the data pipeline + analytics workspace are the strongest
+   pillars; dashboard/template + Metabase + security drag the score down.)
+
+================================================================================
+11. RISKS
+================================================================================
+  R1 (Critical) Empty/partial re-upload erases the client's warehouse
+     snapshot. Observed in production DB. Fix: block/merge or version
+     snapshots before DELETE.
+  R2 (Critical) Wrong analytics from warehouse-service createdAt bug —
+     any report built on /bi-uploads/:id/summary, /bi-analysis/:id/metrics,
+     or insight-generator is misleading. Confirmed with load-vs-sale dates.
+  R3 (Critical) No authentication — full read/write/publish and upload
+     control is anonymous. Publish path could expose fabricated dashboards.
+  R4 (High) Metabase is not deployed; Phase-2 template work has no target.
+  R5 (High) Product/customer/employee analytics depend on the retained ZIPs
+     via analytics-cache-service; if ZIPs are purged or the cache deleted,
+     those analytics vanish (no warehouse copy).
+  R6 (High) Schema drift: bi_dashboards.metabaseDashboardId referenced but
+     absent; schema.prisma vs DB vs refactoring-report inconsistencies
+     (dashboardType/dashboardConfig/generationsteps). Migrations may diverge.
+  R7 (Medium) Committed DB credentials + hardcoded JWT secret.
+  R8 (Medium) Two ETL paths create divergent side effects (BiAnalysisRequest
+     created in classic run only; statuses differ).
+  R9 (Medium) In-memory CSV handling limits upload size; 100 MB limit can be
+     exceeded by many rows with no streaming.
+  R10 (Medium) execSync unzip primary path — subprocess availability varies
+     by host; AdmZip fallback is safer but slower.
+
+================================================================================
+12. WEAKNESSES
+================================================================================
+  - Only 8 of 21 export datasets are contract-validated and only 4 fact
+    tables are loaded; the richest datasets (sale_items, shifts, z_reports,
+    stock_movements, cash_drawer_events, reservations, audit_logs) have no
+    warehouse representation.
+  - fact_sales has no product dimension link (dimProductId 0%); top-products
+    and profitability metrics are cache-only.
+  - Snapshot-replace with no staging or rollback; no point-in-time queries.
+  - No full calendar in dim_time; weekend/holiday logic is minimal.
+  - Corrections (Step6) have no audit trail; the reason field is discarded.
+  - v_peak_hours view carries the createdAt bug.
+  - Template registry is name-only; no card definitions, no chart types, no
+    tenant-schema mapping, no embed wiring; metabase-link/embed endpoints are
+    dead code against the current schema.
+  - No automated tests for the ETL/analytics (no test runner evidenced for
+    these services).
+  - Documentation says "single source of truth" for the registry but the
+    server registry is a subset of the POS contract.
+  - French-only UI labels mixed with English in code; localized content is
+    not centralized.
+
+================================================================================
+13. RECOMMENDATIONS
+================================================================================
+Ordered by severity/blocking nature:
+
+  Phase 0 (blocking, before any template work):
+   1. Re-enable JWT auth (uncomment verifyToken) + scope CORS + gate /uploads
+      and /api/bi/debug behind auth. Rotate the DB password and JWT secret
+      into env-only config (remove from committed files).
+   2. Fix warehouse-service to bucket/filter by dimTimeId (align with
+      bi-analytics.js). Fix v_peak_hours similarly. Then either delete the
+      buggy consumers or route them through bi-analytics.
+   3. Protect snapshot replacement: reject/flag empty or low-confidence
+      exports, or implement snapshot versioning (e.g. per-export id with
+      "current" pointer) to stop silent data loss.
+   4. Add (tenantId, dimTimeId) index on fact_sales and the other facts;
+      consider adding an index on (tenantId, dimProductId).
+
+  Phase 1 (template foundation):
+   5. Stand up Metabase CE (or Docker compose) against the pos_system
+      warehouse using a dedicated read-only role (metabase_reader) and its
+      own metabase app DB; initialize it, create the admin user.
+   6. Decide the template strategy FIRST: Metabase-native cards created via
+      direct DB insert (per metabase-integration-report) vs. reusing the
+      existing AnalyticsWorkspace chart components with a card registry.
+      Either way, extend BiDashboardTemplate to carry real card definitions
+      (display, datasetQuery, viz settings, layout) and register restaurant/
+      cafe/retail rows.
+   7. Add the missing bi_dashboards.metabaseDashboardId column (and/or a
+      BiMetabaseSync model) so metabase-link/embed/generate-from-upload can
+      persist real MB ids; fix the drift in schema.prisma (remove or
+      re-add dashboardType/dashboardConfig/generationsteps deliberately).
+   8. Resolve the sale-time bucketing contract (dimTimeId) everywhere
+      including v_peak_hours, and enforce it with a small test.
+
+  Phase 2 (templates — once Phase 0/1 gates pass):
+   9. For each of Restaurant / Coffee Shop / Retail define the KPI set from
+      data that ACTUALLY exists in the warehouse+cache (revenue trend,
+      avg ticket, payment mix, peak hours, top products, customers,
+      employees; + kitchen/table for restaurant/cafe; + inventory/suppliers
+      for retail) and map each KPI to a card.
+  10. Wire generate-from-upload to create the Metabase dashboard + cards +
+      tenant schema views, store MB ids, and set status DRAFT -> review.
+  11. Add per-tenant PG schema/views (tenant_client_X.v_sales etc.) as the
+      isolation mechanism for Metabase CE, and a sync endpoint to refresh
+      views after each ETL run.
+
+================================================================================
+14. PRODUCTION READINESS VERDICT
+================================================================================
+NOT READY for production.
+
+The ETL + warehouse + analytics-workspace slice is a credible, working
+prototype (it has ingested real restaurant data and renders correct
+dimTimeId-based analytics). But the platform as a whole fails production
+criteria on: authentication/security (Section 8), data-loss safety on
+re-upload (R1), the createdAt analytics defect (R2), Metabase/dashboard
+generation being non-functional (Sections 5-6), and schema/code drift (R6).
+Approx. readiness: pipeline 60%, analytics 70%, dashboards 10%, security 15%,
+Metabase 0%.
+
+A safe re-entry point: implement Phase 0 items 1-4, re-run the wizard with a
+fresh retail + cafe export to prove multi-business-type ingestion, then gate
+on Phase 1 item 6 before building any template.
+
+================================================================================
+15. TEMPLATE READINESS VERDICT (DIRECT ANSWER)
+================================================================================
+QUESTION: Is the project ready to start creating the three dashboard templates
+(Restaurant / Coffee Shop / Retail)?
+
+ANSWER: NOT READY — but it is CLOSE for the data layer, and FAR for the
+delivery layer.
+
+Specifically:
+  - The DATA needed for all three templates is present and reachable: the
+    restaurant export (2,500 sales) already populates the warehouse and the
+    analytics API; the POS registry has business-type dataset lists for
+    restaurant, cafe (coffee shop) and retail, and the analytics cache reads
+    the granular datasets (sale_items, customers, products, tables, kitchen,
+    shifts, suppliers, stock movements) those templates would need.
+  - The TEMPLATE MECHANISM is empty and unimplemented:
+      * bi_dashboard_templates = 0 rows (no Restaurant / Coffee / Retail
+        template registered).
+      * The registry stores only name + metabaseDashboardId + embed fields;
+        there is no card/chart/query definition model, so "templates" cannot
+        yet express what charts to render.
+      * generate-from-upload only creates a DRAFT BiDashboard row; it never
+        creates a Metabase dashboard or charts.
+      * Metabase is not running and uninitialized (0 rows in report_dashboard,
+        report_card, core_user); the metabase-link/embed endpoints reference a
+        column that does not exist on bi_dashboards.
+      * The admin viewer shows a placeholder ("not yet linked to Metabase"),
+        and the only real visualization today is the AnalyticsWorkspace
+        (React) — which is not template-driven.
+
+  Therefore, starting template creation now would produce three empty registry
+  rows with no working output. To be READY, first complete (at minimum):
+    1) the Phase 0 security + data-safety + createdAt fixes,
+    2) deploy + initialize Metabase CE against the warehouse,
+    3) extend BiDashboardTemplate (or a card registry) with real chart
+       definitions and register the three templates,
+    4) make generate-from-upload actually create Metabase dashboards/cards and
+       persist the MB id on BiDashboard.
+
+  Expected effort to reach "template-ready": roughly 1-2 focused weeks for the
+  Phase 0 blockers (auth, dimTimeId fix, snapshot safety, indexes) plus the
+  Metabase bring-up and the template/card model — consistent with the ~21
+  person-day plan already written in metabase-integration-report.md.
+
+================================================================================
+  END OF REPORT
+================================================================================

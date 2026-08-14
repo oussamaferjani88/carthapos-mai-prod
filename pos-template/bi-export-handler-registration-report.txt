@@ -1,0 +1,46 @@
+BI Export Handler Registration Verification Report
+=================================================
+
+Finding: FALSE POSITIVE — registerBiExportHandlers() IS wired into the main process.
+
+Verification Chain
+------------------
+1. DEFINED:   src/electron/handlers/ipc-bi-export-handler.cjs:447
+               function registerBiExportHandlers(databaseManager)
+
+2. EXPORTED:  src/electron/handlers/ipc-bi-export-handler.cjs:455
+               module.exports = { IPCBiExportHandler, registerBiExportHandlers };
+
+3. IMPORTED:  public/electron-modular.cjs:26
+               const { registerBiExportHandlers } =
+                 require('../src/electron/handlers/ipc-bi-export-handler.cjs');
+
+4. CALLED:    public/electron-modular.cjs:159
+               registerBiExportHandlers(databaseManager);
+
+5. IPC CHANNEL REGISTERED:  src/electron/handlers/ipc-bi-export-handler.cjs:41
+               ipcMain.handle('bi:export', async (_event, options = {}) => { ... });
+
+6. PRELOAD BRIDGE:  public/preload.cjs:144
+               exportBiData: (opts) => createIpcHandler('bi:export', opts),
+
+Full Execution Path
+-------------------
+Renderer:  window.electronAPI.exportBiData(options)
+  -> Preload:  ipcRenderer.invoke('bi:export', options)
+    -> Main:  ipcMain.handle('bi:export', ...)
+      -> IPCBiExportHandler.runExport(options)
+
+Safety Checks
+-------------
+- Duplicate registrations:  NONE (only 1 ipcMain.handle('bi:export', ...) exists)
+- Naming conflicts:         NONE (no other 'bi:' prefixed IPC channels)
+- Registration count:       EXACTLY ONCE (called once in registerAllHandlers())
+
+Root Cause of False Positive
+----------------------------
+The previous audit searched for require('ipc-bi-export-handler') or
+require('./ipc-bi-export-handler'), but the actual import uses the full relative
+path '../src/electron/handlers/ipc-bi-export-handler.cjs' which did not match.
+
+Conclusion: No modifications required.

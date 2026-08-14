@@ -1,4 +1,5 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -33,6 +34,46 @@ export default function POSGeneratorPage() {
     selectedUSB: '',
     forcePortableMode: false,
   });
+
+  const [searchParams] = useSearchParams();
+  const licenseIdParam = searchParams.get('licenseId');
+  const projectRestoredRef = useRef(false);
+
+  // Restore a saved POS project into the wizard (?licenseId=<id>).
+  // Seeded after the module registry + sectors are available so prefill
+  // values are not overwritten by default-loading effects.
+  useEffect(() => {
+    const licenseId = searchParams.get('licenseId');
+    if (!licenseId || projectRestoredRef.current) return;
+    projectRestoredRef.current = true;
+
+    (async () => {
+      try {
+        const project = await generatorHook.loadProject(licenseId);
+        if (!project) return;
+
+        setFormData(prev => ({
+          ...prev,
+          clientId: project.clientId || prev.clientId,
+          sector: project.sector || prev.sector,
+          licenseType: project.licenseType || prev.licenseType,
+          bindingType: project.bindingType || prev.bindingType,
+          expirationDate: project.expirationDate || prev.expirationDate,
+        }));
+
+        if (project.configuration && Object.keys(project.configuration).length > 0) {
+          configHook.setConfiguration(project.configuration);
+        }
+        if (project.modules && project.modules.length > 0) {
+          modulesHook.setSelectedModules(project.modules);
+        }
+        toast.success('Configuration du projet restaurée');
+      } catch (err: any) {
+        toast.error(err?.message || 'Impossible de restaurer la configuration du projet');
+      }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [licenseIdParam]);
 
   useEffect(() => {
     if (clientsHook.clients.length > 0 && !formData.clientId) {

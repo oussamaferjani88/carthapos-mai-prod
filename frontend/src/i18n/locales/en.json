@@ -499,8 +499,10 @@
     "nav": {
       "dashboard": "Dashboard",
       "generator": "POS Generator",
+      "projects": "My Projects",
       "settings": "Settings",
-      "logout": "Logout"
+      "logout": "Logout",
+      "bi": "My BI"
     }
   },
   "generator": {

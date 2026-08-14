@@ -1,8 +1,4 @@
-@tailwind base;
-@tailwind components;
-
-
-@tailwind utilities;
+@import "tailwindcss";
 
 /* Import des effets visuels POS */
 @import './styles/pos-effects.css';
@@ -44,3 +40,33 @@
 .pos-preview .font-medium { font-weight: 500 !important; }
 .pos-preview .font-semibold { font-weight: 600 !important; }
 .pos-preview .font-bold { font-weight: 700 !important; }
+
+/* Print: hide app chrome, keep only the analytics content */
+@media print {
+  body {
+    background: #fff !important;
+  }
+  .no-print {
+    display: none !important;
+  }
+  .flex.h-screen,
+  .flex.min-h-screen {
+    display: block !important;
+    height: auto !important;
+    overflow: visible !important;
+  }
+  main {
+    width: 100% !important;
+    height: auto !important;
+    overflow: visible !important;
+    padding: 0 !important;
+  }
+  .w-64,
+  aside,
+  .fixed {
+    display: none !important;
+  }
+  .overflow-auto {
+    overflow: visible !important;
+  }
+}

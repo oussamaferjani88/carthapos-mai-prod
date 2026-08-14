@@ -17,11 +17,13 @@ import POSPreviewPage from './pages/pos/POSPreviewPage';
 import USBManager from './pages/management/USBManager';
 import UserManagement from './pages/management/UserManagement';
 import BIRequests from './pages/BIRequests';
+import AdminRequestDetail from './pages/AdminRequestDetail';
 import BiUploadPortal from './pages/BiUploadPortal';
-import AdminBIAnalystWorkspace from './pages/AdminBIAnalystWorkspace';
-import AdminBIAnalysisDetail from './pages/AdminBIAnalysisDetail';
-import AdminBIReview from './pages/AdminBIReview';
+import BiWizard from './pages/BiWizard';
 import AdminDashboardViewer from './pages/AdminDashboardViewer';
+import AdminDashboardAssign from './pages/AdminDashboardAssign';
+import AssignmentManager from './pages/AssignmentManager';
+import AdminNotifications from './pages/AdminNotifications';
 
 // ============================================================================
 // JWT AUTHENTICATION - DISABLED FOR DEVELOPMENT
@@ -56,8 +58,8 @@ function AppShell() {
   const { isUserMode } = useAccessMode();
 
   return (
-    <div className="min-h-screen bg-background">
-      <Layout hideNavigation={isUserMode}>
+    <div className="h-full bg-background">
+      <Layout>
         <Routes>
           {isUserMode ? (
             <>
@@ -73,11 +75,13 @@ function AppShell() {
               <Route path="/pos-generator" element={<POSGenerator />} />
               <Route path="/pos-preview" element={<POSPreviewPage />} />
               <Route path="/bi-requests" element={<BIRequests />} />
+              <Route path="/bi-requests/:id" element={<AdminRequestDetail />} />
+              <Route path="/bi-assignments" element={<AssignmentManager />} />
+              <Route path="/bi-notifications" element={<AdminNotifications />} />
               <Route path="/bi-upload-portal" element={<BiUploadPortal />} />
-              <Route path="/bi-analysis" element={<AdminBIAnalystWorkspace />} />
-              <Route path="/bi-analysis/:id" element={<AdminBIAnalysisDetail />} />
-              <Route path="/bi-review" element={<AdminBIReview />} />
+              <Route path="/bi-wizard" element={<BiWizard />} />
               <Route path="/bi-dashboard/:dashboardId" element={<AdminDashboardViewer />} />
+              <Route path="/bi-dashboard/:dashboardId/assign" element={<AdminDashboardAssign />} />
               <Route path="/usb-manager" element={<USBManager />} />
               <Route path="/user-management" element={<UserManagement />} />
             </>

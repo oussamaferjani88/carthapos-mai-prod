@@ -1,0 +1,664 @@
+BI MODULE — COMPREHENSIVE STATUS REPORT
+=========================================
+Date: June 30, 2026
+Project: CarthaPOS BI Module (PFE)
+
+TABLE OF CONTENTS
+------------------
+1.  Overview
+2.  Architecture
+3.  Directory Structure
+4.  Database / Prisma Models
+5.  Backend Routes (API)
+6.  Backend Services
+7.  Frontend (Admin)
+8.  Frontend (Client Portal)
+9.  ETL Pipeline
+10. Metabase Integration
+11. Workflow Summary
+12. Technology Stack
+13. Current Status & Known Issues
+
+================================================================================
+1.  OVERVIEW
+================================================================================
+
+The CarthaPOS BI module is a complete business intelligence pipeline that:
+  - Accepts ZIP file exports from POS terminals (containing CSV data)
+  - Validates and processes those files through an ETL pipeline
+  - Loads cleaned data into a PostgreSQL warehouse (dimension + fact tables)
+  - Creates dashboard records that are linked to Metabase Community Edition
+  - Provides an admin workflow for managing BI requests, uploads, and dashboards
+  - Provides a client portal for viewing published dashboards
+
+The BI module is built in 4 phases across backend, admin frontend, and client frontend.
+The latest phase (Phase 4) replaced custom React/Recharts dashboard generation with
+a Metabase Community Edition association model.
+
+================================================================================
+2.  ARCHITECTURE
+================================================================================
+
+2.1 High-Level Flow
+
+POS Export (ZIP/CSV)
+       |
+       v
+  [BiRequest] -- Client submits a BI request (pending review)
+       |
+       v
+  [Review & Approve] -- Admin reviews & approves/rejects the request
+       |
+       v
+  [BiUpload] -- Client uploads ZIP file (linked to approved request)
+       |
+       v
+  [ETL Pipeline] -- Validates, extracts, transforms, loads into warehouse
+       |
+       v
+  [Warehouse DB] -- PostgreSQL (dim_* + fact_* tables, tenant-isolated)
+       |
+       v
+  [Dashboard Generation] -- Admin creates dashboard:
+       |   - Looks up BiDashboardTemplate registry
+       |   - Associates Metabase dashboard ID with BiDashboard record
+       |   - Sets status = DRAFT
+       v
+  [DRAFT] --> [IN_PROGRESS] --> [READY_FOR_REVIEW] --> [PUBLISHED]
+       |              |                  |                    |
+       v              v                  v                    v
+  [Admin customizes  |  [BI specialist  |  [Admin reviews   |  [Client can view]
+   in Metabase]      |   edits in MB]   |   & publishes]   |   dashboard]
+
+2.2 Multi-Tenant Isolation
+
+Every warehouse record carries a tenantId field set to the client's ID.
+Dashboard generation respects this via the clientId on the BiUpload.
+Metabase Community Edition does NOT have built-in row-level security, so
+tenant isolation relies on database-level filtering (all queries include
+WHERE tenantId = 'client_id').
+
+================================================================================
+3.  DIRECTORY STRUCTURE
+================================================================================
+
+BACKEND (Node.js / Express / Prisma)
+
+  backend/
+    prisma/
+      schema.prisma             -- Prisma schema (BI models + warehouse)
+      migrations/               -- Migration history
+      seed.js                   -- Database seeding
+    routes/
+      bi-requests.js            -- BiRequest CRUD + payment/approval workflow
+      bi-uploads.js             -- BiUpload CRUD + ETL trigger + admin approval
+      bi-dashboards.js          -- BiDashboard CRUD + generation + metabase-link
+      bi-dashboard-templates.js -- [NEW] BiDashboardTemplate registry CRUD
+      bi-notifications.js       -- BiNotification listing + mark-read
+      bi-reviews.js             -- Review workflow for READY_FOR_REVIEW dashboards
+      bi-analysis.js            -- BiAnalysisRequest + insight generation
+      bi-debug.js               -- Debug/status endpoints
+    services/
+      etl-pipeline.js           -- Full ETL: extract ZIP -> validate -> load warehouse
+      warehouse-service.js      -- Query service for warehouse data (tenant-isolated)
+      bi-dashboard-templates.js -- [DEPRECATED] Legacy JS template definitions
+      bi-schema-registry.js     -- CSV schema validation rules
+      bi-insight-generator.js   -- AI-style text insights from warehouse data
+    server.js                   -- Express app entry point, route wiring
+    .env                        -- DATABASE_URL, METABASE_BASE_URL
+
+ADMIN FRONTEND (React / Vite / shadcn/ui)
+
+  admin/src/
+    pages/
+      BIRequests.jsx            -- BI request management + payment
+      BiUploadPortal.jsx        -- Upload management + ETL details
+      AdminBIDashboardManager.jsx -- Dashboard manager + template registry + MB links
+      AdminDashboardViewer.jsx  -- [SIMPLIFIED] Dashboard info + Open in Metabase
+      AdminBIAnalystWorkspace.jsx -- Analysis request workspace
+      AdminBIAnalysisDetail.jsx -- Analysis detail view
+      AdminBIReview.jsx         -- Review dashboard for publish approval
+    components/
+      charts/
+        DashboardLineChart.jsx  -- [KEPT] Recharts line chart component
+        DashboardBarChart.jsx   -- [KEPT] Recharts bar chart component
+        DashboardPieChart.jsx   -- [KEPT] Recharts pie chart component
+
+CLIENT FRONTEND (React / TypeScript / Vite)
+
+  frontend/src/
+    pages/
+      dashboard/
+        BIDashboardViewer.tsx   -- [KEPT] Client-facing Recharts dashboard viewer
+
+METABASE (BI Administration Tool)
+
+  metabase/
+    metabase.jar                -- Metabase Community Edition v1.50+
+    plugins/                    -- Database driver plugins (postgres, etc.)
+    start-metabase.bat          -- Startup script (Metabase app DB = 'metabase')
+    metabase-integration-report.md -- Full integration architecture report
+
+================================================================================
+4.  DATABASE / PRISMA MODELS
+================================================================================
+
+The Prisma schema (schema.prisma) currently defines 2 BI models:
+
+  BiDashboard
+    - id (String, cuid, PK)
+    - clientId (String) -- FK to Client
+    - licenseId (String?) -- FK to License
+    - uploadId (String?) -- FK to BiUpload
+    - businessType (String) -- restaurant, cafe, retail, pharmacy, salon
+    - name (String)
+    - description (String?)
+    - status (String, default: "DRAFT") -- GENERATING, DRAFT, IN_PROGRESS, READY_FOR_REVIEW, PUBLISHED, ARCHIVED, FAILED
+    - dashboardType (String, default: "custom") -- custom | metabase
+    - dashboardConfig (Json?) -- Legacy dashboard configuration (backward compat)
+    - generationSteps (Json?) -- Legacy generation progress steps (backward compat)
+    - metabaseDashboardId (Int?) -- [NEW] Associated Metabase dashboard ID
+    - createdBy (String?)
+    - assignedAt (DateTime?)
+    - createdAt (DateTime)
+    - updatedAt (DateTime)
+    - Relations: client, license, upload, notifications
+
+  BiDashboardTemplate
+    - id (String, cuid, PK)      -- [NEW MODEL]
+    - businessType (String, UNIQUE) -- restaurant, cafe, retail, pharmacy, salon
+    - metabaseDashboardId (Int)   -- Metabase internal dashboard ID
+    - name (String)               -- Display name
+    - description (String?)
+    - active (Boolean, default: true)
+    - createdAt (DateTime)
+    - updatedAt (DateTime)
+
+Additional BI models exist in the database (created via earlier migrations but
+not currently defined in the Prisma schema file):
+
+  BiUpload
+    - id, clientId, requestId, filePath, fileName, fileHash, fileSize,
+      businessType, status, errorMessage, totalRows, createdAt, updatedAt
+    - Relations: biRequest, processingJob, dashboards
+
+  BiRequest
+    - id, clientId, licenseId, businessType, businessName, message,
+      status (PENDING_REVIEW/APPROVED/REJECTED/REQUEST_INFO),
+      paymentStatus (PENDING/VERIFIED/REJECTED),
+      paymentMethod, paymentDate, reviewedBy, reviewedAt, createdAt, updatedAt
+    - Relations: client, license, uploads, notifications
+
+  BiAnalysisRequest
+    - id, clientId, uploadId, businessType, status, insights,
+      createdAt, updatedAt
+    - Relations: upload
+
+  BiNotification
+    - id, clientId, dashboardId, type, title, message, isRead,
+      createdAt, updatedAt
+    - Relations: dashboard
+
+  BiProcessingJob
+    - id, uploadId, status, startedAt, completedAt, recordsLoaded,
+      errorMessage, createdAt, updatedAt
+
+  BiProcessingLog
+    - id, jobId, level, step, message, createdAt
+
+Warehouse tables (dimensions + facts):
+
+  dim_time         -- Date dimension (id as YYYYMMDD, year, quarter, month, day, dayOfWeek, isWeekend)
+  dim_client       -- Client dimension (tenantId, name, businessType, exportId)
+  dim_product      -- Product dimension (tenantId, productId, name, category, family, barcode)
+  dim_supplier     -- Supplier dimension (tenantId, supplierId, name, contact, phone, email)
+  fact_sale        -- Sales fact (tenantId, saleId, total, tax, discount, paymentMethod, dimTimeId)
+  fact_inventory   -- Inventory fact (tenantId, productName, stock, price, timesSold)
+  fact_appointment -- Appointment fact (tenantId, customerName, serviceId, duration, status)
+  fact_kitchen_order -- Kitchen order fact (tenantId, tableNumber, items, priority, status)
+
+All warehouse tables use tenantId for multi-tenant isolation and have indexes
+on tenantId for query performance.
+
+================================================================================
+5.  BACKEND ROUTES (API)
+================================================================================
+
+5.1 BiRequests (/api/bi-requests)
+
+  GET    /                    -- List requests (filterable by clientId, status, etc.)
+  POST   /                    -- Create a new BI request
+  POST   /:id/pay             -- Submit payment for a request
+  POST   /:id/approve         -- Admin approve a request
+  POST   /:id/reject          -- Admin reject a request
+  POST   /:id/request-info    -- Admin request more information
+  GET    /:id                 -- Get single request with details
+
+5.2 BiUploads (/api/bi-uploads)
+
+  GET    /                    -- List uploads
+  POST   /                    -- Upload ZIP file (multipart, linked to requestId)
+  GET    /clients/list        -- List unique clients with uploads
+  GET    /:id                 -- Get upload details (includes processingJob)
+  POST   /:id/start-etl       -- Manually trigger ETL pipeline
+  POST   /:id/admin-approve   -- Quick admin approval (walk-in clients)
+  GET    /:id/logs            -- Get processing logs
+  DELETE /:id/status          -- Cancel/reset upload status
+
+5.3 BiDashboards (/api/bi/dashboards + /api/bi/dashboard)
+
+  GET    /                    -- List dashboards (filterable by clientId, status)
+  GET    /:id                 -- Get single dashboard (includes recent notifications)
+  POST   /                    -- Create dashboard (auto-resolves Metabase template)
+  POST   /generate-from-upload -- Generate dashboard from completed upload
+  PATCH  /:id                 -- Update dashboard (status, name, MB ID, config)
+  DELETE /:id                 -- Delete dashboard
+  GET    /:id/metabase-link   -- [NEW] Get Metabase URL for a dashboard
+  GET    /:id/data            -- [LEGACY] Get warehouse data for React rendering
+
+5.4 BiDashboardTemplates (/api/bi/dashboard-templates)
+
+  GET    /                    -- [NEW] List registered templates
+  GET    /:businessType       -- [NEW] Get template by business type
+  POST   /                    -- [NEW] Register a template
+  PATCH  /:id                 -- [NEW] Update a template
+  DELETE /:id                 -- [NEW] Delete a template
+
+5.5 BiNotifications (/api/bi/notifications)
+
+  GET    /                    -- List notifications
+  GET    /unread-count        -- Unread notification count
+  PATCH  /:id/read            -- Mark notification as read
+  POST   /read-all            -- Mark all notifications as read
+
+5.6 BiReviews (/api/bi/reviews + /api/bi/review)
+
+  GET    /                    -- List dashboards pending review (READY_FOR_REVIEW + PUBLISHED)
+
+5.7 BiAnalysis (/api/bi/analysis)
+
+  GET    /                    -- List analysis requests
+  POST   /                    -- Create analysis request
+  POST   /:id/complete        -- Mark analysis as completed with insights
+  GET    /:id                 -- Get single analysis
+
+5.8 BiDebug (/api/bi/debug)
+
+  GET    /warehouse-stats     -- Warehouse row counts per tenant
+  GET    /db-stats            -- Database connection/status info
+
+================================================================================
+6.  BACKEND SERVICES
+================================================================================
+
+6.1 etl-pipeline.js (613 lines)
+
+The core ETL engine. Processes ZIP uploads into the warehouse.
+
+Steps:
+  1. Extract ZIP to temp directory (unzip or adm-zip fallback)
+  2. Read metadata.json (client_id, business_type, schema_version)
+  3. Override clientId with upload.clientId (fixes tenantId mismatch)
+  4. Validate schema version against bi-schema-registry.js
+  5. Validate all CSV datasets (required + optional)
+  6. DB transaction:
+     a. Create/update BiProcessingJob
+     b. Load dimension tables (time, client, product, supplier)
+     c. Load fact tables (sale, inventory, appointment, kitchen_order)
+     d. Mark job + upload as COMPLETED
+     e. Auto-create BiAnalysisRequest (non-fatal)
+  7. On failure: mark upload FAILED, log error
+
+6.2 warehouse-service.js (258 lines)
+
+Query service providing pre-computed analytics. All methods are tenant-isolated.
+
+Methods:
+  - getRevenueByDay(tenantId, days, timezone)
+  - getTopProducts(tenantId, limit)
+  - getInventoryTurnover(tenantId)
+  - getTableTurnover(tenantId)
+  - getKitchenPerformance(tenantId, days)
+  - getAppointmentSummary(tenantId)
+  - getSupplierPerformance(tenantId)
+  - getPeakHours(tenantId, timezone)
+  - getAverageTicket(tenantId, days)
+  - getDashboardSummary(tenantId, businessType, timezone) -- composite
+
+6.3 bi-dashboard-templates.js (92 lines) -- [DEPRECATED]
+
+Legacy JS template definitions for React/Recharts dashboard generation.
+Kept for backward compatibility. The new source of truth is Metabase.
+
+6.4 bi-schema-registry.js (236 lines)
+
+Schema validation: defines expected CSV columns, types, and required datasets
+for ETL import. Version-locked (BI_SCHEMA_VERSION = '1.0.0').
+
+6.5 bi-insight-generator.js (117 lines)
+
+Generates human-readable text insights from warehouse data:
+revenue summaries, top products, inventory alerts, appointment trends.
+
+================================================================================
+7.  FRONTEND (ADMIN)
+================================================================================
+
+7.1 AdminBIDashboardManager.jsx (576 lines)
+
+The main dashboard management page. Features:
+  - Two sections: "Completed Uploads Ready for Dashboards" + "All Dashboards"
+  - Create Dashboard button (per upload, auto-links to Metabase if template exists)
+  - Status workflow buttons: Start, Submit for Review, (awaiting review badge)
+  - "Apercu" button to navigate to dashboard viewer
+  - "Details" button for ETL progress + processing logs modal
+  - "Open in Metabase" button [NEW] -- opens the associated MB dashboard in a new tab
+  - "Dashboard Templates" button [NEW] -- opens template manager modal
+  - Template manager modal [NEW]:
+    - Lists all registered templates with active/inactive status
+    - Open in Metabase, Activate/Deactivate, Delete actions
+    - Register new template form (business type, MB dashboard ID, name, description)
+  - MB # badge showing Metabase dashboard ID on each dashboard card
+  - Template readiness indicator on upload rows
+  - Status filter dropdown
+  - Dashboard Details Modal (ETL progress bar, logs with polling + auto-scroll)
+
+7.2 AdminDashboardViewer.jsx (reduced to ~180 lines) [SIMPLIFIED]
+
+Previously a full chart-rendering page with Recharts and edit config modal.
+Now simplified to show:
+  - Dashboard header (name, status badge, MB # badge, dates)
+  - Metabase link card: "Open in Metabase" button when linked
+  - Dashboard info card (ID, status, client, business type, dates, MB ID)
+  - No chart rendering
+  - No edit config modal
+  - Backward compatible data endpoint still exists at /api/bi/dashboards/:id/data
+
+7.3 BiUploadPortal.jsx (1028 lines)
+
+Upload management page with:
+  - Upload list with status badges
+  - Detail modal (ETL progress bar, logs with polling + auto-scroll)
+  - Generate Dashboard button (calls /generate-from-upload)
+  - Generation Progress Modal (polls dashboard status, shows completion)
+  - Quick admin approval button/modal for walk-in clients
+
+7.4 Other Admin Pages
+
+  - BIRequests.jsx -- BI request management (create, pay, approve/reject, request info)
+  - AdminBIAnalystWorkspace.jsx -- Analysis requests listing
+  - AdminBIAnalysisDetail.jsx -- Individual analysis with insights
+  - AdminBIReview.jsx -- Dashboard review queue (READY_FOR_REVIEW items)
+
+================================================================================
+8.  FRONTEND (CLIENT PORTAL)
+================================================================================
+
+8.1 BIDashboardViewer.tsx (461 lines)
+
+The client-facing dashboard viewer. Features:
+  - List mode: shows all PUBLISHED dashboards for the logged-in client
+  - Detail mode: renders a single dashboard using Recharts
+  - Supports: KPI cards, line charts, bar charts, pie charts, tables
+  - Renders from dashboardConfig JSON (legacy format)
+  - Fetches data from /api/bi/dashboards/:id/data
+  - Sidebar with notifications panel
+  - Mark read / mark all read for notifications
+
+The client viewer currently uses the legacy React/Recharts rendering path.
+The metabaseDashboardId field is stored on each BiDashboard record, ready for
+future Metabase API integration.
+
+================================================================================
+9.  ETL PIPELINE (DETAILED)
+================================================================================
+
+9.1 Trigger
+
+Manual only: POST /api/bi-uploads/:id/start-etl
+Prerequisites:
+  - Upload must have linked BiRequest with status = APPROVED
+  - Upload must not already be COMPLETED or PROCESSING
+
+9.2 Input Format
+
+ZIP file containing:
+  - metadata.json (client_id, business_type, bi_schema_version, enabled_modules)
+  - sales.csv (required)
+  - products.csv (required)
+  - inventory.csv (required)
+  - suppliers.csv (optional)
+  - appointments.csv (optional)
+  - kitchen_orders.csv (optional)
+
+9.3 Processing Steps
+
+Step 1 - Extract: Copies ZIP to temp dir, extracts via unix unzip or adm-zip fallback
+Step 2 - Metadata: Reads metadata.json, overrides clientId with upload.clientId
+Step 3 - Schema Check: Validates bi_schema_version against server registry
+Step 4 - Validate: Checks all CSVs (columns, types, duplicates)
+Step 5 - DB Transaction:
+  5a - Create/update BiProcessingJob (status = PROCESSING)
+  5b - Load dimensions: dim_time (unique dates), dim_client (upsert by tenantId),
+       dim_product (composite PK), dim_supplier (composite PK)
+  5c - Load facts: fact_sale, fact_inventory, fact_appointment, fact_kitchen_order
+  5d - Mark job COMPLETED + upload COMPLETED
+  5e - Auto-create BiAnalysisRequest (non-fatal on failure)
+Step 6 - Cleanup: Delete temp directory (always runs in finally block)
+
+9.4 Error Handling
+
+  - Step tracking via 'step' variable, updated before each stage
+  - On failure: upload set to FAILED with step prefix in errorMessage
+  - BiProcessingJob also marked FAILED
+  - Individual row P2002 (duplicate) errors caught and skipped per fact table
+  - AnalysisRequest creation failure is non-fatal (logged only)
+
+9.5 Tenant Isolation
+
+  - All warehouse INSERTs use metadata.clientId (overridden with upload.clientId)
+  - dim_client upserts by tenantId
+  - All dimension/fact rows include tenantId column
+
+================================================================================
+10.  METABASE INTEGRATION
+================================================================================
+
+10.1 Architecture Decision
+
+The BI module migrated from custom React/Recharts dashboard generation to a
+Metabase Community Edition association model. The key decisions:
+
+  NO:  Programmatic dashboard creation in Metabase (CE API doesn't support it)
+  NO:  Direct SQL inserts into Metabase internal tables (unsupported)
+  NO:  Automatic Metabase configuration
+  YES: BI specialist manually creates dashboards in Metabase UI
+  YES: BiDashboardTemplate registry stores businessType -> metabaseDashboardId
+  YES: generate-from-upload looks up registry and associates the MB ID
+  YES: "Open in Metabase" button links from CarthaPOS admin to MB dashboard
+
+10.2 Current State
+
+  - Metabase CE is installed at metabase/metabase.jar
+  - Metabase uses its own PostgreSQL database ('metabase')
+  - Metabase is configured with MB_PORT=3000, separate from CarthaPOS (3001)
+  - start-metabase.bat starts Metabase with JDK 21
+  - No dashboards have been created in Metabase yet (BI specialist task)
+
+10.3 Template Registry
+
+  - BiDashboardTemplate model stores: businessType, metabaseDashboardId, name
+  - CRUD API at /api/bi/dashboard-templates
+  - Admin UI in the Dashboard Templates modal from AdminBIDashboardManager
+  - Active flag allows enabling/disabling templates without deletion
+  - Dashboard generation auto-resolves template by businessType
+
+10.4 Configuration Required
+
+  Environment variables in backend/.env:
+    - METABASE_BASE_URL=http://localhost:3000
+    - METABASE_DASHBOARD_COLLECTION=1
+
+  Manual steps needed (BI specialist):
+    1. Start Metabase (start-metabase.bat)
+    2. Complete Metabase setup wizard at http://localhost:3000
+    3. Add PostgreSQL warehouse as data source:
+       - Host: localhost, Port: 5432, DB: pos_system
+       - User: metabase_reader (read-only, to be created)
+    4. Create dashboard templates in Metabase for each business type
+    5. Register each template in CarthaPOS via Dashboard Templates modal
+
+10.5 Client Viewing
+
+  The client portal (BIDashboardViewer.tsx) still uses legacy React rendering.
+  The metabaseDashboardId is now stored on each BiDashboard record, ready for
+  a future phase where the backend proxies Metabase API data to the React client.
+
+================================================================================
+11.  WORKFLOW SUMMARY
+================================================================================
+
+11.1 Complete Client Journey
+
+  1. Client submits BI request (POST /api/bi-requests)
+  2. Admin reviews and approves (POST /api/bi-requests/:id/approve)
+  3. Client uploads ZIP file (POST /api/bi-uploads with requestId)
+  4. Admin triggers ETL (POST /api/bi-uploads/:id/start-etl)
+  5. ETL validates and loads data into warehouse
+  6. Admin creates dashboard (POST /api/bi/dashboards/generate-from-upload)
+  7. System looks up BiDashboardTemplate from registry
+  8. BiDashboard created with metabaseDashboardId + status = DRAFT
+  9. Admin opens dashboard in Metabase to customize (if needed)
+  10. Admin sets status = IN_PROGRESS (editing)
+  11. Admin sets status = READY_FOR_REVIEW
+  12. Admin reviews and sets status = PUBLISHED
+  13. Client sees dashboard in their portal (visible in BIDashboardViewer)
+
+11.2 Status Transition Map
+
+  GENERATING -> DRAFT (legacy only)
+  DRAFT -> IN_PROGRESS
+  IN_PROGRESS -> READY_FOR_REVIEW
+  READY_FOR_REVIEW -> PUBLISHED | DRAFT
+  PUBLISHED -> ARCHIVED
+  ARCHIVED -> DRAFT
+  (any) -> FAILED
+
+================================================================================
+12.  TECHNOLOGY STACK
+================================================================================
+
+  Backend:
+    - Node.js v18+ with Express 4
+    - Prisma ORM (PostgreSQL)
+    - PostgreSQL 15 (primary database + warehouse)
+    - multer (file uploads)
+    - adm-zip (ZIP extraction fallback)
+    - helmet, cors, morgan (middleware)
+    - JWT auth (disabled for development, skeleton present)
+
+  Admin Frontend:
+    - React 18 with Vite
+    - shadcn/ui component library (Radix-based)
+    - Tailwind CSS
+    - react-hot-toast (notifications)
+    - lucide-react (icons)
+    - Recharts (legacy chart rendering, kept for backward compat)
+    - axios (api client via src/lib/api.js)
+
+  Client Frontend:
+    - React 18 with TypeScript + Vite
+    - shadcn/ui + Tailwind CSS
+    - Recharts (dashboard chart rendering)
+    - lucide-react
+
+  Metabase:
+    - Metabase Community Edition v1.50+ (metabase.jar)
+    - JDK 21 (Eclipse Adoptium)
+    - PostgreSQL 'metabase' application database
+    - Database drivers for PostgreSQL and others in plugins/
+
+  Infrastructure:
+    - npm (package management)
+    - nodemon (development auto-restart)
+    - Concurrent backend (port 3001) + admin (port 5173) + frontend (port 5174)
+    - Prisma migrate (database migrations)
+
+================================================================================
+13.  CURRENT STATUS & KNOWN ISSUES
+================================================================================
+
+13.1 What Works
+
+  - Full ETL pipeline (ZIP -> warehouse), tested with 25 records in 0.2s
+  - BI request creation + payment + approval/rejection workflow
+  - Manual ETL trigger with progress tracking (polling + logs)
+  - Dashboard generation (looks up template registry, creates BiDashboard)
+  - Dashboard status workflow (DRAFT -> ... -> PUBLISHED)
+  - Notifications (DASHBOARD_GENERATED, DASHBOARD_READY)
+  - BiAnalysisRequest auto-creation after ETL
+  - Admin quick approve for walk-in clients
+  - Tenant isolation via tenantId on warehouse records
+  - Metabase template registry CRUD (API + admin UI)
+  - "Open in Metabase" links from admin dashboard manager
+  - Legacy React/Recharts rendering (backward compat)
+  - Simplified admin dashboard viewer (no chart rendering)
+
+13.2 Known Issues
+
+  1. Prisma schema is incomplete for older BI models
+     - BiUpload, BiRequest, BiAnalysisRequest, BiNotification, BiProcessingJob,
+       and BiProcessingLog models exist in the database but are not defined in
+       the current schema.prisma file. Running prisma db push would drop them.
+     - Workaround: use raw SQL for schema changes; prisma db push is not safe
+     - Fix: add all BI models to schema.prisma
+
+  2. Prisma schema has zone.tab file error
+     - Running prisma db push fails with a zone.tab error
+     - Workaround: apply schema changes via raw SQL in psql
+     - Affects: adding new columns/models requires manual SQL
+
+  3. DB unique constraints missing
+     - The database lacks unique constraints defined in Prisma schema
+     - ETL pipeline uses findFirst + create/update instead of upsert
+     - Affects: potential duplicate rows if ETL re-runs
+
+  4. Metabase dashboards not yet created
+     - Template registry exists but no Metabase dashboards exist yet
+     - Manual step: BI specialist must create dashboards in Metabase UI
+     - Until then, generate-from-upload creates BiDashboard without MB link
+
+  5. Client portal still uses legacy React rendering
+     - BIDashboardViewer.tsx renders from dashboardConfig JSON
+     - metabaseDashboardId is stored but not yet used for client display
+     - Future: implement Metabase API proxy for client card data
+
+  6. JWT authentication is disabled
+     - All routes are publicly accessible
+     - auth middleware exists but is commented out in server.js
+     - Must be re-enabled before production
+
+  7. No read-only database user for Metabase yet
+     - Metabase currently connects as 'postgres' superuser
+     - Should use metabase_reader with SELECT-only grants
+
+  8. No per-tenant PostgreSQL schemas for Metabase
+     - Metabase CE has no row-level security
+     - Per-tenant views/schemas would be needed for production isolation
+     - Current setup works because all queries filter by tenantId
+
+13.3 Deprecated Code
+
+  - backend/services/bi-dashboard-templates.js: Legacy JS templates, kept for
+    backward compatibility. New dashboards no longer use it.
+  - dashboardConfig JSON on BiDashboard: Legacy config storage. New dashboards
+    set it to {} but still populate the field.
+  - generationSteps JSON on BiDashboard: Legacy generation progress. New
+    dashboard generation is synchronous (no background process).
+  - AdminDashboardViewer chart rendering: Removed. Now just shows dashboard info.
+  - Chart components (DashboardLineChart, DashboardBarChart, DashboardPieChart):
+    Kept for backward compat in BIDashboardViewer (client portal).
+
+================================================================================
+END OF REPORT
+================================================================================

@@ -116,6 +116,26 @@ function mapKitchenOrderRows(rows) {
   return rows.map(mapKitchenOrderRow);
 }
 
+function mapKitchenOrderItemRow(row) {
+  return {
+    kitchen_order_item_id: row.kitchen_order_item_id ?? null,
+    order_id:              row.order_id ?? null,
+    sale_id:               row.sale_id ?? null,
+    product_id:            row.product_id ?? null,
+    product_name:          row.product_name ?? '',
+    quantity:              row.quantity ?? 1,
+    unit_price:            row.unit_price ?? 0,
+    line_total:            row.line_total ?? 0,
+    department:            row.department ?? null,
+    preparation_time:      row.preparation_time ?? null,
+    created_at:            row.created_at ?? null,
+  };
+}
+
+function mapKitchenOrderItemRows(rows) {
+  return rows.map(mapKitchenOrderItemRow);
+}
+
 function mapStockMovementRow(row) {
   return {
     movement_id:     row.id ?? null,
@@ -308,20 +328,6 @@ function mapInventoryRows(rows) {
   return rows.map(mapInventoryRow);
 }
 
-function mapCategoryRow(row) {
-  return {
-    category_id:  row.id ?? null,
-    name:         row.name ?? '',
-    description:  row.description ?? null,
-    color:        row.color ?? null,
-    created_at:   row.created_at ?? null,
-  };
-}
-
-function mapCategoryRows(rows) {
-  return rows.map(mapCategoryRow);
-}
-
 function mapProductFamilyRow(row) {
   return {
     family_id:   row.id ?? null,
@@ -428,6 +434,51 @@ function mapServiceRows(rows) {
   return rows.map(mapServiceRow);
 }
 
+function mapAuditLogRow(row) {
+  const analyticalActions = new Set([
+    'USER_CREATE', 'USER_UPDATE', 'USER_DELETE',
+    'CUSTOMER_CREATE', 'CUSTOMER_UPDATE',
+    'SUPPLIER_CREATE', 'SUPPLIER_UPDATE',
+    'SHIFT_CLOSE',
+    'SETTINGS_UPDATE', 'SETTINGS_IMPORT',
+    'FAMILY_MOVE', 'FAMILY_CREATE', 'FAMILY_DELETE',
+  ]);
+  const action = row.action_type || '';
+  const keepValues = analyticalActions.has(action);
+
+  return {
+    log_id:      row.id ?? null,
+    timestamp:   row.timestamp ?? null,
+    user_id:     row.user_id ?? null,
+    user_name:   row.user_name ?? null,
+    action_type: action,
+    entity_type: row.entity_type ?? null,
+    entity_id:   row.entity_id ?? null,
+    old_value:   keepValues ? (row.old_value ?? null) : null,
+    new_value:   keepValues ? (row.new_value ?? null) : null,
+    ip_address:  row.ip_address ?? null,
+    notes:       row.notes ?? null,
+  };
+}
+
+function mapAuditLogRows(rows) {
+  return rows.map(mapAuditLogRow);
+}
+
+function mapVatRateRow(row) {
+  return {
+    vat_rate_id: row.id ?? null,
+    name:        row.name ?? '',
+    rate:        row.rate ?? 0,
+    is_active:   row.is_active ?? 1,
+    created_at:  row.created_at ?? null,
+  };
+}
+
+function mapVatRateRows(rows) {
+  return rows.map(mapVatRateRow);
+}
+
 // ═══════════════════════════════════════════════════════════════════════════════
 // DISPATCH MAP — Used by the handler to call mappers by name
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -438,10 +489,10 @@ const MAPPER_DISPATCH = {
   mapProductRows,
   mapCustomerRows,
   mapInventoryRows,
-  mapCategoryRows,
   mapProductFamilyRows,
   mapTableRows,
   mapKitchenOrderRows,
+  mapKitchenOrderItemRows,
   mapKitchenDepartmentRows,
   mapTableReservationRows,
   mapSupplierRows,
@@ -451,6 +502,8 @@ const MAPPER_DISPATCH = {
   mapShiftRows,
   mapCashDrawerEventRows,
   mapZReportRows,
+  mapAuditLogRows,
+  mapVatRateRows,
 };
 
 function getMapper(mapperName) {
@@ -467,10 +520,10 @@ module.exports = {
   mapProductRow, mapProductRows,
   mapCustomerRow, mapCustomerRows,
   mapInventoryRow, mapInventoryRows,
-  mapCategoryRow, mapCategoryRows,
   mapProductFamilyRow, mapProductFamilyRows,
   mapTableRow, mapTableRows,
   mapKitchenOrderRow, mapKitchenOrderRows,
+  mapKitchenOrderItemRow, mapKitchenOrderItemRows,
   mapKitchenDepartmentRow, mapKitchenDepartmentRows,
   mapTableReservationRow, mapTableReservationRows,
   mapSupplierRow, mapSupplierRows,
@@ -480,4 +533,6 @@ module.exports = {
   mapShiftRow, mapShiftRows,
   mapCashDrawerEventRow, mapCashDrawerEventRows,
   mapZReportRow, mapZReportRows,
+  mapAuditLogRow, mapAuditLogRows,
+  mapVatRateRow, mapVatRateRows,
 };

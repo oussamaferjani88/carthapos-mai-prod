@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useRef, useState, useEffect } from 'react';
 import { DndProvider } from 'react-dnd';
 import { HTML5Backend } from 'react-dnd-html5-backend';
 import { DragDropProvider } from '../../../contexts/DragDropContext';
@@ -99,6 +99,30 @@ export default function POSRealtimePreview({
   const handleOpenReceiptDesigner = () => setViewMode('receipt');
   const handleCloseReceiptDesigner = () => setViewMode('pos');
 
+  // Largeur de conception du POS réel (~1366px plein écran). En dessous de
+  // cette largeur, l'aperçu est mis à l'échelle pour rester proportionnel au
+  // conteneur (évite des éléments trop grands par rapport à la taille du cadre).
+  const DESIGN_WIDTH = 1366;
+  const containerRef = useRef(null);
+  const [fitScale, setFitScale] = useState(1);
+
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    const update = () => {
+      const width = el.clientWidth || 0;
+      setFitScale(Math.max(0.45, Math.min(1, width / DESIGN_WIDTH)));
+    };
+    update();
+    if (typeof ResizeObserver !== 'undefined') {
+      const observer = new ResizeObserver(update);
+      observer.observe(el);
+      return () => observer.disconnect();
+    }
+    window.addEventListener('resize', update);
+    return () => window.removeEventListener('resize', update);
+  }, []);
+
   // Configuration du scale selon le device
   const getScaleConfig = () => {
     switch (previewDevice) {
@@ -108,7 +132,7 @@ export default function POSRealtimePreview({
         return { scale: 0.8, width: '125%', height: '125%' };
       case 'desktop':
       default:
-        return { scale: 1.0, width: '100%', height: '100%' };
+        return { scale: fitScale, width: `${(1 / fitScale) * 100}%`, height: `${(1 / fitScale) * 100}%` };
     }
   };
 
@@ -118,10 +142,11 @@ export default function POSRealtimePreview({
     <DragDropProvider>
       <DndProvider backend={HTML5Backend}>
         <div
+          ref={containerRef}
           style={{
             width: '100%',
             height: '100%',
-            minHeight: '600px',
+            minHeight: '400px',
             background: '#f8fafc',
             borderRadius: '12px',
             overflow: 'hidden',
@@ -135,9 +160,12 @@ export default function POSRealtimePreview({
             boxSizing: 'border-box'
           }}
         >
-          {/* Conteneur principal */}
+          {/* Conteneur principal — flex:0 0 auto (pas de flex-grow) pour que la
+              hauteur compensée ((1/scale)*100%) soit respectée : le contenu
+              non-scalé est plus grand que le conteneur puis réduit par le
+              scale pour remplir exactement 100% de la hauteur. */}
           <div style={{ 
-            flex: 1, 
+            flex: '0 0 auto', 
             minHeight: '100%',
             minWidth: 0, 
             overflow: 'hidden',

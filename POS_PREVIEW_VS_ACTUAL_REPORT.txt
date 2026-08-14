@@ -1,0 +1,209 @@
+================================================================================
+CARTHAPOS — RAPPORT DE COMPARAISON
+Aperçu POS (Admin Customizer)  vs  POS réel (Electron / pos-template)
+================================================================================
+Date      : 14/08/2026
+Objet     : Vérifier que l'aperçu "live" de la phase 3 (Personalisation) du
+            customizer admin reflète fidèlement le POS Electron généré.
+
+--------------------------------------------------------------------------------
+1. VUE D'ENSEMBLE
+--------------------------------------------------------------------------------
+- Aperçu admin :  D:\Carthapos\admin\src\components\pos\preview\
+  Pure vitrine React + Tailwind v4, données DÉMO statiques, aucun accès
+  Electron/SQLite. But : montrer la structure finale (shell + pages).
+- POS réel     :  D:\Carthapos\pos-template\
+  Electron + React 18 + Vite + Tailwind, HashRouter, pages lazy, IPC SQLite
+  en production / mode "preview" (mock) dans le navigateur.
+- Le préfixe "POS" des modules admin correspond aux composants préfixés
+  "POS" / pages du POS réel. C'est le miroir visuel.
+
+--------------------------------------------------------------------------------
+2. SECTION A — APERÇU POS DE L'ADMIN (admin preview)
+--------------------------------------------------------------------------------
+A1. Coquille (shell) — components/pos/preview/
+    - POSRealtimePreview.jsx : enveloppe de la prévisualisation temps réel.
+    - POSPreview.jsx         : cadre principal → barre de navigation + header
+                               + contenu + footer (Bouclier, "Powered by
+                               {businessName}", Version 2.1.0, horloge live,
+                               pastille verte "En ligne").
+    - POSNavbar.jsx          : barre latérale = miroir de POSNavbar réel
+                               (icônes + libellés, section par section).
+    - POSHeader.jsx          : en-tête (recherche, boutique, utilisateur).
+    - POSContent.jsx         : conteneur qui rend le module actif selon le
+                               sous-onglet sélectionné (mapping registre).
+    - ReceiptDesignerPreview.jsx : aperçu du ticket de caisse.
+    - index.js               : exports groupés.
+
+A2. Modules — components/pos/preview/modules/  (27 .jsx + index.js)
+    (✓ = enregistré dans le registre, ✗ = non enregistré, sous-composant Ventes)
+    1.  POSDashboard.jsx            ✓ Tableau de bord — miroir de Dashboard.jsx
+                                   (header "Bonjour ! 👋", date + horloge live,
+                                    badge "Caisse ouverte — Démo", 6 KPI,
+                                    graphique recharts Semaine/Mois/Année,
+                                    Meilleures ventes, Santé du business,
+                                    Inventaire, Caisse, table transactions
+                                    Espèces/Carte).
+    2.  POSSales.jsx                ✓ Ventes — miroir de Sales.jsx (panier 300px
+                                    à gauche + grille produits, recherche,
+                                    encaissement).
+    3.  POSProducts.jsx             ✓ Produits — CRUD produits, code-barres,
+                                    import, scan, filtre.
+    4.  POSInventory.jsx            ✓ Stocks — mouvements, alertes, ajustements.
+    5.  POSTables.jsx               ✓ Tables — plan de salle, occupation.
+    6.  POSMenuManagement.jsx       ✓ Menu — catégories/plats (Entrées, Plats
+                                    principaux…), ordre, actif/inactif.
+    7.  POSCustomers.jsx            ✓ Clients — carnet, fidélité, notes.
+    8.  POSReports.jsx              ✓ Rapports — graphiques recharts
+                                    (barres + camembert), période.
+    9.  POSSettings.jsx             ✓ Paramètres — onglets boutique, sécurité,
+                                    apparence, imprimante, infos.
+    10. POSMultiStore.jsx           ✓ Multi-Magasins — magasins, stocks,
+                                    ventes, transferts.
+    11. POSTransfers.jsx            ✓ Transferts — entre magasins.
+    12. POSVariants.jsx             ✓ Variantes — produits à variantes
+                                    (couleur/taille/prix).
+    13. POSPromotions.jsx           ✓ Promotions — % / montant fixe.
+    14. POSSplitPayments.jsx        ✓ Paiements Multiples — fractionnement
+                                    Espèces/Carte/Smartphone/Carte cadeau.
+    15. POSTaxManagement.jsx        ✓ Gestion TVA — taux 20/10/5,5%.
+    16. POSOfflineMode.jsx          ✓ Mode Hors Ligne — sync pending.
+    17. POSEmployeeManagement.jsx   ✓ Personnel — employés, statut, primes.
+    18. POSWeightScale.jsx          ✓ Balance — produits au kg, connexion.
+    19. POSSerialBatch.jsx          ✓ Séries & Lots — n° de série.
+    20. POSLayaway.jsx              ✓ Réservations (mise de côté).
+    21. POSRental.jsx               ✓ Location — équipement à la journée.
+    22. POSUserManagement.jsx       ✓ Utilisateurs — rôles, modules, badges.
+    23. POSCaisse.jsx               ✗ Tiroir-caisse (ouverture, clôture, Z).
+    24. POSCalculator.jsx           ✗ Calculatrice (utilisée par la Vente).
+    25. POSCart.jsx                 ✗ Panier (utilisé par la Vente).
+    26. POSQuickActions.jsx         ✗ Actions rapides (client, stats, tiroir…).
+    27. POSTools.jsx                ✗ Outils (scan, remise, suspend, recherche).
+
+A3. Registre & helpers
+    - constants/POSComponentRegistry.jsx : 22 entrées enregistrées (ordre 9
+      sauté volontairement) ; isComponentAvailable() = correspondance
+      sous-chaîne bidirectionnelle (label FR ↔ module), donc les libellés
+      français déverrouillent les pages.
+    - config/POSConfiguration.js : getStyles, getGlassEffect,
+      getAnimationClasses, getLayoutClasses, getCard/Button classes,
+      getStyleVars… (miroir de lib/POSConfiguration.js du POS réel).
+    - contexts/DragDropContext.jsx : context d'ordre des sections.
+      (Drag & Drop délibérément RETIRÉ de l'UI : états, DEVICES,
+       DragDropManager, nav "Drag" supprimés — seul reste un bouton
+       Actualiser flottant en haut à droite.)
+
+--------------------------------------------------------------------------------
+3. SECTION B — POS RÉEL (pos-template)
+--------------------------------------------------------------------------------
+B1. Coquille — components/
+    - Layout.jsx          : assemblage global POSNavbar + POSHeader +
+                            POSContent + footer (horloge, "En ligne",
+                            version 2.1.0, icône Bouclier).
+    - POSNavbar.jsx       : navigation latérale (23 entrées registre).
+    - POSHeader.jsx       : en-tête (boutique, utilisateur).
+    - POSContent.jsx      : rendu de la page active.
+
+B2. Pages — pages/ (27)
+    Dashboard, Sales, Products, Inventory, Customers, Reports, Settings,
+    Tables, Kitchen, MenuManagement, Appointments, Services, PaymentAdvanced,
+    GiftCards, Prescription, Production, Suppliers, Barcode, QuickService,
+    Takeaway, Loyalty, CashRegister, HardwareSettings, SecuritySettings,
+    SystemDiagnostics, UserAdmin, ReceiptDesigner.
+
+B3. Composants métier — components/ (24)
+    POSWithAuth, LockScreen, AuthKeyboard, VirtualKeyboard, SetupWizard,
+    ThemeWrapper, LicenseCheck, ProtectedRoute, AdminOnlyRoute, DebugPanel,
+    ErrorBoundary, UserSelectScreen, NumericKeypad, CategoryIconPicker,
+    ProductBulkToolbar, ProductFormDialog, ProductQuickView,
+    ProductTableView, UserManagementAdvanced, BiExportModal + ui/.
+
+B4. Contexte / hooks / lib / utils
+    - contexts/  : AuthContext, UserContext
+    - hooks/     : useAppConfig, useLicense, usePerformance, useSettings,
+                   useThemeApplier, use-toast, use-mobile
+    - lib/       : POSComponentRegistry.jsx (23 entrées), POSConfiguration.js,
+                   hardware/, keyboard/, notifications/, system/, utils.js
+    - utils/     : activityLog, currency, debug, environment, imageSettings
+
+--------------------------------------------------------------------------------
+4. SECTION C — TABLEAU DE CORRESPONDANCE MODULES/PAGES
+--------------------------------------------------------------------------------
+Registre réel (23)              Aperçu admin (22)              Statut
+------------------------------  -----------------------------  --------
+Tableau de bord                 POSDashboard                   Miroir fidèle ✓
+Ventes                          POSSales                       Miroir fidèle ✓
+Produits                        POSProducts                    Miroir fidèle ✓
+Stocks                          POSInventory                   Miroir fidèle ✓
+Tables                          POSTables                      Miroir fidèle ✓
+Menu                            POSMenuManagement              Miroir fidèle ✓
+Clients                         POSCustomers                   Miroir fidèle ✓
+Rapports                        POSReports                     Miroir fidèle ✓
+Utilisateurs (UserAdmin)        POSUserManagement              Miroir fidèle ✓
+Paramètres                      POSSettings                    Miroir fidèle ✓
+Code-barres                     —                              NON couvert (Barcode)
+Service rapide                  —                              NON couvert
+Vente à emporter                —                              NON couvert
+Fidélité (Loyalty)              —                              NON couvert
+Cuisine (Kitchen)               —                              NON couvert
+Rendez-vous (Appointments)      —                              NON couvert
+Services                        —                              NON couvert
+Paiements avancés               —                              NON couvert
+Cartes cadeaux                  —                              NON couvert
+Ordonnances                     —                              NON couvert
+Production                      —                              NON couvert
+Fournisseurs                    —                              NON couvert
+Matériel (Hardware/Sec/Diag)    —                              NON couvert
+                                POSMultiStore                  Uniqt admin (sans réel)
+                                POSTransfers                   Uniqt admin
+                                POSVariants                    Uniqt admin
+                                POSPromotions                  Uniqt admin
+                                POSSplitPayments               Uniqt admin
+                                POSTaxManagement               Uniqt admin
+                                POSOfflineMode                 Uniqt admin
+                                POSEmployeeManagement          Uniqt admin
+                                POSWeightScale                 Uniqt admin
+                                POSSerialBatch                 Uniqt admin
+                                POSLayaway                     Uniqt admin
+                                POSRental                      Uniqt admin
+
+→ 10 pages partagées, 13 pages du POS réel absentes de l'aperçu,
+  12 modules de l'aperçu sans page équivalente dans le POS réel.
+
+--------------------------------------------------------------------------------
+5. SECTION D — ALIGNEMENT DU DESIGN
+--------------------------------------------------------------------------------
+- Palette      : seul l'accent bleu est utilisé ; en-tête neutre foncé ;
+                 espace de travail gris clair ; espacement compact.
+- Dashboard    : l'aperçu reprend 1:1 la mise en page de Dashboard.jsx du POS
+                 réel (salutation, horloge, 6 KPI, graphique, panneaux).
+- Footer       : identique au POS réel (Bouclier, nom de la boutique,
+                 Version 2.1.0, horloge, "En ligne").
+- Navigation   : même structure et libellés français que POSNavbar réel.
+- Données      : l'aperçu utilise des données DÉMO statiques, le POS réel
+                 utilise SQLite (IPC) en production.
+
+--------------------------------------------------------------------------------
+6. SECTION E — DIFFÉRENCES NOTABLES & LIMITES
+--------------------------------------------------------------------------------
+1. 13 modules du POS réel n'ont pas de miroir dans l'aperçu admin
+   (Barcode, QuickService, Takeaway, Loyalty, Kitchen, Appointments,
+   Services, PaymentAdvanced, GiftCards, Prescription, Production,
+   Suppliers, Hardware/Security/SystemDiagnostics).
+2. 12 modules d'aperçu n'existent que côté admin (extensions prévues :
+   MultiStore, Transferts, Variantes, Promotions, SplitPayments, TVA,
+   Hors Ligne, Personnel, Balance, Séries & Lots, Réservations, Location).
+3. 5 modules admin (Caisse, Calculator, Cart, QuickActions, Tools) ne sont
+   PAS enregistrés dans le registre — ce sont des sous-composants de la
+   page Ventes uniquement.
+4. L'aperçu est 100 % statique/démo ; aucune donnée réelle, aucun
+   IPC/SQLite, aucune authentification.
+5. Le Drag & Drop et le switch Desktop/Tablette/Mobile ont été retirés
+   de l'UI (souhait utilisateur) ; seul le bouton Actualiser flottant
+   subsiste comme contrôle de prévisualisation.
+6. L'ordre de navigation admin place "Marque" en premier, puis "Thème"
+   (l'onglet par défaut du customizer est 'brand').
+
+--------------------------------------------------------------------------------
+FIN DU RAPPORT
+================================================================================

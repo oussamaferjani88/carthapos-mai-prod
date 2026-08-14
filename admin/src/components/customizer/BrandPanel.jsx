@@ -13,28 +13,28 @@ const BrandPanel = ({ formData, setFormData }) => {
   };
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-4">
       {/* Logo */}
-      <div className="space-y-2">
-        <Label className="text-sm font-medium flex items-center gap-2">
-          <Image className="w-4 h-4" />
+      <div className="space-y-1.5">
+        <Label className="text-xs font-medium flex items-center gap-1.5">
+          <Image className="w-3.5 h-3.5 text-muted-foreground" />
           Logo du commerce
         </Label>
         {formData.configuration.logo ? (
-          <div className="flex items-center gap-3 p-3 rounded-lg border bg-accent/5">
+          <div className="flex items-center gap-2.5 p-2 rounded-md border border-border bg-white">
             <img
               src={formData.configuration.logo}
               alt="Logo"
-              className="w-10 h-10 rounded-lg object-cover border border-border shadow-sm"
+              className="w-8 h-8 rounded-md object-cover border border-border shrink-0"
             />
-            <div className="flex-1">
-              <p className="text-sm font-medium">Logo téléchargé</p>
-              <p className="text-xs text-muted-foreground">Apparaîtra dans l'en-tête du POS</p>
+            <div className="flex-1 min-w-0">
+              <p className="text-xs font-medium">Logo téléchargé</p>
+              <p className="text-[11px] text-muted-foreground">Apparaîtra dans l'en-tête du POS</p>
             </div>
             <button
               type="button"
               onClick={() => handleChange('logo', '')}
-              className="text-sm text-red-600 hover:text-red-800 hover:underline"
+              className="text-[11px] text-red-600 hover:text-red-800 hover:underline shrink-0"
             >
               Supprimer
             </button>
@@ -56,41 +56,41 @@ const BrandPanel = ({ formData, setFormData }) => {
                   reader.readAsDataURL(file);
                 }
               }}
-              className="h-10 text-transparent file:hidden"
+              className="h-9 text-transparent file:hidden"
             />
             <div className="absolute inset-0 flex items-center justify-center bg-accent/30 rounded-md border-2 border-dashed border-border pointer-events-none">
               <div className="flex items-center gap-2 text-muted-foreground">
-                <Upload className="w-4 h-4" />
-                <span className="text-sm">Glissez ou cliquez pour un logo</span>
+                <Upload className="w-3.5 h-3.5" />
+                <span className="text-xs">Cliquez pour choisir un logo</span>
               </div>
             </div>
           </div>
         )}
-        <p className="text-[11px] text-muted-foreground">PNG ou JPG. Max 2MB. 128x128px idéal.</p>
+        <p className="text-[10px] text-muted-foreground">PNG ou JPG. Max 2MB. 128x128px idéal.</p>
       </div>
 
       {/* Business Name */}
-      <div className="space-y-2">
-        <Label htmlFor="businessName" className="text-sm font-medium">Nom du commerce *</Label>
+      <div className="space-y-1.5">
+        <Label htmlFor="businessName" className="text-xs font-medium">Nom du commerce *</Label>
         <Input
           id="businessName"
           value={formData.configuration.businessName || ''}
           onChange={(e) => handleChange('businessName', e.target.value)}
           placeholder="Ex: Restaurant Le Gourmet"
-          className="h-10"
+          className="h-9"
           required
         />
       </div>
 
       {/* App Title */}
-      <div className="space-y-2">
-        <Label htmlFor="appTitle" className="text-sm font-medium">Titre de l'application</Label>
+      <div className="space-y-1.5">
+        <Label htmlFor="appTitle" className="text-xs font-medium">Titre de l'application</Label>
         <Input
           id="appTitle"
           value={formData.configuration.appTitle || ''}
           onChange={(e) => handleChange('appTitle', e.target.value)}
           placeholder="Titre affiché dans l'onglet du navigateur"
-          className="h-10"
+          className="h-9"
         />
       </div>
 

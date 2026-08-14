@@ -1,0 +1,865 @@
+# POS GENERATOR DEEP UI/UX AUDIT
+## Line-by-Line Component Comparison
+### Admin (Master Reference) vs Frontend (Target)
+
+Generated: 2026-07-09
+
+================================================================================
+                              EXECUTIVE SUMMARY
+================================================================================
+
+Total components compared: 34 component pairs
+Admin-only components: 10
+Frontend-only components: 1
+Can be copied verbatim: 8
+Should be merged/adapted: 13
+Should remain different (architecture): 3
+Should be created from scratch: 10
+
+UI Parity Score (weighted): 51%
+- Simple form components: 95% parity
+- Step orchestration: 40% parity
+- Customizer sub-components: 25% parity
+- Preview components: 60% parity
+- Hooks/services: 50% parity
+
+================================================================================
+          1. DEPENDENCY TREE — ADMIN POS GENERATOR
+================================================================================
+
+POSGeneratorPage.jsx (pages/pos/)
+├── Step1BasicConfig.jsx (generator/)
+│   ├── ClientSelector.jsx (forms/)
+│   └── SectorSelector.jsx (forms/)
+├── Step2ModuleSelection.jsx (generator/)
+│   └── ModuleGrid.jsx (forms/)
+├── Step4License.jsx (generator/)
+│   └── LicenseConfigurator.jsx (forms/)
+├── Step5Results.jsx (generator/)
+├── POSCustomizer.jsx (pos/customizer/)
+│   ├── CustomizerHeader.jsx (customizer/)
+│   ├── CustomizerNavigation.jsx (customizer/)
+│   ├── ThemeSelector.jsx (customizer/)
+│   ├── ColorPaletteEditor.jsx (customizer/)
+│   ├── TypographyEditor.jsx (customizer/)
+│   ├── VisualEffectsEditor.jsx (customizer/)
+│   ├── LayoutEditor.jsx (customizer/)
+│   ├── DragDropManager.jsx (customizer/)
+│   └── AdvancedSettings.jsx (customizer/)
+├── POSRealtimePreview.jsx (preview/)
+│   ├── POSPreview.jsx (preview/)
+│   │   ├── POSNavbar.jsx (preview/)
+│   │   ├── POSContent.jsx (preview/)
+│   │   └── POSHeader.jsx (preview/)
+│   ├── POSPreviewPage.jsx (pages/pos/) ← WRAPPER
+│   │   └── POSWithAuth.jsx (common/) ← WRAPPER
+│   │       └── POSPreview (above)
+│   ├── ReceiptDesignerPreview.jsx (preview/)
+│   └── ErrorBoundary.jsx (common/)
+└── POSGenerationProgress.jsx (generation/)
+
+SUPPORTING FILES:
+- hooks/usePOSGenerator.js
+- hooks/usePOSConfiguration.js (not directly imported — embedded)
+- config/POSConfiguration.js
+- constants/POSComponentRegistry.jsx
+- utils/posPreviewUtils.js
+- lib/utils.js (cn())
+- contexts/DragDropContext.jsx
+- contexts/AccessModeContext.jsx
+- contexts/AuthContext.jsx
+- components/drag-drop/DraggableComponent.jsx
+
+================================================================================
+         2. DEPENDENCY TREE — FRONTEND POS GENERATOR
+================================================================================
+
+POSGeneratorPage.tsx (pages/pos/)
+├── Step1BasicConfig.tsx (generator/)
+│   ├── ClientSelector.tsx (forms/)
+│   └── SectorSelector.tsx (forms/)
+├── Step2ModuleSelection.tsx (generator/)
+│   └── ModuleGrid.tsx (forms/)
+├── Step3TemplateChoice.tsx (generator/)
+├── Step4License.tsx (generator/)
+│   └── LicenseConfigurator.tsx (forms/)
+├── Step5Results.tsx (generator/)
+├── POSCustomizer.tsx (pos/customizer/) ← ALL INLINE
+│   ├── ThemeSelector (inline)
+│   ├── ColorPaletteEditor (inline)
+│   ├── TypographyEditor (inline)
+│   ├── VisualEffectsEditor (inline)
+│   ├── LayoutEditor (inline)
+│   └── AdvancedSettings (inline)
+├── POSRealtimePreview.tsx (preview/)
+│   ├── POSPreview.tsx (preview/)
+│   │   ├── POSNavbar.tsx (preview/)
+│   │   ├── POSContent.tsx (preview/)
+│   │   └── POSHeader.tsx (preview/)
+│   └── ReceiptDesignerPreview.tsx (preview/)
+└── POSGenerationProgress.tsx (generation/)
+
+SUPPORTING FILES:
+- hooks/usePOSGenerator.ts
+- config/POSConfiguration.ts
+- constants/POSComponentRegistry.tsx
+- utils/posPreviewUtils.ts
+- contexts/AccessModeContext.tsx
+
+================================================================================
+     3. COMPONENTS THAT EXIST ONLY IN ADMIN
+================================================================================
+
+1. customizer/CustomizerHeader.jsx         — Dedicated header with Reset/Cancel/Save + export/import
+2. customizer/CustomizerNavigation.jsx     — Icon-based main tabs + sub-tabs with styled buttons
+3. customizer/ThemeSelector.jsx            — Card-based theme picker with descriptions, "Actuel" badge, tip box
+4. customizer/ColorPaletteEditor.jsx       — Card-based with 6 fields, hex input + color picker, descriptions
+5. customizer/TypographyEditor.jsx         — Card-based with Slider component, Select, debug box
+6. customizer/VisualEffectsEditor.jsx      — Card-based with shadow intensity, nav animation type/speed, card animation type/speed, effect switches
+7. customizer/LayoutEditor.jsx             — 4-tab (General, Components, Grid, Forms), sliders, selects, switches
+8. customizer/DragDropManager.jsx          — Drag & drop activation with instructions
+9. customizer/AdvancedSettings.jsx         — Business info, logo upload, localization, performance, custom CSS
+10. drag-drop/DraggableComponent.jsx       — Wrapper for drag-drop functionality
+11. common/ErrorBoundary.jsx               — React error boundary
+12. common/POSWithAuth.jsx                 — Auth wrapper for preview
+13. pages/pos/POSPreviewPage.jsx           — Preview page wrapper with auth
+14. contexts/DragDropContext.jsx           — Drag & drop context provider
+15. lib/utils.js (cn function)            — Tailwind class merging utility
+
+================================================================================
+     4. COMPONENTS THAT EXIST ONLY IN FRONTEND
+================================================================================
+
+1. generator/Step3TemplateChoice.tsx       — Template vs custom choice (Admin inlines this in POSGeneratorPage.jsx as step 2.5)
+   NOTE: Admin does have this logic but inline in the page file, not as a separate component
+
+================================================================================
+       5. COMPONENTS THAT CAN BE COPIED VERBATIM
+================================================================================
+
+1. forms/ClientSelector.jsx → ClientSelector.tsx
+   - 99% identical (only TypeScript types added)
+   - Can copy with minor TS type additions
+
+2. forms/SectorSelector.jsx → SectorSelector.tsx
+   - 99% identical (only TypeScript types added)
+   - Can copy with minor TS type additions
+
+3. forms/ModuleGrid.jsx → ModuleGrid.tsx
+   - 99% identical (only TypeScript types added + formatting)
+   - Can copy with minor TS type additions
+
+4. generator/Step2ModuleSelection.jsx → Step2ModuleSelection.tsx
+   - 100% identical (only TypeScript interface added)
+   - Can copy verbatim
+
+5. generation/POSGenerationProgress.jsx → POSGenerationProgress.tsx
+   - 98% identical (only TypeScript types, one icon difference: Admin uses `Code` for build, Frontend uses `Loader2`)
+   - Can copy with minor adjustments
+
+6. preview/ReceiptDesignerPreview.jsx → ReceiptDesignerPreview.tsx
+   - 98% identical (only TypeScript types added)
+   - Can copy with minor TS type additions
+
+7. generator/Step4License.jsx → Step4License.tsx
+   - 100% identical logic (Frontend uses spread {...props} which is equivalent)
+   - Can copy verbatim
+
+8. config/POSConfiguration.js → POSConfiguration.ts
+   - Nearly identical (only TypeScript types added)
+   - Can copy with minor TS type additions
+
+================================================================================
+       6. COMPONENTS THAT SHOULD BE MERGED
+================================================================================
+
+1. forms/LicenseConfigurator.jsx → LicenseConfigurator.tsx
+   - Admin: imports Button, Checkbox (unused)
+   - Frontend: has forcePortableMode/onForcePortableModeChange props that Admin doesn't have
+   - Merge: take Admin's structure, remove dead Button/Checkbox imports, add Frontend's TS types
+
+2. generator/Step1BasicConfig.jsx → Step1BasicConfig.tsx
+   - Same structure, Admin has additional jsdoc comment
+   - Merge: keep Frontend's TS interface, take Admin's structure
+
+3. generator/Step5Results.jsx → Step5Results.tsx
+   - Admin has `checkingStatus` and `downloadFailed` state vars (not in Frontend)
+   - Admin has `Trash2` import (unused)
+   - Frontend has slightly cleaner onClick handler in fallback download
+   - Merge: remove dead Trash2 from Admin, keep both states
+
+4. preview/POSRealtimePreview.jsx → POSRealtimePreview.tsx
+   - Admin wraps in DragDropProvider + DndProvider + ErrorBoundary
+   - Admin uses POSPreviewPage (wraps in auth) instead of direct POSPreview
+   - Frontend has none of these wrappers
+   - Merge: decide if wrappers are needed
+
+5. preview/POSNavbar.jsx → POSNavbar.tsx
+   - Admin wraps in DraggableComponent with visibility/drag-mode logic
+   - Admin has cn() utility for conditional classnames
+   - Frontend is simpler, no DraggableComponent wrapper
+   - Frontend uses literal className strings instead of cn()
+   - Merge: restore DraggableComponent, cn(), conditional visibility
+
+6. preview/POSContent.jsx → POSContent.tsx
+   - Admin: uses cn(), animationClasses, animationTypeClass, animationSpeedClass
+   - Admin has notification toast with ShoppingCart icon
+   - Frontend: missing cn(), missing animation class helpers, missing ShoppingCart notification
+   - Merge: add missing animation classes and notification toast
+
+7. preview/POSHeader.jsx → POSHeader.tsx
+   - Admin: uses cn(), animationTypeClass, animationSpeedClass, glass effect CSS class
+   - Admin: has logout button with LogOut icon
+   - Frontend: missing logout button, missing animation classes, missing cn()
+   - Merge: add logout button, animation classes
+
+8. preview/POSPreview.jsx → POSPreview.tsx
+   - Admin: uses DragDropContext (useDragDrop), cn(), animationClasses/animationTypeClass/animationSpeedClass
+   - Admin: has role-based simulation (currentUserRole, cashierModules) and module filtering
+   - Admin: has glass effect CSS + gradient CSS classes
+   - Frontend: simpler, no role simulation, no DragDropContext, no animation classes
+   - Merge: restore role simulation, DragDropContext, animation classes
+
+================================================================================
+     7. COMPONENTS THAT SHOULD REMAIN DIFFERENT
+================================================================================
+
+1. pages/pos/POSGeneratorPage.jsx → POSGeneratorPage.tsx
+   - Admin: 600+ lines, 1-indexed steps, inline template choice (step 2.5), inline template list (step 2.7),
+     inline full customizer (step 3), uses sub-steps (2.5, 2.7), uses handleDirectConvert/handleQuickTest,
+     uses showCustomizer as separate fullscreen mode, has expandedSections state
+   - Frontend: 233 lines, 0-indexed steps, uses Step3TemplateChoice component,
+     uses POSCustomizer as overlay, has customizationChoice state, simpler navigation
+   - REASON: Different step numbering system and architectural pattern.
+     Must remain different to preserve 0-indexed hook pattern.
+   - MUST synchronize: Visual rendering of each step, bottom nav bars, button labels
+
+2. hooks/usePOSGenerator.js → usePOSGenerator.ts
+   - Admin: 1-indexed steps with sub-steps (2.5, 2.7), customizationMode, selectedTemplate,
+     expandedSections, showCustomizer, directConvert, quickTest, resetGenerator,
+     startWithTemplate, startCustomization, selectTemplate, enterCustomizer, exitCustomizer
+   - Frontend: 0-indexed steps, status-based state machine (idle/generating/building/ready/error),
+     buildProgress tracking, pollBuildStatus, downloadPOS, no sub-steps
+   - REASON: Different state management approach. Admin uses step numbers + boolean flags.
+     Frontend uses a status enum + build progress.
+   - MUST synchronize: Add missing methods (resetGenerator, etc.)
+
+3. contexts/AccessModeContext.jsx → AccessModeContext.tsx
+   - These are in different repos and necessarily different
+   - REASON: Different architecture
+
+================================================================================
+     8. DETAILED DIFFERENCES — PAGE LEVEL
+================================================================================
+
+------------------------------------------------
+FILE: pages/pos/POSGeneratorPage.jsx
+FILE: pages/pos/POSGeneratorPage.tsx
+------------------------------------------------
+
+Difference #1: Step numbering
+- Admin: 1-indexed (step 1, 2, 2.5, 2.7, 3, 4, 5), uses sub-steps
+- Frontend: 0-indexed (currentStep 0, 1, 2, 3, 4) mapped to display (stepDisplay = currentStep + 1)
+Importance: Critical
+Effort: High
+Approach: Cannot change without rewriting usePOSGenerator hook.
+           Keep Frontend numbering, adjust step display logic to match Admin's visual flow.
+Verbatim: NO
+
+Difference #2: Template Choice Implementation
+- Admin: Inline JSX in POSGeneratorPage.jsx (lines 176-229), full-screen gradient background,
+          buttons INSIDE cards ("Choisir un template" / "Personnaliser entièrement"),
+          returns early from render, has "← Retour aux modules" back button
+- Frontend: Separate Step3TemplateChoice.tsx component, simpler card styling,
+           no gradient background, no internal buttons (global "Suivant" instead),
+           uses ring-2 ring-primary on select vs Admin's border-2 hover:border-blue-500
+Importance: Critical
+Effort: Medium
+Approach: Either enhance Step3TemplateChoice or inline into POSGeneratorPage like Admin
+Verbatim: NO
+
+Difference #3: Template Selection (Step 2.7)
+- Admin: Has full template selection flow with 4 templates (Café, Restaurant, Boutique, Pharmacie),
+          color preview, badges, "Utiliser ce template" / "Personnaliser" buttons
+- Frontend: DOES NOT EXIST
+Importance: Critical
+Effort: High
+Approach: Create new component or inline in POSGeneratorPage
+Verbatim: NO (must create)
+
+Difference #4: Full Customizer Integration (Step 3)
+- Admin: Inline in POSGeneratorPage (lines 367-483), within normal page flow,
+          sidebar + preview side by side, bottom Prev/Next bar,
+          uses isFormVisible to toggle sidebar, uses POSCustomizer in "inline" mode
+- Frontend: Fullscreen overlay (fixed inset-0 z-50), NOT within page flow,
+           POSCustomizer used in "full" mode, no bottom navigation bar
+Importance: Critical
+Effort: High
+Approach: Restructure to match Admin's inline approach
+Verbatim: NO
+
+Difference #5: Bottom Navigation Bar Logic
+- Admin: Single fixed bottom bar at lines 571-611, handles all steps 1-4,
+          step 2 goes to step 2.5, step 4 shows "Générer le POS (Complet)" button,
+          uses space-y-3 + flex gap-3 layout for generate button area
+- Frontend: Three separate bottom bars:
+          - Steps 0-2: Prev/Next with handleStepNext logic
+          - Step 4 (license): Prev + Generate
+          - Step 4 (results): no bottom bar
+          Missing: Admin's "Générer le POS (Complet)" text (Frontend: "Générer le POS")
+Importance: Critical
+Effort: Medium
+Approach: Unify into single bottom bar like Admin, fix button label
+Verbatim: PARTIAL
+
+Difference #6: Missing Functions
+- Admin: handleDirectConvert, handleQuickTest, showCustomizer mode, expandedSections
+- Frontend: None of these
+Importance: Low
+Effort: Low
+Approach: Add when implementing hook parity
+Verbatim: NO (must create)
+
+Difference #7: Step Indicator
+- Admin: Maps over [1, 2, 3, 4, 5]
+- Frontend: Maps over [1, 2, 3, 4, 5] using stepDisplay (currentStep + 1)
+- Visual result is the same
+Importance: Low
+Effort: None
+Verbatim: YES (functionally identical)
+
+Difference #8: Progress Bar Props
+- Admin: Uses showProgress, progressStep, progressPercentage, currentAction, progressError
+- Frontend: Uses status === 'generating' || status === 'building', buildProgress.percent,
+            buildProgress.message, error, currentStep = 0 (always)
+Importance: Medium
+Effort: Medium
+Approach: Synchronize progress tracking with Admin's approach
+Verbatim: NO
+
+================================================================================
+     9. DETAILED DIFFERENCES — LICENSECONFIGURATOR
+================================================================================
+
+------------------------------------------------
+FILE: forms/LicenseConfigurator.jsx
+FILE: forms/LicenseConfigurator.tsx
+------------------------------------------------
+
+Difference #1: Imports
+- Admin: imports Button, Checkbox (neither is used!)
+- Frontend: does not import Button or Checkbox
+Importance: Low
+Effort: Minimal
+Approach: Remove Button and Checkbox from Admin
+Verbatim: PARTIAL (Admin has dead imports)
+
+Difference #2: Props
+- Admin: No forcePortableMode or onForcePortableModeChange
+- Frontend: Has forcePortableMode and onForcePortableModeChange (unused in component)
+Importance: Medium
+Effort: Minimal
+Approach: Remove dead props or implement the feature
+Verbatim: NO
+
+Difference #3: USB Detection Button (commented out)
+- Admin: Has commented-out "Détecter" button with Usb icon
+- Frontend: Missing the commented-out button block entirely
+Importance: Low
+Effort: Minimal
+Approach: Add commented block for parity
+Verbatim: PARTIAL
+
+Remaining 95% of LicenseConfigurator is identical in structure, layout, and labels.
+
+================================================================================
+   10. DETAILED DIFFERENCES — POSCUSTOMIZER (THE BIG ONE)
+================================================================================
+
+------------------------------------------------
+FILE: pos/customizer/POSCustomizer.jsx  (312 lines, imports 10 sub-components)
+FILE: pos/customizer/POSCustomizer.tsx   (236 lines, 6 inline sub-components)
+------------------------------------------------
+
+Difference #1: Sub-component Architecture
+- Admin: 10 separate files in components/customizer/ + DragDropProvider wrapper
+- Frontend: All 6 sub-components inlined in same file as POSCustomizer
+- Missing from Frontend: CustomizerHeader, CustomizerNavigation, DragDropManager
+Importance: Critical
+Effort: High
+Approach: Extract sub-components to separate files matching Admin structure
+Verbatim: NO (must refactor)
+
+Difference #2: DragDropProvider
+- Admin: Wraps entire customizer in <DragDropProvider>
+- Frontend: No DragDropProvider
+Importance: Medium
+Effort: Medium
+Approach: Create DragDropProvider in Frontend (context)
+Verbatim: NEEDS CONTEXT CREATION
+
+Difference #3: CustomizerHeader Features (ADMIN ONLY)
+- Admin: Has dedicated CustomizerHeader with:
+  - "Workflow Normal" back button (in full mode)
+  - Toggle sidebar button
+  - Reset button (RotateCcw icon)
+  - Cancel button (X icon)
+  - Save button with gradient (Enregistrer)
+  - Hidden: exportConfiguration, importConfiguration, duplicateConfiguration
+  - Subtitle: "🎨 Interface immersive de personnalisation - Style WordPress"
+- Frontend: Inline header with:
+  - "🎨 Design Studio" title
+  - Save button
+  - Close/minimize button (✕)
+  - NO Reset, Cancel (separate), Workflow Normal, export/import buttons
+Importance: Critical
+Effort: High
+Approach: Create CustomizerHeader.tsx matching Admin's version
+Verbatim: PARTIAL (adapt to TS)
+
+Difference #4: CustomizerNavigation (ADMIN ONLY)
+- Admin: Dedicated component with:
+  - 3 main tabs: Design (Paintbrush), Layout (Layout), Avancé (Settings)
+  - Styled as grid with gradient background, icon + label per tab
+  - Selected tab: shadow-md scale-105 with white background
+  - Design sub-tabs: Thèmes (Palette), Couleurs (Paintbrush), Typo (Type), Effets (Sparkles)
+  - Layout sub-tabs: Composants (Grid3X3), Drag & Drop (MousePointer)
+  - Each sub-tab bar has section headers, colored border on active
+  - Different styling per mode (inline vs full)
+- Frontend: Inline navigation with:
+  - 3 tabs: Design, Disposition, Avancé (text only, no icons)
+  - Sub-tabs for design: Thèmes, Couleurs, Typo, Effets (text only)
+  - Sub-tabs for layout: Composants only (no Drag & Drop)
+  - Simple border-bottom active indicator
+Importance: Critical
+Effort: High
+Approach: Create CustomizerNavigation.tsx matching Admin
+Verbatim: PARTIAL (adapt to TS)
+
+Difference #5: ThemeSelector
+- Admin: Card-based UI with:
+  - 6 themes: modern, dark, warm, elegant, nature, minimal
+  - Each theme has: name, description, color preview, full config object
+  - Selected state: ring-2 ring-primary/20, "Actuel" badge
+  - Color preview box with Check icon when selected
+  - Blue tip box at bottom "💡 Conseil"
+- Frontend: Simple button grid with:
+  - 6 themes: modern, dark, elegant, nature, minimal, cafe (WARM vs CAFE difference)
+  - No descriptions, no "Actuel" badge, no tip box
+  - Simple button with hover:border-blue-500
+Importance: High
+Effort: Medium
+Approach: Replace Frontend's ThemeSelector with Admin's version
+Verbatim: PARTIAL (themes differ: warm vs cafe)
+
+Difference #6: ColorPaletteEditor
+- Admin: Card-based with:
+  - 6 color fields: primaryColor, secondaryColor, accentColor, backgroundColor,
+    cardBackgroundColor, textColor
+  - Each field: color input + hex text input + label + description + border
+  - Hover: bg-accent/50 transition
+- Frontend: Simpler with:
+  - 5 color fields (missing cardBackgroundColor)
+  - Only color input (no hex text input)
+  - No descriptions per field
+Importance: High
+Effort: Medium
+Approach: Replace with Admin's version
+Verbatim: PARTIAL (Frontend missing cardBackgroundColor + text inputs)
+
+Difference #7: TypographyEditor
+- Admin: Card-based with:
+  - Debug box showing current values
+  - fontFamily: Select with 6 options (Inter, Roboto, Poppins, Open Sans, Montserrat, Lato)
+  - fontSize: Slider component (10-20px) with Badge showing value
+  - fontWeight: Select (light/normal/medium/semibold/bold) mapped to CSS weight values
+- Frontend: Simpler with:
+  - No debug box
+  - fontFamily: missing
+  - fontSize: text input (not slider)
+  - fontWeight: text input (not select)
+Importance: High
+Effort: Medium
+Approach: Replace with Admin's version
+Verbatim: NO (Frontend is too different)
+
+Difference #8: VisualEffectsEditor
+- Admin: Card-based with:
+  - Debug status box showing all animation states
+  - shadowIntensity: Select (none/light/medium/heavy)
+  - NAV animation section (blue box):
+    - animationType: Select with 7 types (slide/glow/fade/border-pulse/elastic/rotate/none)
+    - animationSpeed: Select (slow/normal/fast)
+  - CARD animation section (purple box):
+    - cardAnimationType: Select
+    - cardAnimationSpeed: Select
+  - 5 effect toggles with Switch: animations, cardAnimations, shadows, gradientBackgrounds, glassEffect
+- Frontend: Simple checkboxes for:
+  - animations, glassEffect, gradientBackgrounds, shadows (4 toggles only)
+  - No shadow intensity, no animation type/speed controls
+Importance: High
+Effort: High
+Approach: Replace with Admin's version
+Verbatim: NO (Frontend is too simplistic)
+
+Difference #9: LayoutEditor
+- Admin: Card-based with 4-tab Tabs component:
+  - GENERAL tab: navbarPosition (3 buttons), spacingScale (Slider), maxWidth (Select),
+    compactMode (Switch), navbarCollapsible (Switch)
+  - COMPONENTS tab: cards section (borderRadius Select, padding Slider, shadowStyle Select),
+    buttons section (style Select, size Select, hoverEffects Switch)
+  - GRID tab: columns (Select 2-6), gap (Slider)
+  - FORMS tab: inputStyle (Select), inputSize (Select), focusRing (Switch)
+  - Debug info at top
+- Frontend: Simple single view with:
+  - navbarPosition select only
+  - No tabs, no spacing, no card/button/grid/form controls
+Importance: High
+Effort: High
+Approach: Replace with Admin's version
+Verbatim: NO (Frontend is too simplistic)
+
+Difference #10: AdvancedSettings (ADMIN ONLY)
+- Admin: Card-based with:
+  - Business info: name (required input), logo (file upload with preview + delete),
+    appTitle (input), all with helper text
+  - Localization: currency (Select with 7 currencies), language (Select with 5 languages)
+  - Performance: animations Switch, dark mode auto-switch, auto-save
+  - Custom CSS: Textarea with placeholder examples
+  - Multiple Separator dividers
+- Frontend: Simple checkboxes for:
+  - compactMode, highContrastMode, largeTextMode, reducedMotion
+  - NO business info, NO localization, NO custom CSS
+Importance: High
+Effort: High
+Approach: Create AdvancedSettings.tsx matching Admin
+Verbatim: PARTIAL (adapt to TS)
+
+Difference #11: DragDropManager (ADMIN ONLY)
+- Admin: Card with activation button, instructions list
+- Frontend: DOES NOT EXIST
+Importance: Medium
+Effort: Low
+Approach: Create DragDropManager.tsx
+Verbatim: YES (small component)
+
+================================================================================
+         11. DETAILED DIFFERENCES — PREVIEW COMPONENTS
+================================================================================
+
+------------------------------------------------
+FILE: preview/POSRealtimePreview.jsx
+FILE: preview/POSRealtimePreview.tsx
+------------------------------------------------
+
+Difference #1: Wrappers
+- Admin: Wraps content in <DragDropProvider> + <DndProvider backend={HTML5Backend}> + <ErrorBoundary>
+- Frontend: No wrappers
+Importance: Medium
+Effort: Medium
+Verbatim: PARTIAL
+
+Difference #2: POS vs POSPreviewPage
+- Admin: Uses POSPreviewPage (which includes POSWithAuth wrapper for role-based auth simulation)
+- Frontend: Uses POSPreview directly
+Importance: Low
+Effort: Low
+Verbatim: NO
+
+Remaining structure (scale logic, viewMode toggle, config defaults) is identical.
+
+------------------------------------------------
+FILE: preview/POSPreview.jsx
+FILE: preview/POSPreview.tsx
+------------------------------------------------
+
+Difference #1: DragDropContext
+- Admin: Imports useDragDrop from DragDropContext, gets componentLayout
+- Frontend: No drag-drop context
+Importance: Medium
+Effort: Medium
+Verbatim: PARTIAL
+
+Difference #2: Role-based Module Filtering
+- Admin: has currentUserRole state (admin/cashier), cashierModules list,
+         getFilteredModules() filters modules based on role
+- Frontend: No role simulation
+Importance: Low
+Effort: Low
+Verbatim: NO
+
+Difference #3: Animation Classes
+- Admin: Applies animationTypeClass, animationSpeedClass, glassEffect CSS class,
+         gradient CSS class, shadow intensity CSS class to the container div
+- Frontend: Only applies glassEffect via inline style (no CSS class)
+Importance: Medium
+Effort: Medium
+Verbatim: PARTIAL
+
+Difference #4: cn() utility
+- Admin: Uses cn() throughout for conditional class merging
+- Frontend: No cn() usage
+Importance: Low
+Effort: Low
+Verbatim: NO
+
+------------------------------------------------
+FILE: preview/POSNavbar.jsx
+FILE: preview/POSNavbar.tsx
+------------------------------------------------
+
+Difference #1: DraggableComponent Wrapper
+- Admin: Wraps both navbar layouts in <DraggableComponent> with isVisible/isDragMode/onComponentSelect
+- Frontend: No DraggableComponent wrapper
+Importance: Medium
+Effort: Medium
+Verbatim: PARTIAL
+
+Difference #2: cn() usage
+- Admin: Uses cn() for conditional classnames
+- Frontend: Uses literal ternary strings
+- (functionally identical result)
+Importance: Low
+Effort: Minimal
+Verbatim: YES (functionally same)
+
+------------------------------------------------
+FILE: preview/POSContent.jsx
+FILE: preview/POSContent.tsx
+------------------------------------------------
+
+Difference #1: Animation Classes
+- Admin: Applies animationTypeClass, animationSpeedClass, animationClasses to both container and main
+- Frontend: Missing all animation classes
+Importance: Medium
+Effort: Medium
+Verbatim: PARTIAL
+
+Difference #2: cn() usage
+- Admin: Uses cn() for conditional classnames
+- Frontend: Uses literal strings
+Importance: Low
+Effort: Minimal
+Verbatim: YES
+
+Difference #3: Notification Toast
+- Admin: Has ShoppingCart notification toast (lines 118-125)
+- Frontend: Missing this element
+Importance: Low
+Effort: Minimal
+Verbatim: YES (small addition)
+
+------------------------------------------------
+FILE: preview/POSHeader.jsx
+FILE: preview/POSHeader.tsx
+------------------------------------------------
+
+Difference #1: Animation Classes
+- Admin: Applies animationTypeClass, animationSpeedClass, glass CSS class, shadow CSS class
+- Frontend: Missing all animation classes and shadow class
+Importance: Medium
+Effort: Medium
+Verbatim: PARTIAL
+
+Difference #2: cn() usage
+- Admin: Uses cn()
+- Frontend: Doesn't
+Importance: Low
+Effort: Minimal
+Verbatim: YES
+
+Difference #3: Logout Button
+- Admin: Has conditional logout button with LogOut icon (lines 130-139)
+- Frontend: Missing logout button entirely
+Importance: Low
+Effort: Minimal
+Verbatim: YES (can copy directly)
+
+================================================================================
+      12. DETAILED DIFFERENCES — HOOKS
+================================================================================
+
+------------------------------------------------
+FILE: hooks/usePOSGenerator.js
+FILE: hooks/usePOSGenerator.ts
+------------------------------------------------
+
+Difference #1: Step System
+- Admin: 1-indexed, supports sub-steps (2.5, 2.7), allows arbitrary step => goToStep()
+- Frontend: 0-indexed, bounded by totalSteps, goToStep clamped to [0, totalSteps-1]
+Importance: Critical
+Effort: High
+Approach: Keep Frontend's 0-indexed, map to sub-steps in the page component
+Verbatim: NO
+
+Difference #2: State Management
+- Admin: Uses multiple boolean states: loading, showProgress, showCustomizer, isFormVisible
+         Sub-step states: customizationMode, selectedTemplate, expandedSections
+- Frontend: Uses Status enum: 'idle' | 'generating' | 'building' | 'ready' | 'error'
+         Progress tracking: buildProgress (percent, step, message)
+Importance: Medium
+Effort: Medium
+Approach: Add missing states to Frontend hook
+Verbatim: NO
+
+Difference #3: Missing Methods (Frontend)
+- Admin has these methods Frontend lacks:
+  - directConvert
+  - quickTest
+  - resetGenerator
+  - startWithTemplate
+  - startCustomization
+  - selectTemplate
+  - enterCustomizer
+  - exitCustomizer
+Importance: High
+Effort: Medium
+Approach: Add all missing methods to Frontend hook
+Verbatim: PARTIAL
+
+Difference #4: Progress Tracking
+- Admin: Shows detailed progress steps with percentage, action text, auto-closes on completion
+- Frontend: Uses buildProgress object with percent/step/message, separate polling
+Importance: Medium
+Effort: Medium
+Approach: Synchronize with Admin
+Verbatim: NO
+
+================================================================================
+     13. FINAL ANALYSIS
+================================================================================
+
+PARITY BREAKDOWN BY COMPONENT GROUP:
+
+Form Components (ClientSelector, SectorSelector, ModuleGrid):
+  95% parity — near perfect, only dead import differences
+
+Step Wrappers (Step1BasicConfig, Step2ModuleSelection, Step4License, Step5Results):
+  85% parity — minor differences in imports and props
+
+LicenseConfigurator:
+  90% parity — dead prop on Frontend side, commented code on Admin side
+
+POSGenerationProgress:
+  95% parity — one icon difference (Admin: Code, Frontend: Loader2)
+
+POSRealtimePreview:
+  70% parity — missing DragDropProvider, DndProvider, ErrorBoundary wrappers
+
+POSPreview:
+  60% parity — missing role simulation, animation classes, DragDropContext, cn()
+
+POSNavbar:
+  65% parity — missing DraggableComponent wrapper, cn()
+
+POSContent:
+  70% parity — missing animation classes, notification toast
+
+POSHeader:
+  65% parity — missing animation classes, logout button, cn()
+
+ReceiptDesignerPreview:
+  95% parity — only TypeScript type differences
+
+POSCustomizer (ORCHESTRATOR):
+  40% parity — completely different architecture (inline vs separate files)
+
+ThemeSelector:
+  30% parity — different themes, different UI, missing descriptions/badges/tip box
+
+ColorPaletteEditor:
+  50% parity — missing cardBackgroundColor, hex text inputs, descriptions
+
+TypographyEditor:
+  20% parity — using text inputs instead of Slider, missing debug box, missing font select
+
+VisualEffectsEditor:
+  15% parity — missing shadow intensity, animation type/speed controls, debug box
+
+LayoutEditor:
+  10% parity — missing 4-tab system, card/button/grid/form controls
+
+AdvancedSettings:
+  0% parity — completely missing from Frontend
+
+CustomizerHeader:
+  0% parity — completely missing from Frontend (inlined minimally)
+
+CustomizerNavigation:
+  0% parity — completely missing from Frontend (inlined minimally)
+
+DragDropManager:
+  0% parity — completely missing from Frontend
+
+DraggableComponent:
+  0% parity — completely missing from Frontend
+
+DragDropContext:
+  0% parity — completely missing from Frontend
+
+cn() utility:
+  0% parity — completely missing from Frontend
+
+POSGeneratorPage (PAGE LEVEL):
+  40% parity — different step flow, missing template selection, different customizer integration
+
+usePOSGenerator (HOOK):
+  50% parity — different state management, missing many methods
+
+OVERALL WEIGHTED PARITY: 51%
+
+================================================================================
+             14. RECOMMENDED IMPLEMENTATION ORDER
+================================================================================
+
+PHASE 1 — QUICK WINS (Can copy verbatim, ~1 day)
+  1. Copy forms/ClientSelector.jsx -> ClientSelector.tsx
+  2. Copy forms/SectorSelector.jsx -> SectorSelector.tsx
+  3. Copy forms/ModuleGrid.jsx -> ModuleGrid.tsx
+  4. Copy generation/POSGenerationProgress.jsx -> POSGenerationProgress.tsx (fix icon)
+  5. Copy preview/ReceiptDesignerPreview.jsx -> ReceiptDesignerPreview.tsx
+  6. Fix dead imports in LicenseConfigurator
+
+PHASE 2 — CREATION (Must create from scratch, ~2-3 days)
+  7. Create CustomizerHeader.tsx
+  8. Create CustomizerNavigation.tsx
+  9. Create DragDropManager.tsx
+  10. Create AdvancedSettings.tsx
+  11. Create DragDropContext.tsx
+  12. Create cn() utility (lib/utils.ts)
+  13. Create DraggableComponent.tsx
+
+PHASE 3 — REPLACEMENT (Replace Frontend's inline with Admin's versions, ~2-3 days)
+  14. Replace ThemeSelector with Admin's version
+  15. Replace ColorPaletteEditor with Admin's version
+  16. Replace TypographyEditor with Admin's version
+  17. Replace VisualEffectsEditor with Admin's version
+  18. Replace LayoutEditor with Admin's version
+
+PHASE 4 — ORCHESTRATION (Restructure POSCustomizer, ~1-2 days)
+  19. Extract sub-components to separate files
+  20. Wrap in DragDropProvider
+  21. Integrate CustomizerHeader and CustomizerNavigation
+
+PHASE 5 — PAGE FLOW (~2-3 days)
+  22. Create template selection step (Admin step 2.7)
+  23. Move POSCustomizer from overlay to inline page flow
+  24. Unify bottom navigation bar logic
+  25. Add missing handleStepNext logic for template/custom paths
+
+PHASE 6 — PREVIEW ENHANCEMENTS (~1-2 days)
+  26. Add role-based simulation to POSPreview
+  27. Add animation classes to preview components
+  28. Add DragDropProvider/DndProvider to POSRealtimePreview
+  29. Add logout button to POSHeader
+  30. Add notification toast to POSContent
+
+PHASE 7 — HOOK PARITY (~1 day)
+  31. Add missing methods to usePOSGenerator.ts
+  32. Synchronize progress tracking
+
+TOTAL ESTIMATED EFFORT: 10-15 days
+
+================================================================================
+                    END OF REPORT
+================================================================================

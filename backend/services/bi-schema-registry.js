@@ -6,7 +6,9 @@
  * Version must match pos-template/src/electron/bi/BiSchemaContract.cjs.
  */
 
-const BI_SCHEMA_VERSION = '1.0.0';
+const { parseDate, parseInteger, parseNumber, parseTableNumber, knownServiceLocation } = require('./bi-data-utils');
+
+const BI_SCHEMA_VERSION = '2.2.0';
 
 const SCHEMAS = {
   sales: {
@@ -80,6 +82,38 @@ const SCHEMAS = {
       { name: 'updated_at', type: 'datetime', required: false },
     ],
   },
+  sale_items: {
+    columns: [
+      { name: 'sale_item_id', type: 'integer', required: true },
+      { name: 'sale_id', type: 'integer', required: true },
+      { name: 'product_id', type: 'integer', required: true },
+      { name: 'quantity', type: 'integer', required: true },
+      { name: 'unit_price', type: 'real', required: true },
+      { name: 'line_total', type: 'real', required: false },
+      { name: 'vat_rate', type: 'real', required: false },
+      { name: 'vat_amount', type: 'real', required: false },
+      { name: 'payment_method', type: 'text', required: false },
+      { name: 'product_name', type: 'text', required: false },
+      { name: 'category', type: 'text', required: false },
+      { name: 'family', type: 'text', required: false },
+      { name: 'sale_date', type: 'datetime', required: true },
+    ],
+  },
+  kitchen_order_items: {
+    columns: [
+      { name: 'kitchen_order_item_id', type: 'integer', required: true },
+      { name: 'order_id', type: 'integer', required: true },
+      { name: 'sale_id', type: 'integer', required: false },
+      { name: 'product_id', type: 'integer', required: false },
+      { name: 'product_name', type: 'text', required: false },
+      { name: 'quantity', type: 'integer', required: false },
+      { name: 'unit_price', type: 'real', required: false },
+      { name: 'line_total', type: 'real', required: false },
+      { name: 'department', type: 'text', required: false },
+      { name: 'preparation_time', type: 'integer', required: false },
+      { name: 'created_at', type: 'datetime', required: false },
+    ],
+  },
   suppliers: {
     columns: [
       { name: 'supplier_id', type: 'integer', required: true },
@@ -116,8 +150,66 @@ const SCHEMAS = {
 };
 
 const REQUIRED_DATASETS = ['sales', 'products', 'customers', 'inventory'];
-const OPTIONAL_DATASETS = ['tables', 'kitchen_orders', 'suppliers', 'services', 'appointments'];
+const OPTIONAL_DATASETS = ['tables', 'kitchen_orders', 'kitchen_order_items', 'suppliers', 'services', 'appointments', 'sale_items'];
 const ALL_DATASETS = [...REQUIRED_DATASETS, ...OPTIONAL_DATASETS];
+
+/**
+ * Every dataset the POS export contract can produce (mirrors the POS-side
+ * BiDatasetRegistry). Used to decide whether a file found in a ZIP is truly
+ * unexpected or simply a known POS dataset that the server does not yet map.
+ */
+const KNOWN_POS_DATASETS = [
+  ...ALL_DATASETS,
+  'product_families',
+  'kitchen_departments',
+  'table_reservations',
+  'stock_movements',
+  'shifts',
+  'cash_drawer_events',
+  'audit_logs',
+  'vat_rates',
+  'z_reports',
+];
+
+/**
+ * Applicability of each OPTIONAL dataset, mirroring the POS-side
+ * BiDatasetRegistry: the module that must be enabled to produce it, and the
+ * business types that export it. Used to decide whether a missing optional
+ * dataset is "not exported" (INFO) or simply not part of this business config
+ * (hidden).
+ */
+const DATASET_META = {
+  tables: { module: 'tables', businessTypes: ['restaurant', 'cafe', 'hotel'] },
+  kitchen_orders: { module: 'kitchen', businessTypes: ['restaurant', 'cafe', 'bakery'] },
+  kitchen_order_items: { module: 'kitchen', businessTypes: ['restaurant', 'cafe', 'bakery'] },
+  suppliers: {
+    module: 'suppliers',
+    businessTypes: ['retail', 'bakery', 'pharmacy', 'clothing', 'electronics', 'supermarket', 'restaurant', 'cafe'],
+  },
+  services: { module: null, businessTypes: ['salon', 'hotel', 'clinic'] },
+  appointments: { module: null, businessTypes: ['salon', 'clinic', 'hotel'] },
+  sale_items: { module: null, businessTypes: null },
+};
+
+/**
+ * Whether a dataset is applicable to the given business configuration.
+ * Falls back to "always applicable" when both the business type and the module
+ * list are unknown, so legacy exports are never hidden by accident.
+ */
+function isDatasetApplicable(datasetKey, businessType, enabledModules) {
+  const meta = DATASET_META[datasetKey];
+  if (!meta) return true;
+  if (Array.isArray(meta.businessTypes) && businessType) {
+    const bt = String(businessType).toLowerCase();
+    if (!meta.businessTypes.some((t) => bt === t.toLowerCase() || bt.startsWith(t.toLowerCase()))) {
+      return false;
+    }
+  }
+  if (meta.module && Array.isArray(enabledModules) && enabledModules.length > 0) {
+    if (!enabledModules.includes(meta.module)) return false;
+  }
+  return true;
+}
 
 function getExpectedColumns(datasetKey) {
   const schema = SCHEMAS[datasetKey];
@@ -198,20 +290,23 @@ function validateCsvTypes(datasetKey, row) {
     // Type check
     switch (col.type) {
       case 'integer': {
-        if (!/^-?\d+$/.test(val) && !/\d+/.test(val)) {
+        const parsed = col.name === 'table_number' ? parseTableNumber(val) : parseInteger(val);
+        const serviceLocation = col.name === 'table_number' ? knownServiceLocation(val) : null;
+        if (parsed.invalid && !serviceLocation) {
           errors.push(`"${col.name}" expected integer, got "${val}"`);
         }
         break;
       }
       case 'real': {
-        if (!/^-?\d+(\.\d+)?$/.test(val)) {
+        const parsed = parseNumber(val);
+        if (parsed.invalid) {
           errors.push(`"${col.name}" expected number, got "${val}"`);
         }
         break;
       }
       case 'datetime': {
-        const ts = Date.parse(val);
-        if (isNaN(ts)) {
+        const parsed = parseDate(val);
+        if (parsed.invalid) {
           errors.push(`"${col.name}" expected valid datetime, got "${val}"`);
         }
         break;
@@ -233,4 +328,7 @@ module.exports = {
   validateCsvColumns,
   validateCsvTypes,
   parseCsvRow,
+  isDatasetApplicable,
+  DATASET_META,
+  KNOWN_POS_DATASETS,
 };

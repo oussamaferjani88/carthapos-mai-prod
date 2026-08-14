@@ -15,7 +15,7 @@ function registerSupplierHandlers(ipcMainInstance, databaseManager) {
     try {
       db.run(
         `INSERT INTO audit_logs (timestamp, user_id, user_name, action_type, entity_type, entity_id, new_value, notes)
-         VALUES (datetime('now','localtime'), ?, ?, ?, 'supplier', ?, ?, ?)`,
+         VALUES (datetime('now'), ?, ?, ?, 'supplier', ?, ?, ?)`,
         [user_id || 0, user_name || 'System', action_type, entity_id || null,
          new_value ? JSON.stringify(new_value) : null, notes || null]
       );

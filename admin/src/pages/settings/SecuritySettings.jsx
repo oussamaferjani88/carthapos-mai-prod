@@ -60,7 +60,7 @@ export default function SecuritySettings() {
     confirmPassword: ''
   });
 
-  const [editingUser, setEditingUser] = useState(null);
+  const [, setEditingUser] = useState(null);
 
   const [securitySettings, setSecuritySettings] = useState({
     sessionTimeout: 30,

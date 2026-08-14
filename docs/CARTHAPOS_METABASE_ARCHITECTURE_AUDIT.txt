@@ -1,0 +1,200 @@
+===============================================================================
+ CarthaPOS -> Metabase Architecture Audit (READ-ONLY)
+ Date: 2026-08-09
+ Scope: No code, schema, data, or Metabase changes were made.
+===============================================================================
+
+1. EXECUTIVE SUMMARY
+-------------------------------------------------------------------------------
+CarthaPOS already has a solid single-tenant-per-tenantId warehouse (PostgreSQL
+via Prisma), a tenant-isolated analytics/cache service layer, and a Metabase
+integration that currently only does discovery + public-link embedding. The BI
+backend, ETL, templates, dashboard model, assignments, and both frontends are
+all wired and verified end-to-end. What is missing is the Metabase-side
+"duplicate a master dashboard per client with a tenant filter" capability --
+the API client has no duplicate/collection-create/card/parameter/JWT methods.
+Tenant isolation today is therefore weak at the Metabase layer: the embed is a
+plain public iframe with no client_id binding, even though every BI view
+already exposes client_id, so the correct per-tenant architecture is
+structurally ready.
+
+
+2. CURRENT BI ARCHITECTURE (AS BUILT)
+-------------------------------------------------------------------------------
+- Client uploads Excel/CSV -> BiUpload/BiUploadFile -> etl-pipeline.js
+  (validation via bi-schema-registry.js, dims/facts built) -> warehouse tables
+  dim_*/fact_*.
+- ETL forces tenant = upload.clientId (etl-pipeline.js lines 53-64); DimClient
+  is tenantId @unique; dim keys namespaced cust_${clientId}_...
+- Phase 3 of ETL auto-creates a BiRequest (PENDING) per upload.
+- BI views migration 20260611180000_create_bi_views creates v_sales,
+  v_revenue_daily, v_inventory, v_appointments, v_suppliers, v_dashboard_kpis,
+  v_peak_hours -- ALL expose client_id derived from fact/dim tenantId.
+- warehouse-service.js queries are all tenantId-scoped; analytics-cache-service
+  is clientId-keyed (snapshot per client).
+- BiDashboard + BiDashboardAssignment (ACTIVE/SUPERSEDED) + BiDashboardTemplate
+  drive the client-facing dashboard lifecycle.
+
+
+3. WAREHOUSE / TENANT STRUCTURE
+-------------------------------------------------------------------------------
+- ONE shared PostgreSQL schema; tenancy is a tenantId column on every dim/fact
+  (dim tenantId @unique on DimClient; facts carry tenantId). No separate
+  schemas/DBs per tenant.
+- Views join on client_id (e.g. fs.tenantId, dc.tenantId) -> per-tenant reads
+  are trivially possible in SQL.
+- analytics-cache metadata maps clientId -> uploadId -> COMPLETED snapshot.
+
+
+4. CURRENT METABASE INTEGRATION
+-------------------------------------------------------------------------------
+- utils/metabase-client.js: POST /api/session (env creds), listCollections,
+  recursive listDashboards (filters model === 'dashboard'), GET/POST
+  /api/dashboard/:id/public_link -> returns UUID.
+- routes/bi-metabase.js: only GET /collections and GET /collections/:id/dashboards.
+- METABASE_EMBED_SECRET empty -> no JWT/signed embedding. No dashboard
+  duplication, no collection creation, no card creation, no parameter config.
+- Embed endpoint returns { available, enabled, metabaseDashboardId, iframeUrl,
+  embedType, ... } with iframeUrl = {METABASE_PUBLIC_URL}/public/dashboard/{uuid}.
+
+
+5. CURRENT DASHBOARD TEMPLATE SYSTEM
+-------------------------------------------------------------------------------
+- BiDashboardTemplate model + seed-bi-templates.js seed (placeholder IDs 1001
+  restaurant / 1002 cafe / 1003 bakery -- STALE: real Restaurant master
+  dashboard is Metabase id 3, "Restaurant Executive Dashboard" under
+  CarthaPOS Templates/Restaurant/Dashboard).
+- Templates carry metabaseDashboardId used as fallback when admin didn't pick
+  one; verified working.
+
+
+6. CURRENT ADMIN WORKFLOW
+-------------------------------------------------------------------------------
+- AdminDashboardAssign.jsx (/bi-dashboard/:dashboardId/assign): pick collection
+  -> pick dashboard -> live iframe preview -> publish. Entry button in
+  AdminRequestDetail.jsx.
+- PATCH /api/bi/dashboards/:id persists metabaseDashboardId;
+  generate-from-upload stamps it; publish creates the public link at runtime.
+
+
+7. CURRENT TENANT ISOLATION -- CLASSIFICATION
+-------------------------------------------------------------------------------
+Against the A-E options, current state is closest to E (NO tenant filtering at
+the Metabase layer):
+- warehouse-service.js + analytics-cache = fully tenant-isolated (Strategy-B-
+  style for the API side).
+- BI views carry client_id -> Strategy A is structurally ready (dashboards can
+  be filtered per tenant).
+- But the embed served today is a BARE public iframe with no client_id param,
+  and there is NO evidence the master dashboard cards filter by tenant.
+  Isolation currently relies on obscurity of the public UUID, not on a real
+  security boundary.
+
+
+8. CURRENT METABASE DASHBOARD BEHAVIOR / DUPLICATION SEMANTICS
+-------------------------------------------------------------------------------
+- Duplicating a Metabase dashboard COPIES the dashboard definition + cards +
+  saved-question SQL + visualizations -- NEVER data. The duplicate still
+  queries the SAME shared warehouse.
+- Consequence: if master SQL has no {{client_id}} param, every duplicate shows
+  ALL tenants' data (Tenant A 1000 and Tenant B 2000 both visible -> breach).
+  With a client_id param (views already support it), each duplicate becomes a
+  clean per-tenant dashboard.
+- Public links can pass parameters, but ANYONE with the UUID can alter the URL
+  to switch tenants -> not secure. Correct options: LOCKED parameters on the
+  public link (param pinned server-side at share time) or SIGNED JWT embed
+  (Enterprise -- needs METABASE_EMBED_SECRET).
+
+
+9. EXISTING REUSABLE COMPONENTS
+-------------------------------------------------------------------------------
+- metabase-client.js (session + discovery + public_link) -- extend it.
+- bi-metabase.js route scaffolding; seed-bi-templates.js; AdminDashboardAssign.jsx
+  picker UI.
+- bi-dashboards.js embed/publish; BiDashboardAssignment ACTIVE/SUPERSEDED
+  versioning; EmbeddedDashboardContainer.tsx gate (PUBLISHED + enabled +
+  iframeUrl + template); MyDashboards.tsx / BIDashboardViewer.tsx fetch paths;
+  resolveClientId identity-forced scoping; BI views with client_id.
+
+
+10. MISSING COMPONENTS (THE GAP)
+-------------------------------------------------------------------------------
+1. Metabase client: duplicate dashboard (POST /api/dashboard/:id/copy), create
+   collection, list/create cards, configure parameters, locked-param public
+   link (or signed JWT embed).
+2. Per-client dashboard provisioning service (create collection -> copy master
+   -> inject client_id param -> share/lock).
+3. Persisting the per-client Metabase dashboard id on BiDashboard (field exists;
+   no provisioning writer).
+4. Signed-embed path (empty METABASE_EMBED_SECRET) for non-public-URL security.
+5. Migration/mapping for already-onboarded clients.
+6. Verification tooling (does dashboard X filter by tenant?).
+
+
+11. ARCHITECTURAL RISKS
+-------------------------------------------------------------------------------
+- Public-link UUID + tenant param in URL = tenant-hopping vulnerability if not
+  locked.
+- Shared warehouse + unfiltered cards = cross-tenant data exposure
+  (Tenant A 1000 / Tenant B 2000 scenario).
+- METABASE_EMBED_SECRET empty blocks the enterprise-grade path; public-sharing
+  must be enabled globally for the fallback.
+- Stale template placeholder IDs (1001/... vs real id 3).
+- Admin app token interceptor is currently commented out in
+  admin/src/lib/api.js -> admin actions are effectively unauthenticated locally
+  (accepted dev posture, but flag for prod).
+
+
+12. DESIRED ARCHITECTURE (PER-CLIENT TENANT FILTER)
+-------------------------------------------------------------------------------
+Per client: OWN collection -> duplicated master dashboard -> tenant param
+pinned to that client -> public link with locked client_id (or signed JWT
+embed) -> store returned Metabase dashboard id in
+BiDashboard.metabaseDashboardId -> existing embed route serves the
+tenant-specific iframe. Master template remains the single source of truth;
+clients inherit changes via re-provisioning.
+
+
+13. GAP ANALYSIS (CURRENT -> DESIRED)
+-------------------------------------------------------------------------------
+| Area                       | Current                | Desired                          | Effort      |
+|----------------------------|------------------------|----------------------------------|-------------|
+| Dashboard duplication      | none                   | copy master per client           | new API fn  |
+| Collection mgmt            | list-only              | create + provision per client    | new fn+svc  |
+| Tenant filter on cards     | none (E)               | {{client_id}} on each card       | re-create   |
+| Embed security             | plain public UUID      | locked params or JWT signed      | moderate    |
+| Provisioning writer        | none                   | service writes metabaseDashboardId| new        |
+| Existing clients           | mapped manually        | migration job                    | moderate    |
+
+
+14. INFORMATION NEEDED FROM YOU (must check inside Metabase; repo can't answer)
+-------------------------------------------------------------------------------
+1. Metabase DATABASE id of the CarthaPOS warehouse connection (for card creation).
+2. Master template dashboard id (confirm = 3) and its CARD ids + SQL -- do they
+   already query the v_* views / reference client_id?
+3. Is Metabase ENTERPRISE (JWT signed embed possible) and is PUBLIC SHARING
+   enabled globally?
+4. Desired collection layout for per-client provisioning; permissions model.
+5. Decision: LOCKED public links vs SIGNED embed for tenant isolation.
+
+
+15. RECOMMENDED PLAN (HIGH-LEVEL ONLY -- NOT IMPLEMENTED)
+-------------------------------------------------------------------------------
+1. Verify master dashboard cards expose client_id (Metabase UI) -> rework cards
+   if not.
+2. Extend metabase-client.js: create collection, duplicate dashboard, set/
+   refresh parameter, create public link with locked param (or JWT).
+3. Add provisioning service + writer to BiDashboard.metabaseDashboardId;
+   re-run for already-onboarded clients.
+4. Upgrade embed route to serve the tenant-pinned URL; enforce isolation check.
+5. Document + test Tenant A 1000 / Tenant B 2000 isolation; then proceed to the
+   implementation prompt.
+
+
+CAVEATS
+-------------------------------------------------------------------------------
+(a) Whether the existing Restaurant master dashboard's cards filter by tenant is
+    NOT verifiable from this repo -- it must be confirmed in the Metabase
+    instance.
+(b) Public-link LOCKED parameters and POST /dashboard/:id/copy are real Metabase
+    API capabilities but must be verified against your installed Metabase version.

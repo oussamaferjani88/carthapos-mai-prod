@@ -4,24 +4,24 @@ const COLORS = ['#3b82f6', '#22c55e', '#f59e0b', '#a855f7', '#ef4444', '#06b6d4'
 
 export default function DashboardPieChart({ data, dataKey, nameKey, height = 280 }) {
   const CustomTooltip = ({ active, payload }) => {
-    if (active && payload && payload.length) {
-      const data = payload[0];
-      const total = data.payload.payload.reduce((sum, item) => sum + item[dataKey], 0);
-      const percentage = ((data.value / total) * 100).toFixed(1);
-      
-      return (
-        <div className="bg-background border border-border rounded-md shadow-md p-2">
-          <p className="text-xs font-semibold">{data.payload[nameKey]}</p>
-          <p className="text-xs">
-            Valeur: <span className="font-bold">{data.value}</span>
-          </p>
-          <p className="text-[10px] text-muted-foreground">
-            {percentage}% du total
-          </p>
-        </div>
-      );
-    }
-    return null;
+    if (!active || !payload || !payload.length) return null;
+    const entry = payload[0];
+    const item = entry.payload ?? entry;
+    const value = Number(entry.value) || 0;
+    const total = data.reduce((sum, row) => sum + (Number(row[dataKey]) || 0), 0);
+    const percentage = total > 0 ? ((value / total) * 100).toFixed(1) : '0.0';
+
+    return (
+      <div className="bg-background border border-border rounded-md shadow-md p-2">
+        <p className="text-xs font-semibold">{item[nameKey] ?? entry.name}</p>
+        <p className="text-xs">
+          Valeur: <span className="font-bold">{value}</span>
+        </p>
+        <p className="text-[10px] text-muted-foreground">
+          {percentage}% du total
+        </p>
+      </div>
+    );
   };
 
   const CustomLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, percent }) => {

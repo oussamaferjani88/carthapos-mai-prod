@@ -205,7 +205,7 @@ const UserManagementAdvanced = ({ config = {} }) => {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold" style={{ color: config.textColor }}>
+          <h1 className="text-xl font-semibold tracking-tight" style={{ color: config.textColor }}>
             Gestion des Utilisateurs
           </h1>
           <p className="text-muted-foreground" style={{ color: config.textMutedColor }}>

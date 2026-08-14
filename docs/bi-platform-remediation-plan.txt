@@ -1,0 +1,363 @@
+================================================================================
+CARTHAPOS BI PLATFORM — REMEDIATION PLAN (NO CODE)
+Phase 0 / Phase 1 prioritized remediation
+Companion to: bi-platform-production-readiness-report.txt
+Date: 2026-08-02
+Scope: Read-only plan. No code modified. Each item lists problem, evidence,
+       fix approach, effort, and verification.
+================================================================================
+
+--------------------------------------------------------------------------------
+0. SUMMARY OF PRIORITIES
+--------------------------------------------------------------------------------
+Verdicts from the readiness audit: NOT READY for production (~5.4/10).
+Template readiness: NOT READY — data layer OK (restaurant export ingested),
+template mechanism is empty (0 bi_dashboard_templates rows, no card/chart model),
+Metabase not installed/initialized.
+
+This plan splits remediation into three waves:
+
+  Phase 0 (DO FIRST, ~3–4 days): Production blockers. Anything deployed with
+  these risks exposed is unsafe and any analytics work on top is unstable.
+    0.1 Security gate (auth, secrets, CORS)
+    0.2 warehouse-service dimTimeId analytics bug
+    0.3 Snapshot-replacement data-loss + empty-export acceptance
+    0.4 Analytics indexing / performance
+    0.5 Schema/metadata drift reconciliation
+
+  Phase 1 (Dashboard template readiness, ~6–8 days): Make the actual Phase 2
+  goal buildable.
+    1.1 BiDashboardTemplate model: add card/chart schema
+    1.2 Seed template registry (Restaurant / Coffee Shop / Retail)
+    1.3 Template-driven generate-from-upload
+    1.4 Metabase CE install + init + collection + embed secret
+    1.5 Clean dead Metabase link/embed code in bi-dashboards.js
+    1.6 Analytics-cache-service resilience (ZIP data longevity)
+
+  Phase 2 (future, depends on 1.x): Template rendering, per-tenant Metabase
+  schemas (per metabase-integration-report.md), API proxy, iteration.
+
+Each item below is marked [P0.x], [P1.x], [P2.x].
+
+================================================================================
+1. PHASE 0 — PRODUCTION BLOCKERS
+================================================================================
+
+--------------------------------------------------------------------------------
+[P0.1] Re-enable JWT authentication
+--------------------------------------------------------------------------------
+Problem: Authentication middleware is commented out in server.js (~line 88:
+`// app.use('/api', verifyToken)`). Every /api route is publicly reachable,
+including upload ingestion, dashboard read/write, analytics, and admin routes.
+BI data (customer sales, kitchen orders, inventory) is exposed without auth.
+
+Evidence: server.js route mounting; live check confirmed no auth on /api.
+
+Fix approach:
+  1. Restore `app.use('/api', verifyToken)` for all routes except a small
+     explicit allowlist (e.g. /api/auth/login, /api/auth/refresh, health).
+  2. Run the same verifyToken path for BI routes (bi-uploads, bi-dashboards,
+     bi-analysis, bi-analytics, bi-dashboard-templates).
+  3. Add role checks where admin-only (template seeding endpoints).
+  4. Verify all existing client calls (admin SPA, POS electron) send the token;
+     fix any client that relies on anonymous access.
+
+Effort: 0.5–1 day. Verification: unauthenticated request to /api/bi-dashboards
+returns 401; authenticated request returns data; admin/electron flows still work.
+
+--------------------------------------------------------------------------------
+[P0.2] Remove hardcoded JWT fallback secret and committed credentials
+--------------------------------------------------------------------------------
+Problem:
+  - JWT secret has a hardcoded fallback `'carthapos-secret-key-change-in-
+    production-2025'` in code — if env is missing, tokens are forgeable.
+  - Database credentials `postgres:oussama` are committed in backend/.env and
+    referenced in config; .env is tracked (need to confirm, but .env content
+    was read from the repo).
+
+Fix approach:
+  1. Fail fast at boot if JWT_SECRET and DATABASE_URL are not set; never
+    fall back to a default secret.
+  2. Generate a strong JWT secret, move it to server env / secret manager.
+  3. Remove DB credentials from tracked .env; use gitignore + env injection.
+  4. Rotate the postgres password after rotation (anyone with repo access had it).
+  5. Audit for other secrets in repo (search for passwords, tokens, api keys).
+
+Effort: 0.5 day. Verification: boot with missing JWT_SECRET fails loudly; git
+history no longer contains secrets; new creds not in repo.
+
+--------------------------------------------------------------------------------
+[P0.3] Restrict CORS
+--------------------------------------------------------------------------------
+Problem: CORS is `*` — any origin can call the API (once auth is off today,
+fully open). After auth is restored, `*` still allows credential-less abuse and
+CSRF-style calls from arbitrary origins.
+
+Fix approach: Allowlist the known origins (admin SPA origin, POS electron
+app uses file:// / custom scheme). Reject everything else.
+
+Effort: 0.5 day. Verification: requests from non-allowlisted Origin are
+rejected; allowlisted origins work.
+
+--------------------------------------------------------------------------------
+[P0.4] Fix warehouse-service createdAt vs dimTimeId analytics bug  (CRITICAL)
+--------------------------------------------------------------------------------
+Problem: warehouse-service.js buckets/aggregates by `createdAt` (the ETL load
+timestamp) instead of `dimTimeId` (the actual sale date). All consumers of
+these functions return wrong numbers:
+  - getRevenueByDay
+  - getPeakHours
+  - getAverageTicket
+  - getKitchenPerformance
+Consumers: /bi-uploads/:id/summary, /bi-analysis/:id/metrics, and
+bi-insight-generator.js. The v_peak_hours SQL view has the same createdAt bug.
+bi-analytics.js is CORRECT (uses dimTimeId) — use it as the reference.
+
+Evidence: code inspection; fact_sales dimTimeId spans 20260202..20260801 while
+all rows share createdAt 2026-08-02T12:08:39-40 (proves the divergence).
+
+Fix approach:
+  1. Change all warehouse-service aggregations to filter/group by dimTimeId
+     (or join dim_time). Mirror the logic already correct in bi-analytics.js.
+  2. Rebuild v_peak_hours view to use dimTimeId.
+  3. Add a regression test: insert rows with distinct dimTimeId but same
+     createdAt and assert grouping follows dimTimeId.
+
+Effort: 1 day. Verification: a sale dated 2026-07-01 loads on 2026-08-02;
+summary/revenue/peak-hour APIs attribute it to July 1, not the load date.
+
+--------------------------------------------------------------------------------
+[P0.5] Snapshot-replacement data-loss protection
+--------------------------------------------------------------------------------
+Problem: The ETL deletes prior rows by tenantId before inserting the new
+snapshot (delete-then-insert, no staging/rollback). A 0-row COMPLETED upload
+(client cmpb0pfd, upload cmqzgvu9) erased a prior 25-row COMPLETED upload
+(cmqy0d9j). Empty exports are accepted and marked COMPLETED. There is no
+fallback to the previous snapshot.
+
+Evidence: live DB — client cmpb0pfd has a 0-row COMPLETED upload after a
+25-row COMPLETED upload.
+
+Fix approach:
+  1. Reject empty datasets: if the new export has 0 rows for a required
+     dataset, fail the upload and keep the existing snapshot.
+  2. Two-phase load: insert into a staging/temp table, verify row counts
+     (sanity vs previous snapshot), then swap in a transaction; on any
+     failure roll back and keep the old snapshot.
+  3. Mark the upload FAILED (not COMPLETED) when replacement is refused.
+  4. Consider soft-archiving prior snapshots (uploadId retention) instead of
+     hard delete, so recovery is possible.
+
+Effort: 1–1.5 days. Verification: re-upload an empty export → upload FAILED,
+prior dashboard/summary still shows the 25-row data.
+
+--------------------------------------------------------------------------------
+[P0.6] Analytics indexing
+--------------------------------------------------------------------------------
+Problem: fact_sales has 2500 rows today but will grow; analytics join by
+dimTimeId/dimProductId/dimClientId/tenantId. No evidence of supporting index.
+
+Fix approach: Add a composite index (clientId, dimTimeId) — and confirm the
+tenant column name used in queries — on fact_sales (and fact_kitchen_orders,
+fact_inventory). Keep index size in check for warehouse tables.
+
+Effort: 0.5 day. Verification: EXPLAIN ANALYZE of revenue-by-day query uses the
+index.
+
+--------------------------------------------------------------------------------
+[P0.7] Schema/metadata drift reconciliation
+--------------------------------------------------------------------------------
+Problem: DB `bi_dashboards` columns (id, name, description, status, assignedat,
+businesstype, clientid, createdat, createdby, dashboardconfig, dashboardtype,
+licenseid, updatedat, uploadid, generationsteps) do NOT match code or prisma:
+  - bi-dashboards.js reads `dashboard.metabaseDashboardId` — column does not
+    exist; metabase-link/embed endpoints are dead code.
+  - schema.prisma still declares dashboardType/dashboardConfig/etc. while
+    refactoring-report.txt claims they were removed.
+
+Fix approach:
+  1. Decide the source of truth (prisma schema) and generate a migration that
+    converges DB ↔ prisma ↔ route code.
+  2. Remove or implement the metabaseDashboardId references; if Metabase is
+    deferred (Phase 1), strip the dead endpoints now to avoid false positives.
+  3. Re-run `prisma migrate diff` and drift checks as a CI step.
+
+Effort: 1 day. Verification: `prisma migrate status` clean; no route reads a
+nonexistent column.
+
+================================================================================
+2. PHASE 1 — DASHBOARD TEMPLATE READINESS
+================================================================================
+
+--------------------------------------------------------------------------------
+[P1.1] BiDashboardTemplate model: add card/chart schema
+--------------------------------------------------------------------------------
+Problem: The template registry (bi_dashboard_templates) exists but holds 0 rows
+and the Prisma model (~schema.prisma line 357) only has name-level fields — no
+cards, charts, queries, or layout. Nothing can be generated from a template yet.
+
+Fix approach:
+  1. Extend model BiDashboardTemplate with a structured definition, e.g.:
+     - templateType (restaurant/coffee/retail) — derived from business type
+     - a JSON `definition` (or normalized child tables) containing ordered
+       cards; each card: chart type (line/bar/pie/KPI/table), metric (revenue,
+       avg ticket, top products, peak hours, kitchen throughput, inventory),
+       aggregation (day/week), filters, and layout slot.
+     - version, active flag, seededAt.
+  2. Add a migration for the new columns; keep migration SQL in the repo.
+  3. Add Prisma + route support to read template definitions.
+
+Effort: 1–1.5 days. Verification: prisma migration applies; API returns a
+template with cards/charts for all three business types.
+
+--------------------------------------------------------------------------------
+[P1.2] Seed template registry
+--------------------------------------------------------------------------------
+Problem: 0 rows in bi_dashboard_templates. No Restaurant / Coffee Shop / Retail
+templates exist to generate dashboards from.
+
+Fix approach:
+  1. Author seed definitions mapped to metrics that ALREADY work. Note:
+     bi-analytics.js (dimTimeId) is correct; warehouse-service is not — seed
+     against the correct service only.
+  2. Per business type:
+     - Restaurant: revenue/day, avg ticket, peak hours, top products, kitchen
+       orders throughput, weekly trend.
+     - Coffee Shop: revenue/day by hour, top SKUs, avg ticket, new-vs-repeat,
+       inventory low-stock.
+     - Retail: revenue by product category, margin-ish indicators from data
+       available, footfall if exported, stock levels.
+  3. Seed idempotently (upsert by (templateType, version)) via a seed script or
+     migration.
+
+Effort: 1 day. Verification: SELECT returns 3 active templates with card sets;
+no duplicate seeding on re-run.
+
+--------------------------------------------------------------------------------
+[P1.3] Template-driven generate-from-upload
+--------------------------------------------------------------------------------
+Problem: `generate-from-upload` currently creates only a DRAFT BiDashboard row
+(status DRAFT/READY_FOR_REVIEW, custom type) — it does not render anything
+from a template; templates are not consulted at all.
+
+Fix approach:
+  1. In generate-from-upload, resolve the business type (client/business or
+     upload metadata) → select the matching seeded template → build the
+     dashboard definition from the template's cards.
+  2. Generate card instances bound to the uploadId + tenantId; resolve metric
+     queries against bi-analytics.js (correct dimTimeId service).
+  3. Status flow: DRAFT → READY_FOR_REVIEW → ACTIVE (keep existing status
+     model; do not invent a new one without reconciling [P0.7]).
+  4. Persist generationSteps and dashboardConfig so the UI can render.
+
+Effort: 1.5–2 days. Verification: POST generate-from-upload on a loaded
+upload creates a DRAFT dashboard whose config contains cards matching the
+seeded template, and metrics resolve via the correct service.
+
+--------------------------------------------------------------------------------
+[P1.4] Metabase CE: install, init, embed secret
+--------------------------------------------------------------------------------
+Problem: Metabase is not installed/running (curl localhost:3000 → 000).
+METABASE_BASE_URL=http://localhost:3000, METABASE_EMBED_ENABLED=false, empty
+METABASE_EMBED_SECRET. metabase_* / report_* / core_* tables have 0 rows.
+
+Fix approach (per metabase-integration-report.md, ~21 person-days total):
+  1. Install Metabase CE (jar or docker), create application DB, boot and
+     complete first-run setup (admin user, DB connection to warehouse).
+  2. Create collection 1 target; generate MB_EMBED_SECRET and set
+     METABASE_EMBED_ENABLED=true in env (secret management per [P0.2]).
+  3. Follow the design doc's intended approach: per-tenant read-only schema
+     (read-only metabase_reader role), views for analytics, signed-embed URLs
+     served through an API proxy.
+  4. Decide collection permissions per tenant before opening embeds.
+
+Effort: 2–4 days (integrate with existing 21-person-day plan). Verification:
+Metabase web UI loads, dashboard can be saved to collection 1, signed embed URL
+renders a chart without login.
+
+--------------------------------------------------------------------------------
+[P1.5] Clean dead Metabase link/embed code in bi-dashboards.js
+--------------------------------------------------------------------------------
+Problem: bi-dashboards.js reads dashboard.metabaseDashboardId (column does not
+exist) for metabase-link/embed endpoints — dead code that returns errors or
+undefined. With [P1.4] implemented, these should be wired to the real embed
+mechanism; until then they mislead.
+
+Fix approach:
+  1. Implement against the REAL storage: store the metabase artifact id on the
+     dashboard row (add the column via [P0.7] reconciliation) and generate
+     signed embed URLs server-side with MB_EMBED_SECRET.
+  2. Remove the misleading metabase-link/embed endpoints until [P1.4] lands,
+     or mark them 501 with a clear message.
+
+Effort: 1 day. Verification: embed endpoint returns a valid signed URL after
+[P1.4]; no undefined reads.
+
+--------------------------------------------------------------------------------
+[P1.6] Analytics-cache-service resilience (ZIP data longevity)
+--------------------------------------------------------------------------------
+Problem: sale_items/customers/employees and other granular datasets exist ONLY
+in analytics-cache-service JSON keyed by uploadId (LRU cap 32) — not in DB.
+If ZIPs are purged or cache evicts, these datasets vanish (risk R4 in report).
+
+Fix approach:
+  1. Persist the granular datasets to the warehouse (new fact/dim tables) with
+     proper FK columns, OR
+  2. Persist the cache to disk/DB with an eviction policy that keeps at least
+     the N most recent uploads per tenant.
+  3. Make cache failure non-fatal to summary/metrics APIs (degrade gracefully
+     instead of 500).
+
+Effort: 1–2 days. Verification: after cache clear, granular data still resolves;
+APIs never 500 on missing cache entry.
+
+================================================================================
+3. PHASE 2 — FUTURE (DEPENDS ON PHASE 1)
+================================================================================
+  - [P2.1] Per-tenant Metabase schemas + read-only metabase_reader (per
+    metabase-integration-report.md).
+  - [P2.2] Template rendering UX in admin (view/configure generated dashboard
+    cards; edit card metric, chart type, filters).
+  - [P2.3] Expansion of seeded templates (new KPI cards, export).
+  - [P2.4] Full 21-dataset contract validation server-side (currently only 8 of
+    21 datasets validated by bi-schema-registry.js).
+  - [P2.5] Rate limiting on public API + observability (structured logs,
+    request ids, uptime checks).
+
+================================================================================
+4. SEQUENCING & DEPENDENCIES
+================================================================================
+  Order: P0.1→P0.4→P0.5 (safety + correct numbers) before P1.3 (generation
+  correctness). P0.7 before P1.1 (schema source-of-truth must be settled before
+  new columns). P1.4 (Metabase) can start in parallel with P1.1–P1.3 since it
+  is independent infra work. P1.6 can be deferred but should precede any
+  promise of historical analytics.
+
+  Recommended sprint cut:
+    Sprint A (Phase 0): P0.1, P0.2, P0.3, P0.4, P0.5
+    Sprint B (Phase 0 tail): P0.6, P0.7
+    Sprint C (Phase 1): P1.1, P1.2, P1.3 (+ P1.4 in parallel)
+    Sprint D (Phase 1 tail): P1.5, P1.6
+
+================================================================================
+5. ACCEPTANCE CRITERIA (definition of "ready for Phase 2")
+================================================================================
+  A. All /api routes authenticated; no default secrets; no creds in repo; CORS
+     allowlisted.
+  B. Revenue/day, peak hours, avg ticket, kitchen throughput attribute to the
+     SALE DATE (dimTimeId), not the load date; regression test passes.
+  C. An empty/reduced re-upload cannot erase existing data; uploads are never
+     falsely COMPLETED; old snapshot recoverable.
+  D. `prisma migrate status` clean; no route reads a nonexistent column.
+  E. bi_dashboard_templates has >=3 seeded active templates with card/chart
+     definitions; generate-from-upload produces a DRAFT dashboard with cards
+     resolved from the correct template, metrics from bi-analytics.js.
+  F. Metabase CE running, collection 1 usable, signed embed URLs work.
+  G. Granular dataset survival beyond cache lifecycle.
+
+  When A–E are met: platform is production-viable AND Phase 2
+  "Dashboard Template Generation" becomes buildable. F and G can land during
+  Phase 2 without blocking template generation itself.
+================================================================================
+END OF PLAN
+================================================================================

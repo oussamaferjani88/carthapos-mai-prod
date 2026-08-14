@@ -31,43 +31,37 @@ export const AccessModeProvider = ({ children }: { children: ReactNode }) => {
     const urlUserName = params.get('userName');
     const urlUserEmail = params.get('userEmail');
 
-    if (urlMode) localStorage.setItem('accessMode', urlMode);
-    if (urlUserId) localStorage.setItem('currentUserId', urlUserId);
-    if (urlUserName) localStorage.setItem('currentUserName', urlUserName);
-    if (urlUserEmail) localStorage.setItem('currentUserEmail', urlUserEmail);
+    // AccessMode only activates when explicitly entering through URL params.
+    // Normal login/register clears these keys, so stale identities never
+    // leak into a real user session.
+    if (urlMode || urlUserId) {
+      if (urlMode) localStorage.setItem('accessMode', urlMode);
+      if (urlUserId) localStorage.setItem('currentUserId', urlUserId);
+      if (urlUserName) localStorage.setItem('currentUserName', urlUserName);
+      if (urlUserEmail) localStorage.setItem('currentUserEmail', urlUserEmail);
 
-    const storedMode = localStorage.getItem('accessMode') || 'admin';
-    const storedUserId = localStorage.getItem('currentUserId');
-    const storedUserName = localStorage.getItem('currentUserName') || '';
-    const storedUserEmail = localStorage.getItem('currentUserEmail') || '';
-
-    const nextMode = urlMode || storedMode;
-    const nextUserId = urlUserId || storedUserId;
-
-    setMode(nextMode);
-    setCurrentUserId(nextUserId);
-    setCurrentUserProfile(
-      nextUserId
-        ? { id: nextUserId, name: urlUserName || storedUserName, email: urlUserEmail || storedUserEmail }
-        : null
-    );
-
-    const handleStorageChange = () => {
-      const newMode = localStorage.getItem('accessMode') || 'admin';
-      const newUserId = localStorage.getItem('currentUserId');
-      const newUserName = localStorage.getItem('currentUserName') || '';
-      const newUserEmail = localStorage.getItem('currentUserEmail') || '';
-      setMode(newMode);
-      setCurrentUserId(newUserId);
+      const nextMode = urlMode || 'admin';
+      setMode(nextMode);
+      setCurrentUserId(urlUserId || null);
       setCurrentUserProfile(
-        newUserId
-          ? { id: newUserId, name: newUserName, email: newUserEmail }
+        urlUserId
+          ? { id: urlUserId, name: urlUserName || '', email: urlUserEmail || '' }
           : null
       );
-    };
+      return () => {
+        // Leave the provider (navigate away) → drop the AccessMode identity so
+        // it never survives into a normal user session.
+        setMode('admin');
+        setCurrentUserId(null);
+        setCurrentUserProfile(null);
+      };
+    }
 
-    window.addEventListener('storage', handleStorageChange);
-    return () => window.removeEventListener('storage', handleStorageChange);
+    // No URL identity params: AccessMode is inactive (admin), regardless of any
+    // leftover keys.
+    setMode('admin');
+    setCurrentUserId(null);
+    setCurrentUserProfile(null);
   }, [location.search]);
 
   return (

@@ -151,9 +151,25 @@ export const biUploadsApi = {
   getSummary: (id) => api.get(`/bi-uploads/${id}/summary`),
   getClients: () => api.get('/bi-uploads/clients/list'),
   upload: (formData, onProgress) => api.post('/bi-uploads', formData, {
-    headers: { 'Content-Type': 'multipart/form-data' },
+    headers: { 'Content-Type': null },
     onUploadProgress: onProgress,
   }),
+  // Wizard endpoints
+  validate: (id) => api.post(`/bi-uploads/${id}/validate`),
+  getValidationReport: (id) => api.get(`/bi-uploads/${id}/validation-report`),
+  getRawPreview: (id, params) => api.get(`/bi-uploads/${id}/raw-preview`, { params }),
+  prepare: (id) => api.post(`/bi-uploads/${id}/prepare`),
+  getTransformationPreview: (id, params) => api.get(`/bi-uploads/${id}/transformation-preview`, { params }),
+  correct: (id, payload) => api.post(`/bi-uploads/${id}/correct`, payload),
+  confirmLoad: (id) => api.post(`/bi-uploads/${id}/confirm-load`),
+  getReport: (id) => api.get(`/bi-uploads/${id}/report`),
+};
+
+// API BI Dashboards
+export const biDashboardsApi = {
+  list: (params) => api.get('/bi/dashboards', { params }),
+  getById: (id) => api.get(`/bi/dashboards/${id}`),
+  generateFromUpload: (uploadId) => api.post('/bi/dashboards/generate-from-upload', { uploadId }),
 };
 
 export default api;

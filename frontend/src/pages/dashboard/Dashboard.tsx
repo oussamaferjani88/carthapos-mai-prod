@@ -12,13 +12,10 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useScrollAnimation } from "@/hooks/useScrollAnimation";
+import { getAuthUser, getAuthClient } from "@/lib/auth";
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:3001/api";
-const API_ORIGIN = API_BASE_URL.replace(/\/api\/?$/, "");
 
 type PortalUser = {
   id?: string;
@@ -76,26 +73,6 @@ type PosSystem = {
   raw: License;
 };
 
-type BIRequest = {
-  id: string;
-  licenseId: string;
-  dashboardType: string;
-  message: string;
-  businessName?: string;
-  status: "PENDING_REVIEW" | "APPROVED" | "REJECTED" | "REQUEST_INFO";
-  specialistNotes?: string;
-  objectives?: string[] | null;
-  kpis?: string[] | null;
-  dashboardRequirements?: string | null;
-  paymentStatus?: string;
-  createdAt: string;
-  updatedAt?: string;
-  files?: Array<{
-    originalName: string;
-    url: string;
-  }>;
-};
-
 type ModuleUpgradeTransaction = {
   id: string;
   method: string;
@@ -113,6 +90,15 @@ type ModuleUpgradeTransaction = {
 };
 
 const getPortalUser = (): PortalUser | null => {
+  const authClient = getAuthClient();
+  const authUser = getAuthUser();
+  if (authClient?.id || authUser?.id) {
+    return {
+      id: authClient?.id || authUser?.id,
+      email: authClient?.email || authUser?.email,
+    };
+  }
+
   try {
     const local = localStorage.getItem("user");
     if (local) return JSON.parse(local);
@@ -152,18 +138,6 @@ const Dashboard = () => {
   const [upgradeLoading, setUpgradeLoading] = useState(false);
   const [upgradeTransactions, setUpgradeTransactions] = useState<ModuleUpgradeTransaction[]>([]);
   const [upgradeTransactionsLoading, setUpgradeTransactionsLoading] = useState(false);
-  const [biRequests, setBiRequests] = useState<BIRequest[]>([]);
-  const [biLoading, setBiLoading] = useState(false);
-  const [biSubmitLoading, setBiSubmitLoading] = useState(false);
-  const [biForm, setBiForm] = useState({
-    businessName: "",
-    dashboardType: "sales-overview",
-    message: "",
-    objectives: "",
-    kpis: "",
-    dashboardRequirements: "",
-    csvFiles: [] as File[],
-  });
 
   const loadHistory = async () => {
     const user = getPortalUser();
@@ -320,35 +294,6 @@ const Dashboard = () => {
     }
   }, [detailsOpen]);
 
-  const loadBiRequests = async (licenseId: string) => {
-    const user = getPortalUser();
-    setBiLoading(true);
-    try {
-      const params = new URLSearchParams();
-      params.set("licenseId", licenseId);
-      if (user?.id) params.set("userId", user.id);
-      if (user?.email) params.set("userEmail", user.email);
-
-      const response = await fetch(`${API_BASE_URL}/bi-requests?${params.toString()}`);
-      if (!response.ok) {
-        throw new Error("Failed to load BI requests");
-      }
-
-      const data = (await response.json()) as BIRequest[];
-      setBiRequests(Array.isArray(data) ? data : []);
-    } catch (error) {
-      console.error(error);
-      setBiRequests([]);
-    } finally {
-      setBiLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    if (!detailsOpen || !selectedLicense) return;
-    loadBiRequests(selectedLicense.id);
-  }, [detailsOpen, selectedLicense]);
-
   const loadUpgradeTransactions = async (licenseId: string) => {
     setUpgradeTransactionsLoading(true);
     try {
@@ -455,71 +400,6 @@ const Dashboard = () => {
     }
   };
 
-  const submitBiRequest = async () => {
-    if (!selectedLicense || !biForm.dashboardType || !biForm.message.trim()) {
-      return;
-    }
-
-    const user = getPortalUser();
-    setBiSubmitLoading(true);
-    try {
-      const formData = new FormData();
-      formData.append("licenseId", selectedLicense.id);
-      formData.append("businessName", biForm.businessName);
-      formData.append("dashboardType", biForm.dashboardType);
-      formData.append("message", biForm.message.trim());
-      if (user?.id) formData.append("userId", user.id);
-      if (user?.email) formData.append("userEmail", user.email);
-
-      const objectives = biForm.objectives
-        .split("\n")
-        .map((s) => s.trim())
-        .filter(Boolean);
-      formData.append("objectives", JSON.stringify(objectives));
-
-      const kpis = biForm.kpis
-        .split("\n")
-        .map((s) => s.trim())
-        .filter(Boolean);
-      formData.append("kpis", JSON.stringify(kpis));
-
-      formData.append("dashboardRequirements", biForm.dashboardRequirements.trim());
-
-      biForm.csvFiles.forEach((file) => formData.append("csvFiles", file));
-
-      const response = await fetch(`${API_BASE_URL}/bi-requests`, {
-        method: "POST",
-        body: formData,
-      });
-
-      if (!response.ok) {
-        throw new Error("Failed to submit BI request");
-      }
-
-      setBiForm((prev) => ({
-        ...prev,
-        message: "",
-        objectives: "",
-        kpis: "",
-        dashboardRequirements: "",
-        csvFiles: [],
-      }));
-      await loadBiRequests(selectedLicense.id);
-    } catch (error) {
-      console.error(error);
-    } finally {
-      setBiSubmitLoading(false);
-    }
-  };
-
-  const getBiStatusClasses = (status: BIRequest["status"]) => {
-    if (status === "APPROVED") return "bg-green-500/10 text-green-600";
-    if (status === "PENDING_REVIEW") return "bg-amber-500/10 text-amber-600";
-    if (status === "REJECTED") return "bg-red-500/10 text-red-600";
-    if (status === "REQUEST_INFO") return "bg-blue-500/10 text-blue-600";
-    return "bg-gray-500/10 text-gray-600";
-  };
-
   const stats = [
     {
       label: t("dashboard.stats.totalSystems"),
@@ -584,6 +464,12 @@ const Dashboard = () => {
           <CardHeader>
             <CardTitle>{t("dashboard.myPOS")}</CardTitle>
             <CardDescription>{t("dashboard.myPOSDescription")}</CardDescription>
+            <Link
+              to="/dashboard/projects"
+              className="text-sm text-primary hover:underline inline-flex items-center gap-1"
+            >
+              Voir tous mes projets →
+            </Link>
           </CardHeader>
           <CardContent>
             {loading && <div className="text-sm text-muted-foreground mb-4">Loading history...</div>}
@@ -782,175 +668,14 @@ const Dashboard = () => {
                   <div className="font-medium">BI Dashboard Request</div>
                 </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                  <div>
-                    <div className="text-muted-foreground mb-1">Business name</div>
-                    <Input
-                      value={biForm.businessName}
-                      onChange={(e) => setBiForm((prev) => ({ ...prev, businessName: e.target.value }))}
-                      placeholder="Business name"
-                    />
-                  </div>
-                  <div>
-                    <div className="text-muted-foreground mb-1">Dashboard type</div>
-                    <Select
-                      value={biForm.dashboardType}
-                      onValueChange={(value) => setBiForm((prev) => ({ ...prev, dashboardType: value }))}
-                    >
-                      <SelectTrigger>
-                        <SelectValue placeholder="Select dashboard type" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="sales-overview">Sales overview</SelectItem>
-                        <SelectItem value="inventory-control">Inventory control</SelectItem>
-                        <SelectItem value="customer-insights">Customer insights</SelectItem>
-                        <SelectItem value="finance-kpi">Finance KPI</SelectItem>
-                        <SelectItem value="custom">Custom dashboard</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                </div>
-
-                <div>
-                  <div className="text-muted-foreground mb-1">Business objective</div>
-                  <Textarea
-                    value={biForm.message}
-                    onChange={(e) => setBiForm((prev) => ({ ...prev, message: e.target.value }))}
-                    placeholder="Describe your metrics, filters, and expected dashboard outcomes"
-                    rows={4}
-                  />
-                </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                  <div>
-                    <div className="text-muted-foreground mb-1">Objectives (one per line)</div>
-                    <Textarea
-                      value={biForm.objectives}
-                      onChange={(e) => setBiForm((prev) => ({ ...prev, objectives: e.target.value }))}
-                      placeholder="Increase sales by 20%&#10;Reduce inventory costs&#10;Improve customer retention"
-                      rows={3}
-                    />
-                  </div>
-                  <div>
-                    <div className="text-muted-foreground mb-1">KPIs (one per line)</div>
-                    <Textarea
-                      value={biForm.kpis}
-                      onChange={(e) => setBiForm((prev) => ({ ...prev, kpis: e.target.value }))}
-                      placeholder="Monthly revenue&#10;Inventory turnover rate&#10;Customer acquisition cost"
-                      rows={3}
-                    />
-                  </div>
-                </div>
-
-                <div>
-                  <div className="text-muted-foreground mb-1">Dashboard requirements</div>
-                  <Textarea
-                    value={biForm.dashboardRequirements}
-                    onChange={(e) => setBiForm((prev) => ({ ...prev, dashboardRequirements: e.target.value }))}
-                    placeholder="Specific charts, filters, time ranges, or any special requirements"
-                    rows={2}
-                  />
-                </div>
-
-                <div>
-                  <div className="text-muted-foreground mb-1">Upload CSV files (optional)</div>
-                  <Input
-                    type="file"
-                    multiple
-                    accept=".csv"
-                    onChange={(e) =>
-                      setBiForm((prev) => ({
-                        ...prev,
-                        csvFiles: Array.from(e.target.files || []),
-                      }))
-                    }
-                  />
-                  {biForm.csvFiles.length > 0 && (
-                    <div className="mt-2 text-xs text-muted-foreground">
-                      {biForm.csvFiles.length} file(s): {biForm.csvFiles.map((f) => f.name).join(", ")}
-                    </div>
-                  )}
-                </div>
+                <p className="text-sm text-muted-foreground">
+                  Create, track, and manage your BI dashboard requests in the dedicated workspace.
+                </p>
 
                 <div className="flex justify-end">
-                  <Button
-                    size="sm"
-                    onClick={submitBiRequest}
-                    disabled={biSubmitLoading || !biForm.message.trim() || !biForm.dashboardType}
-                  >
-                    {biSubmitLoading ? "Submitting..." : "Submit BI Request"}
+                  <Button asChild size="sm">
+                    <Link to="/dashboard/bi">Open BI workspace</Link>
                   </Button>
-                </div>
-
-                <div className="pt-2 border-t border-border">
-                  <div className="text-muted-foreground mb-2">Your BI requests for this POS</div>
-                  {biLoading ? (
-                    <div className="text-xs text-muted-foreground">Loading BI requests...</div>
-                  ) : biRequests.length === 0 ? (
-                    <div className="text-xs text-muted-foreground">No BI requests submitted yet.</div>
-                  ) : (
-                    <div className="space-y-2 max-h-52 overflow-auto">
-                      {biRequests.map((request) => (
-                        <div key={request.id} className="rounded border border-border p-2">
-                          <div className="flex items-center justify-between gap-2 mb-1">
-                            <div className="font-medium text-xs uppercase tracking-wide">{request.dashboardType}</div>
-                            <span className={`px-2 py-0.5 rounded text-[10px] ${getBiStatusClasses(request.status)}`}>
-                              {request.status}
-                            </span>
-                          </div>
-                          <div className="text-xs text-muted-foreground mb-1">{request.message}</div>
-                          {Array.isArray(request.objectives) && request.objectives.length > 0 && (
-                            <div className="text-[11px] mb-0.5">
-                              <span className="font-medium">Objectives:</span> {request.objectives.join(", ")}
-                            </div>
-                          )}
-                          {Array.isArray(request.kpis) && request.kpis.length > 0 && (
-                            <div className="text-[11px] mb-0.5">
-                              <span className="font-medium">KPIs:</span> {request.kpis.join(", ")}
-                            </div>
-                          )}
-                          {request.dashboardRequirements?.trim() && (
-                            <div className="text-[11px] mb-0.5">
-                              <span className="font-medium">Requirements:</span> {request.dashboardRequirements}
-                            </div>
-                          )}
-                          {request.specialistNotes?.trim() && (
-                            <div className="text-xs mb-1">
-                              <span className="font-medium">Specialist note:</span> {request.specialistNotes}
-                            </div>
-                          )}
-                          {Array.isArray(request.files) && request.files.length > 0 && (
-                            <div className="mb-1 space-y-0.5">
-                              <div className="text-[11px] text-muted-foreground">Attached files</div>
-                              {request.files.map((file) => (
-                                <a
-                                  key={`${request.id}-${file.url}`}
-                                  href={`${API_ORIGIN}${file.url}`}
-                                  target="_blank"
-                                  rel="noreferrer"
-                                  className="block text-[11px] text-primary hover:underline"
-                                >
-                                  {file.originalName}
-                                </a>
-                              ))}
-                            </div>
-                          )}
-                          {request.status === "APPROVED" && Array.isArray(request.files) && request.files.length > 0 && (
-                            <div className="mb-1 rounded border border-green-200 bg-green-50 px-2 py-1">
-                              <div className="text-[11px] font-medium text-green-700">Delivered assets ready</div>
-                              <div className="text-[11px] text-green-700/90">
-                                Download the attached files above
-                                {request.updatedAt ? ` (updated ${new Date(request.updatedAt).toLocaleString()})` : ""}.
-                              </div>
-                            </div>
-                          )}
-                          <div className="text-[11px] text-muted-foreground">
-                            {new Date(request.createdAt).toLocaleString()}
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
                 </div>
               </div>
             </div>

@@ -9,7 +9,7 @@ const { PrismaClient } = require('@prisma/client');
 const prisma = new PrismaClient();
 
 // Import authentication middleware
-const { verifyToken } = require('./middleware/auth');
+const { verifyToken, optionalAuth } = require('./middleware/auth');
 
 // Import routes
 const clientRoutes = require('./routes/clients');
@@ -39,10 +39,16 @@ const biDashboardsRoutes = require('./routes/bi-dashboards');
 const biDashboardTemplatesRoutes = require('./routes/bi-dashboard-templates');
 const biNotificationsRoutes = require('./routes/bi-notifications');
 const biAnalysisRoutes = require('./routes/bi-analysis');
+const biAnalyticsRoutes = require('./routes/bi-analytics');
 const biReviewsRoutes = require('./routes/bi-reviews');
+const authRoutes = require('./routes/auth');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
+
+// Auth gate — defaults OFF (current dev behavior unchanged). Flip on via
+// env AUTH_REQUIRED=true once the client portal ships real JWT login.
+const AUTH_REQUIRED = process.env.AUTH_REQUIRED === 'true';
 
 // Middleware
 app.use(helmet());
@@ -72,6 +78,7 @@ app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 // ============================================================================
 // Public routes (no authentication required)
 app.use('/api/users', userRoutes); // Login endpoint is in this router
+app.use('/api/auth', authRoutes);
 
 // Health check (public)
 app.get('/api/health', (req, res) => {
@@ -85,6 +92,9 @@ app.get('/api/health', (req, res) => {
 // Apply JWT authentication middleware to all routes below
 // COMMENTED OUT FOR DEVELOPMENT - UNCOMMENT BEFORE PRODUCTION
 // app.use('/api', verifyToken);
+if (AUTH_REQUIRED) {
+  app.use('/api', verifyToken);
+}
 
 // Protected routes (authentication required)
 // NOTE: Currently accessible without authentication for development
@@ -107,16 +117,20 @@ app.use('/api/payment-advanced', paymentAdvancedRoutes);
 app.use('/api/gift-cards', giftCardsRoutes);
 app.use('/api/prescriptions', prescriptionsRoutes);
 app.use('/api/production', productionRoutes);
-app.use('/api/bi-requests', biRequestsRoutes);
-app.use('/api/bi-uploads', biUploadsRoutes);
-app.use('/api/bi/debug', biDebugRoutes);
-app.use('/api/bi/dashboards', biDashboardsRoutes);
-app.use('/api/bi/dashboard', biDashboardsRoutes);
-app.use('/api/bi/dashboard-templates', biDashboardTemplatesRoutes);
-app.use('/api/bi/notifications', biNotificationsRoutes);
-app.use('/api/bi/analysis', biAnalysisRoutes);
-app.use('/api/bi/reviews', biReviewsRoutes);
-app.use('/api/bi/review', biReviewsRoutes);
+app.use('/api/bi-requests', optionalAuth, biRequestsRoutes);
+app.use('/api/bi-uploads', optionalAuth, biUploadsRoutes);
+app.use('/api/bi/debug', optionalAuth, biDebugRoutes);
+app.use('/api/bi/dashboards', optionalAuth, biDashboardsRoutes);
+app.use('/api/bi/dashboard', optionalAuth, biDashboardsRoutes);
+app.use('/api/bi/dashboard-templates', optionalAuth, biDashboardTemplatesRoutes);
+app.use('/api/bi/metabase', optionalAuth, require('./routes/bi-metabase'));
+app.use('/api/bi/notifications', optionalAuth, biNotificationsRoutes);
+app.use('/api/bi/analysis', optionalAuth, biAnalysisRoutes);
+app.use('/api/bi/analytics', optionalAuth, biAnalyticsRoutes);
+app.use('/api/bi/reviews', optionalAuth, biReviewsRoutes);
+app.use('/api/bi/review', optionalAuth, biReviewsRoutes);
+app.use('/api/bi/assignments', optionalAuth, require('./routes/bi-assignments'));
+app.use('/api/bi/stats', optionalAuth, require('./routes/bi-stats'));
 
 // Error handling middleware
 app.use((err, req, res, next) => {

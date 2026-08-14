@@ -1,0 +1,389 @@
+================================================================================
+CARTHAPOS BI — DASHBOARD TEMPLATE CONTRACT AUDIT
+READ-ONLY ANALYSIS (no code/database changes made)
+Date: 2026-08-02
+================================================================================
+
+SCOPE & METHOD
+--------------------------------------------------------------------------------
+All 14 BI views inspected (pg_get_viewdef), all BI fact/dimension tables and
+indexes inspected, live row-level spot checks executed, ETL source-of-truth
+(ZIP metadata.json + CSVs) compared against the warehouse. T1 tenant data:
+"Restaurant Le Gourmet" (restaurant, Africa/Tunis, 2,500 sales, 7,358 sale
+items, 402 kitchen orders, 14 customers, 19 products).
+
+================================================================================
+1. DATABASE VIEW CONTRACT CHECK
+================================================================================
+
+All 14 views expose: client_id (= tenantId) + client_name + business_type where
+relevant. Every view is single-tenant safe (see section 6).
+
+--- v_dashboard_kpis ----------------------------------------------------------
+PURPOSE   Tenant-level executive KPI header card.
+GRAIN     One row per client (dim_clients). Scalar aggregates over full export.
+FILTERS   client_id, client_name. No date dimension (only last_sale_date).
+KPIs      total_sales, total_revenue, avg_ticket, total_products,
+          total_kitchen_orders, total_appointments, total_suppliers.
+LIMIT     No trend/date-range; static per-tenant header. avg_ticket = mean of
+          sale totals (matches v_sales). last_sale_date is a point value.
+          PERFORMANCE: rewritten 20260803100000 — 74 ms (was >120 s).
+
+--- v_sales -------------------------------------------------------------------
+PURPOSE   Transaction-grain sales ledger.
+GRAIN     One row per sale (2,500).
+FILTERS   client_id, client_name, business_type, sale_date, year, quarter,
+          month, day, day_of_week, is_weekend, payment_method, sale_id.
+KPIs      Revenue (total), tax, discount, avg ticket, payment-method mix,
+          daily/weekly/monthly counts & revenue, weekend vs weekday.
+LIMIT     No product/category, no customer, no hour-of-day. Uses dim_time.date
+          which is a naive timestamp (timezone semantics — see finding F2).
+
+--- v_revenue_daily -----------------------------------------------------------
+PURPOSE   Time-series revenue.
+GRAIN     One row per client + day (181 days).
+FILTERS   client_id, client_name, business_type, date, year, month, day,
+          day_of_week.
+KPIs      Revenue by day/month/year, transaction_count, avg_ticket.
+LIMIT     No payment/product segmentation.
+
+--- v_product_performance -----------------------------------------------------
+PURPOSE   Product & category performance from REAL sale line items (fixed from
+          the old inventory snapshot).
+GRAIN     One row per client + product (19).
+FILTERS   client_id, product_name, category, family. NO DATE COLUMN.
+KPIs      total_sold, order_count, unit_price, revenue, vat_amount; top
+          products, category ranking, best seller.
+LIMIT     F3: NO date/date-range filter — product trend-over-time and "top
+          product in range" impossible through this view. Item-grain revenue
+          (119,854) < sale-grain (139,869.52) — see section 4 note (source data).
+
+--- v_customer_analysis -------------------------------------------------------
+PURPOSE   Customer segmentation / loyalty.
+GRAIN     One row per customer (14).
+FILTERS   client_id, customer_id, customer_name, email, phone, loyalty_points.
+KPIs      total_spent, visit_count, order_count, lifetime_revenue, avg_ticket,
+          first/last_order_date; returning customers (visit_count>1).
+LIMIT     Lifetime aggregates — no per-month customer activity. loyalty/total
+          spend values come from source customers.csv (loyalty module enabled).
+
+--- v_sales_hourly ------------------------------------------------------------
+PURPOSE   Hourly sales time-series.
+GRAIN     One row per client + day + hour (1,424).
+FILTERS   client_id, sale_date, hour_of_day.
+KPIs      Hourly order_count, revenue, tax; hourly heatmap.
+LIMIT     No payment/product segmentation. Cross-checks to 2,500/139,869.52.
+
+--- v_peak_hours --------------------------------------------------------------
+PURPOSE   Peak-hour ranking (fixed: hour-of-day, not load date).
+GRAIN     One row per client + hour (11 occupied of 0-23).
+FILTERS   client_id, hour_of_day. No date.
+KPIs      order_count, revenue by hour; peak-hours bar.
+LIMIT     No date range; static overall profile. T1 peaks hours 1-4.
+
+--- v_inventory ---------------------------------------------------------------
+PURPOSE   Inventory snapshot + turnover.
+GRAIN     One row per client + product (19).
+FILTERS   client_id, product_name, category, family, barcode.
+KPIs      stock, price, times_sold, turnover_ratio, inventory value (stock×price).
+LIMIT     Single snapshot (snapshot_date = load time, no history/trend).
+          F4: source stock = 0 everywhere → turnover_ratio = 0, value = 0.
+
+--- v_inventory_status --------------------------------------------------------
+PURPOSE   Stock alerting (NEW).
+GRAIN     One row per client + product.
+FILTERS   client_id, product_name, category, family.
+KPIs      stock_status IN_STOCK/LOW/OUT_OF_STOCK; data_warning
+          INVENTORY_DATA_NOT_AVAILABLE when max(stock)=0 (honest flag for F4).
+LIMIT     Same single-snapshot limitation.
+
+--- v_kitchen_orders ----------------------------------------------------------
+PURPOSE   Kitchen order log.
+GRAIN     One row per kitchen order (402).
+FILTERS   client_id, order_date, year, month, day, day_of_week, is_weekend,
+          priority, status, table_number.
+KPIs      Orders by day/status/priority/table.
+LIMIT     Restaurant/cafe only.
+
+--- v_kitchen_performance -----------------------------------------------------
+PURPOSE   Kitchen operational performance (NEW, order grain + prep time).
+GRAIN     One row per kitchen order (402).
+FILTERS   client_id, order_date, priority, status, table_number, order_id.
+KPIs      prep_minutes (ready-complete − start), item_count, total_quantity,
+          total_revenue; avg prep time, status funnel.
+LIMIT     prep_minutes near 0 on ~66% rows (source started==ready — fabricated
+          data). Timestamps stored faithfully.
+
+--- v_table_turnover ----------------------------------------------------------
+PURPOSE   Table usage.
+GRAIN     One row per client + table (20).
+FILTERS   client_id, table_number.
+KPIs      order_count per table, first/last order date.
+LIMIT     No per-visit duration (no seated/closed timestamps in source).
+
+--- v_suppliers ---------------------------------------------------------------
+PURPOSE   Supplier directory.
+GRAIN     One row per supplier.
+FILTERS   client_id, supplier_name.
+KPIs      Contact info only.
+LIMIT     F5: suppliers.csv empty in T1 export → 0 rows. Structure ready.
+
+--- v_appointments ------------------------------------------------------------
+PURPOSE   Appointments (salon/services).
+GRAIN     One row per appointment.
+FILTERS   client_id, appointment_date, year, month, day, status.
+KPIs      Appointments by day/status/service.
+LIMIT     F5: no appointments exported for restaurant type → 0 rows. Structure
+          ready; intended for non-restaurant tenants.
+
+================================================================================
+2. RESTAURANT DASHBOARD KPI CONTRACT
+================================================================================
+
+EXECUTIVE KPIs
+  Revenue                READY   v_dashboard_kpis.total_revenue / v_sales
+  Orders count           READY   v_dashboard_kpis.total_sales / v_sales
+  Average ticket         READY   v_dashboard_kpis.avg_ticket / v_revenue_daily
+  Customers count        READY   v_customer_analysis (14)
+  Returning customers    READY   v_customer_analysis.visit_count / order_count>1
+  Best selling product   READY   v_product_performance.total_sold / revenue
+  Top category           READY   v_product_performance.category (Plat 88,069 TND)
+
+SALES ANALYSIS
+  Revenue by day         READY   v_revenue_daily
+  Revenue by month       READY   v_revenue_daily.year+month
+  Revenue trend          READY   v_revenue_daily (181 days) / v_sales
+  Payment method dist    READY   v_sales.payment_method (cash 1211 / card 665 /
+                                 mobile 624)
+  Hourly sales           READY   v_sales_hourly
+  Peak hours             READY   v_peak_hours (hours 1-4 top)
+
+PRODUCT ANALYSIS
+  Top products           READY   v_product_performance
+  Quantity sold          READY   v_product_performance.total_sold
+  Product revenue        READY   v_product_performance.revenue
+  Category performance   READY   v_product_performance.category/family
+                          PARTIAL — no date-range on product/category (F3)
+
+CUSTOMER ANALYSIS
+  Customer count         READY   v_customer_analysis
+  Top customers          READY   v_customer_analysis.lifetime_revenue (Walid
+                                 Haddad 10,599.83)
+  Customer spending      READY   v_customer_analysis.total_spent/revenue
+  Visit frequency        READY   v_customer_analysis.visit_count/order_count
+  Loyalty                READY   v_customer_analysis.loyalty_points (source)
+
+OPERATIONS
+  Kitchen orders         READY   v_kitchen_orders
+  Kitchen status         READY   v_kitchen_orders.status (completed 71/pending
+                                 82/ready 74/preparing 97/served 78)
+  Preparation time       PARTIAL v_kitchen_performance.prep_minutes — ~0 on 66%
+                                 of rows (source started==ready); meaningful
+                                 only for the ~34% real rows
+  Table turnover         READY   v_table_turnover
+
+RESTAURANT: 27/28 READY, 1 PARTIAL (prep time — source limitation, F6 note).
+
+================================================================================
+3. COFFEE SHOP DASHBOARD KPI CONTRACT
+================================================================================
+
+Coffee uses the same generic facts; business_type='cafe' routes templates
+(views expose business_type for filtering).
+
+  Sales                  READY   v_sales / v_revenue_daily
+  Average basket         READY   v_dashboard_kpis.avg_ticket / v_revenue_daily
+  Hourly sales           READY   v_sales_hourly
+  Peak hours             READY   v_peak_hours
+  Best beverages         READY   v_product_performance (category 'Boisson' /
+                                 family e.g. Coffee) — present in T1 (9,915 TND)
+  Category performance   READY   v_product_performance.category/family
+  Customer frequency     READY   v_customer_analysis.visit_count
+  Payment analysis       READY   v_sales.payment_method
+
+COFFEE-SPECIFIC METRICS — MISSING (NOT exported by source; schema does not
+carry them, so they are BLOCKED AT SOURCE, not by the warehouse):
+  Beverage size (S/M/L)        MISSING — no size field in sale_items/products
+  Modifiers / extras (syrup)   MISSING — no modifier field
+  Loyalty program analytics    PARTIAL — dim_customers.loyalty_points exists;
+                                per-visit point movements not exported
+  Recurring customers          READY   visit_count/order_count based
+
+COFFEE SHOP: 8/8 core READY; coffee-specific extras BLOCKED at source.
+
+================================================================================
+4. RETAIL DASHBOARD KPI CONTRACT
+================================================================================
+
+  Revenue                READY   v_sales / v_revenue_daily
+  Orders                 READY   v_sales / v_revenue_daily
+  Products               READY   v_product_performance (19 products)
+  Fast movers            READY   v_inventory.times_sold / v_product_performance
+                                 .total_sold
+  Slow movers            READY   v_inventory.times_sold (asc)
+  Inventory value        BLOCKED v_inventory.stock × price — source stock = 0
+                                 everywhere → value = 0 (data quality, F4)
+  Stock alerts           READY   v_inventory_status (OUT_OF_STOCK/LOW flag +
+                                 INVENTORY_DATA_NOT_AVAILABLE warning)
+  Suppliers              BLOCKED v_suppliers structure ready but suppliers.csv
+                                 is empty in the export (F5)
+
+AVAILABLE NOW: revenue, orders, products, fast/slow movers, stock alerts,
+supplier schema.
+BLOCKED BECAUSE SOURCE DATA DOES NOT EXIST: inventory value/turnover (stock=0),
+supplier rows (empty CSV). These are NOT warehouse gaps — they are export-side
+data gaps that v_inventory_status already surfaces honestly.
+
+================================================================================
+5. FILTERING CONTRACT
+================================================================================
+
+  Client          ALL views expose client_id (tenantId); main views also
+                  client_name, business_type.
+  Date range      v_sales (sale_date), v_revenue_daily (date), v_sales_hourly
+                  (sale_date), v_kitchen_orders (order_date), v_kitchen_perf
+                  (order_date), v_appointments (appointment_date), v_table_
+                  turnover (first/last order date).
+                  MISSING on: v_product_performance (F3), v_customer_analysis
+                  (lifetime only), v_peak_hours, v_inventory(_status),
+                  v_suppliers, v_dashboard_kpis.
+  Month / Year    v_sales, v_revenue_daily, v_kitchen_orders, v_appointments
+                  expose year/quarter/month/day/day_of_week/is_weekend.
+  Product         v_product_performance.product_name, v_inventory.product_name.
+  Category        v_product_performance.category/family, v_inventory.category/
+                  family.
+  Payment method  v_sales.payment_method ONLY. fact_sale_items.paymentMethod
+                  exists (item grain) but no view exposes payment×category/hour.
+
+  VERDICT: The 6 required filters are all available in the analytics layer,
+  but NOT in a single view. Date+product/category+payment cannot be combined
+  in one view. The richest combined grain is fact_sale_items + dim_time (date,
+  hour, product, category, payment at item level) — a Metabase model on the
+  base tables covers every filter combination; it only lacks the customer link
+  and sale-level total/discount.
+
+================================================================================
+6. MULTI-TENANT SAFETY
+================================================================================
+
+  - Every view SELECTs tenantId AS client_id. Verified no view omits it.
+  - All joins that could leak are tenant-guarded:
+      v_customer_analysis  joins fact_sales ON tenantId AND customerId.
+      v_kitchen_performance joins fact_kitchen_order_items ON tenantId AND orderId.
+      v_product_performance joins dim_products by global FK (dimProductId).
+      v_sales/v_revenue_daily join dim_clients by tenantId, dim_time by FK.
+  - dim_time and dim_products are shared reference data joined by globally
+    unique FK ids (no name/date-key collisions); tenant scope is always
+    introduced by the fact table.
+  - Verified: T2 tenant has 0 warehouse rows, no NULL-tenant rows exist.
+  - v_dashboard_kpis iterates dim_clients (per-client row) — by construction
+    cannot cross tenants.
+  VERDICT: SAFE. Every dashboard query is isolatable by client_id. Metabase
+  must enforce a locked client_id filter (section 8).
+
+================================================================================
+7. PERFORMANCE CHECK
+================================================================================
+
+Current data volumes (live):
+  fact_sale_items          7,358  (~5.9 MB)
+  fact_sales               2,500  (~2.7 MB)
+  fact_kitchen_order_items 1,205  (~1.0 MB)
+  fact_kitchen_orders        402  (~0.5 MB)
+  dim_time                   183  /  dim_products 19 / dim_customers 14
+
+At this scale every view query is sub-100 ms with existing indexes. Existing
+indexes are adequate for tenant-first queries on every table (tenantId indexed
+on all facts and dims; dimTimeId, dimProductId, orderId, customerId, transaction
+Hour indexed).
+
+MISSING INDEXES (only these; none blocking at current volume):
+  1. (tenantId, dimTimeId) composite on fact_sales, fact_sale_items,
+     fact_kitchen_orders, fact_kitchen_order_items — date-range + tenant
+     filters are the most common dashboard pattern and would use an index-only
+     scan instead of filter+sort.
+  2. (tenantId, productId) composite on fact_sale_items — product×range.
+  3. (tenantId, customerId) composite on fact_sales — customer×range.
+  4. v_product_performance groups by product_name/tenantId — index on
+     fact_sale_items (tenantId, productName) if aggregation counts grow.
+Recommended only when scale materially exceeds current 10k-row levels.
+
+================================================================================
+8. METABASE EMBEDDING READINESS
+================================================================================
+
+FINDING: There is currently NO Metabase instance, config, or embedding code in
+the repository (no .env entries, no packages, no integration). The warehouse is
+served through the existing authenticated REST API (/api/bi-uploads/:id/summary
+etc.), which is already tenant-bound via user auth.
+
+Readiness of the data contract for embedding:
+  - All views expose client_id → a Metabase param can enforce tenant scoping.
+  - Views are deterministic SQL (no dynamic objects) → syncable, cacheable.
+  - Naive timestamps (F2) → set Metabase report timezone to the tenant timezone
+    (Africa/Tunis here) to avoid off-by-one-day date bucketing.
+
+RECOMMENDATION — Option B (Custom BI frontend using existing APIs) is the
+lower-risk default:
+  - Tenant isolation already enforced at auth layer (user → tenant → upload),
+    no risk of client_id leakage through a shared Metabase.
+  - No new infra (Metabase instance, SMTP, secret key, dashboard IDs).
+  - Template = parameterized React components bound to /summary and per-KPI
+    endpoints (warehouse views); the same data contract is consumed.
+
+Option A (Metabase signed embedding) is viable but requires:
+  - Standing up Metabase + DB permissions for read-only on public views.
+  - Signed embedding (JWT) with client_id as a LOCKED parameter so tenants can
+    never change it (never use public/unsecured sharing).
+  - Metabase report timezone = tenant timezone; a proxy endpoint that mints
+    per-tenant signed tokens.
+  - Dashboard-template "packaging" for Metabase (x-ray/json export) maintained
+    separately from the repo.
+
+================================================================================
+9. FINAL DECISION
+================================================================================
+
+  Restaurant:  READY
+  Coffee Shop: READY
+  Retail:      READY  (core KPIs) — inventory value & supplier cards will render
+               empty until the POS export provides real stock/supplier rows
+               (surfaced by v_inventory_status.data_warning).
+
+BLOCKERS THAT REQUIRE CODE/DATA CHANGES (the only ones):
+  1. [DATA REFRESH — required] dim_clients.name in the current warehouse still
+     holds the tenant id ("cmoogzf...") because the last applied load predates
+     the business-name fix. The fix code is verified correct (etl-pipeline.js
+     _readMetadata maps business_name → businessName and _loadDimensions/
+     prepareWarehouse upsert the name). ONE re-run of the wizard load (or
+     etlService.run) on the current ZIP sets name="Restaurant Le Gourmet".
+     Without it, dashboard headers show the raw tenant id.
+  2. [SOURCE DATA — external] stock = 0 in products.csv → inventory value /
+     turnover cards = 0 (flagged, not hidden). Requires POS export to carry real
+     stock levels. No warehouse change needed.
+  3. [SOURCE DATA — external] suppliers.csv empty → supplier cards empty.
+  4. [DESIGN CHOICE — optional] If product/category dashboards must be
+     date-filterable, either (a) add sale_date/min-max-date to
+     v_product_performance (small migration), or (b) build the card on a
+     Metabase model over fact_sale_items + dim_time, which already supports
+     date+product+category+payment+hour in one grain.
+  5. [INFRA — only if Metabase chosen] Stand up Metabase + signed embedding
+     with locked client_id (section 8). A custom BI frontend avoids this.
+
+NON-BLOCKERS (noted for accuracy, no action required):
+  - prep_minutes ≈ 0 on ~66% of kitchen rows (fabricated started==ready data).
+  - sale_items line revenue (119,854) ≠ sale totals (139,869.52): the source
+    CSVs do not reconcile (line_total = unit_price×qty; VAT/fees/discounts
+    carried only at sale level). Both grains are stored faithfully; product
+    revenue should be presented as "product revenue from line items".
+  - dim_time.date is a naive timestamp (F2): set dashboard/report timezone to
+    the tenant timezone (Africa/Tunis) to prevent off-by-one date buckets.
+
+VERDICT: Dashboard template creation CAN start now for all three verticals.
+The single required action before the Restaurant/Coffee templates go live is
+one warehouse re-load (blocker #1) so client_name renders correctly. Retail
+inventory/supplier cards are data-dependent and will self-document as empty via
+v_inventory_status until the export provides real stock.
+================================================================================
+END AUDIT
+================================================================================

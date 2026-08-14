@@ -351,6 +351,7 @@ class ThemeCustomizer {
       modules: normalizedModules,
       theme: {
         businessName: businessName,
+        sector: config.sector || this.license?.sector || 'retail',
         appTitle: config.appTitle || businessName,
         footerText: config.footerText || `Powered by ${businessName}`,
         welcomeText: config.welcomeText || `Bienvenue chez ${businessName}`,

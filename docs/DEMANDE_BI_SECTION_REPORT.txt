@@ -1,0 +1,181 @@
+================================================================================
+RAPPORT — SECTION « DEMANDE BI » (DETAIL D'UNE DEMANDE)
+================================================================================
+Fichier source  : admin/src/pages/AdminRequestDetail.jsx (1 057 lignes)
+Route           : /bi-requests/:id  (application admin, React + Vite + Tailwind)
+Données         : GET /api/bi-requests/:id  (request + uploads + processingJob
+                  + dashboards + events)
+Date            : 2026-08-13
+
+--------------------------------------------------------------------------------
+1. PRINCIPES GÉNÉRAUX DE LA PAGE
+--------------------------------------------------------------------------------
+- La page charge la demande au montage (useEffect -> load()) et propose un
+  bouton « Actualiser ».
+- POLLING AUTOMATIQUE : la page se rafraîchit toutes les 6 secondes tant que le
+  statut est actif (PROCESSING_ETL, DATA_REVIEW, GENERATING_DASHBOARD).
+- TOUTES LES ACTIONS (approuver, rejeter, payer, notes, générer, publier...)
+  passent par la fonction run(key, fn) : spinner sur le bouton concerné,
+  toast de succès, puis rechargement de la page.
+- CONDITIONNEL ETL (fonctionnalité récente) :
+    isEtlProcessing =
+      request.status === 'PROCESSING_ETL'  (ETL de fond / start-etl)
+      OU (request.status === 'APPROVED' ET upload présent ET upload NON terminé
+          (ni COMPLETED ni FAILED))        (assistant ETL interactif, wizard)
+  Quand isEtlProcessing est vrai :
+    - la carte « Actions » et TOUTES les cartes situées SOUS la carte ETL
+      sont masquées (UI épurée pendant le traitement) ;
+    - le stepper de workflow met en évidence l'étape 3 « Traitement des
+      données » au lieu de « Approuvée » (workflowStep = 3).
+  Les cartes réapparaissent automatiquement quand l'ETL est terminé
+  (DATA_REVIEW / upload COMPLETED) et s'affichent normalement pour les
+  statuts PENDING_REVIEW, REQUEST_INFO, REJECTED, CANCELLED, COMPLETED.
+
+--------------------------------------------------------------------------------
+2. STRUCTURE VISUELLE (DU HAUT VERS LE BAS)
+--------------------------------------------------------------------------------
+[A] EN-TÊTE (header)
+    - Lien retour « ← Retour aux demandes » (/bi-requests)
+    - Icône du type d'activité (businessTypeInfo) avec pastille colorée
+    - Titre : nom de l'entreprise + StatusBadge (badge couleur + libellé)
+    - Ligne de sous-titre : libellé activité · modèle de dashboard · date
+      de création
+    - Boutons d'action de l'en-tête :
+        • « Actualiser »                 (toujours visible)
+        • « Demander des infos »         (si statut = PENDING_REVIEW)
+        • « Rejeter »                    (bouton destructif, sauf si la demande
+                                          est REJECTED/CANCELLED/COMPLETED)
+
+[B] CARTE WORKFLOW (stepper en 7 étapes — toujours visible)
+    - Composant WorkflowStepper : rangée de « pilules » horizontales.
+    - Étapes (WORKFLOW_STEPS, admin/src/lib/bi-labels.js) :
+        1  Demande envoyée
+        2  Approuvée
+        3  Traitement des données      <- mise en évidence pendant l'ETL
+        4  Révision des données
+        5  Génération du dashboard
+        6  Dashboard prêt
+        7  Publié
+    - État visuel par étape : faite (verte + coche), courante (primaire),
+      à venir (grise), en erreur (rouge).
+    - Bandeaux conditionnels sous le stepper :
+        • rouge  : demande REJECTED / CANCELLED (workflow arrêté)
+        • orange : une étape du traitement a rencontré une erreur
+                   (événement ZIP_INVALID / ETL_FAILED / ...)
+
+[C] CARTE « TRAITEMENT DES DONNÉES (ETL) » — le cœur de la page
+    - Si aucun upload : message « Aucune donnée importée pour le moment. »
+    - Sinon :
+        • Badge d'état du job de traitement (processingJob.status) avec
+          libellé (En file / En traitement / Terminé / Échec) + nom du fichier
+        • Composant EtlStepsWorkflow (admin/src/components/bi/EtlStepsWorkflow.jsx)
+          qui affiche selon l'état de l'upload :
+            - « ETL terminé »  : boîte verte (upload COMPLETED)
+            - « Traitement ETL en cours » : boîte bleue + spinner (upload
+              VALIDATING/PROCESSING ou job QUEUED/RUNNING/PROCESSING)
+            - « Traitement non disponible » : boîte orange + cadenas (demande
+              non approuvée)
+            - ASSISTANT ÉTAPE PAR ÉTAPE (wizard) en 6 étapes :
+                Étape 2 : Validation           (Step2Validation)
+                Étape 3 : Aperçu brut          (Step3RawPreview)
+                Étape 4 : Préparation          (Step4Preparation)
+                Étape 5 : Avant / Après        (Step5TransformationPreview)
+                Étape 6 : Modèle dimensionnel  (Step6DimensionalModel)
+                Étape 7 : Chargement           (Step7LoadConfirm)
+              Navigation Précédent / Continuer, états de chargement, rapport
+              final « X enregistrements chargés en Ys ».
+
+[D] CARTE « ACTIONS » (MASQUÉE pendant l'ETL)
+    - Liste de boutons activés selon l'état de la demande :
+        • « Vérifier le paiement »     (si paiement PENDING)
+        • « Approuver »                (si PENDING_REVIEW/REQUEST_INFO et
+                                        paiement vérifié)
+        • « Préparer le dashboard »    (génération à partir de l'upload,
+                                        si DATA_REVIEW + upload COMPLETED)
+        • « Prévisualiser »            (lien vers le dashboard si prêt)
+        • « Publier le dashboard »     (si dashboard DRAFT/READY_FOR_REVIEW)
+    - Si la demande est terminée (REJECTED/CANCELLED/COMPLETED) : message
+      « Cette demande est terminée (statut : ...) » au lieu des boutons.
+
+[E] GRILLE DE CARTES DÉTAIL (3 colonnes) — MASQUÉE pendant l'ETL
+    Colonne gauche (2/3) :
+        • Vérification du paiement      (si paiement PENDING) : champ
+          « Méthode de paiement » + bouton « Vérifier le paiement »
+        • Informations client           : Client, Activité, Licence, Email,
+          Modèle de dashboard, Créée le
+        • Import des données            : liste des uploads (UploadDetailRow)
+        • Dashboard                     : nom, version, statut (Publié/Prêt),
+          date, boutons « Voir » et « Provisionner le dashboard client »
+        • Aperçu du dashboard           (si dashboard présent) : panneau
+          repliable avec iframe d'embed (DashboardPreview)
+        • Historique                    : timeline des événements (icône,
+          libellé, date, rôle auteur, message), couleur verte/rouge
+    Colonne droite (1/3, sticky — suit le défilement) :
+        • Résumé du projet              : Statut, Progression %, Téléversements,
+          Dashboards, Jours écoulés
+        • Paiement                      : Statut (badge), Méthode, Notes,
+          mention « Paiement requis »
+        • Notes admin                   : Textarea + bouton « Sauvegarder les
+          notes » (PATCH /bi-requests/:id/status { adminNotes })
+        • Demande                       : message du client, Objectifs, KPI,
+          Exigences, date de création
+
+--------------------------------------------------------------------------------
+3. COMPOSANTS UI UTILISÉS (shadcn/ui + lucide-react)
+--------------------------------------------------------------------------------
+- Card / CardHeader / CardTitle / CardContent  (les cartes)
+- Button, Badge, Separator, Skeleton            (boutons, badges, chargement)
+- Alert / AlertTitle / AlertDescription         (erreurs de chargement)
+- Textarea                                      (notes admin)
+- Collapsible / CollapsibleTrigger / CollapsibleContent
+    -> panneaux dépliants (aperçu dashboard, détail upload, sections)
+- ScrollArea                                    (liste des journaux ETL)
+- Progress                                      (barre « Chargement en cours »)
+- Icônes lucide-react : AlertTriangle, ArrowLeft, BadgeCheck, Ban, Check,
+  CheckCircle2, ChevronDown, CircleAlert, Clock, Database, Download, Eye,
+  FileArchive, FileText, LayoutDashboard, Loader2, MessageCircleQuestion,
+  RefreshCw, Rocket, ShieldCheck, WandSparkles, XCircle
+
+--------------------------------------------------------------------------------
+4. FONCTIONNALITÉS COMPLÈTES DE LA PAGE
+--------------------------------------------------------------------------------
+1. Consultation de la demande       -> titre, statut, activité, modèle, date
+2. Rafraîchissement                 -> bouton « Actualiser » + polling 6 s
+                                       pendant les statuts actifs
+3. Approuver / Rejeter              -> PATCH approve / reject (avec notes)
+4. Demander des infos               -> PATCH request-info
+5. Vérifier le paiement             -> PATCH payment (méthode + statut VERIFIED)
+6. Notes admin                      -> PATCH status { adminNotes }
+7. ETL interactif (wizard)          -> validation, aperçu brut, préparation,
+                                       avant/après, modèle dimensionnel,
+                                       chargement dans l'entrepôt
+                                       (POST /bi-uploads/:id/confirm-load)
+8. Suivi ETL de fond                -> boîte bleue « Traitement ETL en cours »,
+                                       badge du job (start-etl)
+9. Téléchargement du ZIP            -> lien direct vers
+                                       GET /api/bi-uploads/:id/download
+10. Détail de l'upload              -> fichiers, job de traitement,
+                                       Journaux ETL (logs), Rapport de
+                                       validation (JSON), Résumé entrepôt
+11. Gestion du dashboard            -> générer, voir, provisionner, publier
+12. Aperçu du dashboard             -> embed iframe (GET /:id/embed)
+13. Historique                      -> timeline des événements (events)
+14. Masquage UI pendant l'ETL       -> carte Actions + grille de cartes
+                                       masquées pendant le traitement ;
+                                       stepper sur « Traitement des données »
+15. États terminaux                 -> messages « demande terminée » pour
+                                       REJECTED / CANCELLED / COMPLETED
+
+--------------------------------------------------------------------------------
+5. POINTS TECHNIQUES / NOTES
+--------------------------------------------------------------------------------
+- Le wizard ETL vit dans admin/src/components/bi/EtlStepsWorkflow.jsx et
+  utilise les pages : Step2Validation, Step3RawPreview, Step4Preparation,
+  Step5TransformationPreview, Step6DimensionalModel, Step7LoadConfirm.
+- La condition isEtlProcessing (masquage des cartes + highlight du stepper)
+  est définie dans AdminRequestDetail.jsx (~ligne 354).
+- Warning ESLint préexistant (non bloquant) : useEffect à la ligne ~199 a une
+  dépendance manquante ('request') — react-hooks/exhaustive-deps.
+- Les autres pages de la section BI : BIRequests.jsx (liste + actions ETL),
+  AdminNotifications.jsx (centre de notifications), BiUploadPortal.jsx.
+================================================================================
