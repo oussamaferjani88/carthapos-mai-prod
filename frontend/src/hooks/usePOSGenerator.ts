@@ -166,21 +166,44 @@ export const usePOSGenerator = () => {
         licenseId: license.id,
         fastMode: import.meta.env.VITE_FAST_LOCAL_GENERATION === 'true',
       });
-      setProgressPercentage(92);
 
-      setProgressStepId('finalize');
-      setCurrentAction('Optimisation et finalisation...');
-      await waitForProgress();
+      // A remote GitHub Actions build was just launched: the backend only
+      // generated source files and fired the workflow fire-and-forget. Nothing
+      // is actually ready to download yet, so don't claim success here — hand
+      // off to Step 5, which already polls the real build status.
+      const isRemoteBuildPending =
+        posApplication?.buildStatus === 'building' ||
+        posApplication?.buildStatus === 'source_ready';
 
-      setGenerationResult({ license, licenseFile, posApplication });
-      setProgressPercentage(100);
-      setCurrentAction('Génération terminée avec succès !');
+      if (isRemoteBuildPending) {
+        setProgressStepId('build');
+        setProgressPercentage(70);
+        setCurrentAction(
+          'Construction lancée sur GitHub Actions — suivi du progrès sur l\'écran suivant...'
+        );
 
-      setTimeout(() => {
-        setShowProgress(false);
-        toast.success('POS généré avec succès !');
-        setStep(5);
-      }, 1000);
+        setGenerationResult({ license, licenseFile, posApplication });
+
+        setTimeout(() => {
+          setShowProgress(false);
+          setStep(5);
+        }, 1000);
+      } else {
+        setProgressPercentage(92);
+        setProgressStepId('finalize');
+        setCurrentAction('Optimisation et finalisation...');
+        await waitForProgress();
+
+        setGenerationResult({ license, licenseFile, posApplication });
+        setProgressPercentage(100);
+        setCurrentAction('Génération terminée avec succès !');
+
+        setTimeout(() => {
+          setShowProgress(false);
+          toast.success('POS généré avec succès !');
+          setStep(5);
+        }, 1000);
+      }
     } catch (error: any) {
       setProgressError(error.message || 'Erreur lors de la génération');
       setCurrentAction('Une erreur est survenue lors de la génération');
