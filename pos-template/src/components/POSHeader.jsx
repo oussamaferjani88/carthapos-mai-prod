@@ -26,10 +26,19 @@ export const POSHeader = ({
   };
 
   const ROLE_BADGE = {
+    superadmin: 'bg-purple-500/10 text-purple-600',
     admin: 'bg-red-500/10 text-red-600',
     manager: 'bg-orange-500/10 text-orange-600',
     cashier: 'bg-emerald-500/10 text-emerald-600',
     server: 'bg-teal-500/10 text-teal-600',
+  };
+
+  const ROLE_LABEL = {
+    superadmin: 'Super admin',
+    admin: 'Administrateur',
+    manager: 'Manager',
+    cashier: 'Caissier',
+    server: 'Serveur',
   };
 
   // Extract theme configuration (même si loading)
@@ -152,7 +161,7 @@ export const POSHeader = ({
                   {user.fullName || user.full_name || user.username}
                 </p>
                 <p className={`text-[10px] font-medium px-1.5 py-0.5 rounded-full inline-block ${ROLE_BADGE[user.role] || 'bg-muted text-muted-foreground'}`}>
-                  {user.role}
+                  {ROLE_LABEL[user.role] || user.role}
                 </p>
               </div>
               <ChevronDown size={14} className={`text-muted-foreground transition-transform ${showMenu ? 'rotate-180' : ''}`} />

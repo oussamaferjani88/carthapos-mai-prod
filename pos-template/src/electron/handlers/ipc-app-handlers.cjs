@@ -8,7 +8,7 @@
 const { ipcMain } = require('electron');
 const { activeSessions } = require('./ipc-session-store.cjs');
 
-const SETTINGS_WRITE_ROLES = ['admin', 'manager'];
+const SETTINGS_WRITE_ROLES = ['admin', 'superadmin', 'manager'];
 
 const ALLOWED_SETTINGS_KEYS = new Set([
   'businessName', 'businessLogo', 'businessAddress', 'businessPhone',

@@ -7,7 +7,7 @@ import { Grid, List, Sliders } from 'lucide-react';
 interface ModifierItem { id: number; name: string; price: number; }
 interface ModifierGroup { id: number; name: string; type: string; items: ModifierItem[]; }
 
-export const POSMenuManagement = ({ config }: { config: any }) => {
+export const POSMenuManagement = ({ config }: { config: any; setNotification?: (n: any) => void }) => {
   const [activeTab, setActiveTab] = useState('categories');
 
   const categories = [

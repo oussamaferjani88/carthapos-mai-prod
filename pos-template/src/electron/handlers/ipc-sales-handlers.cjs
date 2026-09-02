@@ -82,13 +82,19 @@ function registerSalesHandlers(ipcMainInstance, databaseManager) {
         );
 
         if (!isPending) {
-          // Stock deduction: allow zero/negative stock (warning only, never block sale)
-          const stockBefore = (await get('SELECT stock FROM products WHERE id = ?', [item.id]))?.stock || 0;
-          await run(
-            'UPDATE products SET stock = stock - ? WHERE id = ?',
-            [item.quantity, item.id]
-          );
-          const stockAfter = stockBefore - item.quantity;
+          // Stock deduction: allow zero/negative stock (warning only, never block sale).
+          // Non-stock-managed products (manage_stock = 0) are never decremented,
+          // but the sale is still recorded as a movement so sold quantities show up.
+          const prod = await get('SELECT stock, manage_stock FROM products WHERE id = ?', [item.id]);
+          const stockBefore = prod?.stock || 0;
+          const isStockManaged = !(prod && (prod.manage_stock === 0 || prod.manage_stock === false));
+          if (isStockManaged) {
+            await run(
+              'UPDATE products SET stock = stock - ? WHERE id = ?',
+              [item.quantity, item.id]
+            );
+          }
+          const stockAfter = isStockManaged ? stockBefore - item.quantity : stockBefore;
 
           await run(
              `INSERT INTO stock_movements (product_id, product_name, movement_type, quantity, stock_before, stock_after, reason, reference, user_name)
@@ -285,6 +291,8 @@ function registerSalesHandlers(ipcMainInstance, databaseManager) {
       if (sale.status === 'pending') {
         const saleItems = await all('SELECT * FROM sale_items WHERE sale_id = ?', [saleId]);
         for (const item of saleItems) {
+          const prod = await get('SELECT manage_stock FROM products WHERE id = ?', [item.product_id]);
+          if (prod && (prod.manage_stock === 0 || prod.manage_stock === false)) continue; // non-managed: never decremented
           await run('UPDATE products SET stock = stock + ? WHERE id = ?', [item.quantity, item.product_id]);
         }
       }
@@ -413,9 +421,13 @@ function registerSalesHandlers(ipcMainInstance, databaseManager) {
         const productName = item.product_name || `Product #${productId}`;
         const qty = item.quantity;
 
-        const stockBefore = (await get('SELECT stock FROM products WHERE id = ?', [productId]))?.stock || 0;
-        await run('UPDATE products SET stock = stock - ? WHERE id = ?', [qty, productId]);
-        const stockAfter = stockBefore - qty;
+        const prod = await get('SELECT stock, manage_stock FROM products WHERE id = ?', [productId]);
+        const stockBefore = prod?.stock || 0;
+        const isStockManaged = !(prod && (prod.manage_stock === 0 || prod.manage_stock === false));
+        if (isStockManaged) {
+          await run('UPDATE products SET stock = stock - ? WHERE id = ?', [qty, productId]);
+        }
+        const stockAfter = isStockManaged ? stockBefore - qty : stockBefore;
 
         await run(
           `INSERT INTO stock_movements (product_id, product_name, movement_type, quantity, stock_before, stock_after, reason, reference, user_name)

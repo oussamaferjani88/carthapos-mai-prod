@@ -4,6 +4,86 @@ const jwt = require('jsonwebtoken');
 const JWT_SECRET = process.env.JWT_SECRET || 'carthapos-secret-key-change-in-production-2025';
 const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || '7d'; // 7 days default
 
+// HttpOnly session cookie name (admin panel session)
+const AUTH_COOKIE_NAME = process.env.AUTH_COOKIE_NAME || 'pos_admin';
+const ADMIN_ROLES = ['SUPER_ADMIN', 'ADMIN'];
+
+/**
+ * Minimal cookie header parser (no extra dependency needed).
+ * @param {import('express').Request} req
+ * @returns {Object<string,string>}
+ */
+function parseCookies(req) {
+  const header = req.headers.cookie;
+  if (!header) return {};
+  return header.split(';').reduce((acc, part) => {
+    const idx = part.indexOf('=');
+    if (idx === -1) return acc;
+    acc[part.slice(0, idx).trim()] = decodeURIComponent(part.slice(idx + 1).trim());
+    return acc;
+  }, {});
+}
+
+/**
+ * Extract a JWT from the Authorization header (Bearer) or the session cookie.
+ * @param {import('express').Request} req
+ * @returns {string|null}
+ */
+function extractToken(req) {
+  const authHeader = req.headers.authorization;
+  if (authHeader && authHeader.startsWith('Bearer ')) {
+    return authHeader.substring(7);
+  }
+  const cookies = parseCookies(req);
+  if (cookies[AUTH_COOKIE_NAME]) {
+    return cookies[AUTH_COOKIE_NAME];
+  }
+  return null;
+}
+
+/**
+ * Cookie options for the HttpOnly session cookie.
+ * @param {number} maxAgeMs
+ * @returns {Object}
+ */
+function cookieOptions(maxAgeMs) {
+  return {
+    httpOnly: true,
+    sameSite: 'lax',
+    secure: process.env.NODE_ENV === 'production',
+    path: '/',
+    maxAge: maxAgeMs,
+  };
+}
+
+/**
+ * Compute cookie max-age from the JWT expiry string (e.g. "7d", "24h").
+ * @returns {number}
+ */
+function authCookieMaxAge() {
+  const match = String(JWT_EXPIRES_IN).match(/^(\d+)([smhd])$/);
+  if (!match) return 7 * 24 * 60 * 60 * 1000;
+  const multipliers = { s: 1000, m: 60 * 1000, h: 60 * 60 * 1000, d: 24 * 60 * 60 * 1000 };
+  return parseInt(match[1], 10) * multipliers[match[2]];
+}
+
+/**
+ * Set the HttpOnly session cookie on the response.
+ * @param {import('express').Response} res
+ * @param {string} token
+ */
+function setAuthCookie(res, token) {
+  res.cookie(AUTH_COOKIE_NAME, token, cookieOptions(authCookieMaxAge()));
+}
+
+/**
+ * Clear the HttpOnly session cookie on the response.
+ * @param {import('express').Response} res
+ */
+function clearAuthCookie(res) {
+  res.clearCookie(AUTH_COOKIE_NAME, { httpOnly: true, sameSite: 'lax', path: '/' });
+}
+
 /**
  * Generate JWT token for user
  * @param {Object} user - User object
@@ -25,30 +105,20 @@ const generateToken = (user) => {
 
 /**
  * Verify JWT token middleware
- * Protects routes by checking for valid JWT token in Authorization header
+ * Protects routes by checking for a valid JWT token in the Authorization
+ * header (Bearer) or the HttpOnly session cookie.
  */
 const verifyToken = (req, res, next) => {
   try {
-    // Get token from Authorization header
-    const authHeader = req.headers.authorization;
-    
-    if (!authHeader) {
+    // Get token from Authorization header or session cookie
+    const token = extractToken(req);
+
+    if (!token) {
       return res.status(401).json({
         error: 'Access denied. No token provided.',
         code: 'NO_TOKEN'
       });
     }
-
-    // Check if token starts with "Bearer "
-    if (!authHeader.startsWith('Bearer ')) {
-      return res.status(401).json({
-        error: 'Invalid token format. Expected "Bearer <token>"',
-        code: 'INVALID_FORMAT'
-      });
-    }
-
-    // Extract token
-    const token = authHeader.substring(7); // Remove "Bearer " prefix
 
     // Verify token
     const decoded = jwt.verify(token, JWT_SECRET);
@@ -84,19 +154,18 @@ const verifyToken = (req, res, next) => {
 
 /**
  * Optional authentication middleware
- * Attempts to verify token but doesn't block if missing
+ * Attempts to verify token (header or cookie) but doesn't block if missing
  * Useful for routes that have both public and authenticated features
  */
 const optionalAuth = (req, res, next) => {
   try {
-    const authHeader = req.headers.authorization;
-    
-    if (authHeader && authHeader.startsWith('Bearer ')) {
-      const token = authHeader.substring(7);
+    const token = extractToken(req);
+
+    if (token) {
       const decoded = jwt.verify(token, JWT_SECRET);
       req.user = decoded;
     }
-    
+
     next();
   } catch (error) {
     // Silently fail - just continue without user info
@@ -131,11 +200,38 @@ const requireRole = (...allowedRoles) => {
   };
 };
 
+/**
+ * Admin authorization middleware
+ * Requires a valid token AND an ADMIN / SUPER_ADMIN role.
+ * Applies to admin-panel-only endpoints (users management, license lifecycle,
+ * module management). Public/POS-runtime routes are deliberately not covered.
+ */
+const adminAuth = (req, res, next) => {
+  verifyToken(req, res, () => {
+    if (req.user && ADMIN_ROLES.includes(req.user.role)) {
+      return next();
+    }
+    return res.status(403).json({
+      error: 'Access denied. Insufficient permissions.',
+      code: 'INSUFFICIENT_PERMISSIONS',
+      requiredRoles: ADMIN_ROLES,
+      userRole: req.user ? req.user.role : null
+    });
+  });
+};
+
 module.exports = {
   generateToken,
   verifyToken,
   optionalAuth,
   requireRole,
+  adminAuth,
+  parseCookies,
+  extractToken,
+  setAuthCookie,
+  clearAuthCookie,
+  AUTH_COOKIE_NAME,
+  ADMIN_ROLES,
   JWT_SECRET,
   JWT_EXPIRES_IN
 };

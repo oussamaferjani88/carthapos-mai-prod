@@ -92,6 +92,13 @@ const MODULE_ICONS = {
 
 const getModuleIcon = (moduleName) => MODULE_ICONS[moduleName] || MODULE_ICONS['default'];
 
+// Temporarily hidden from the module grid (cards hidden, modules still usable via config).
+// 'split-payments' = Paiement multiple | 'offline-mode' = Mode hors ligne
+// 'tax-management' = Gestion des taxes / TVA
+const HIDDEN_MODULES = ['split-payments', 'offline-mode', 'tax-management'];
+
+const isModuleHidden = (moduleName) => HIDDEN_MODULES.includes(moduleName);
+
 // Category labels and icons
 const CATEGORY_LABELS = {
   'core': 'Core (Système)',
@@ -136,7 +143,7 @@ export default function ModuleGrid({
 
   const categories = Object.keys(modulesData);
   const allModules = useMemo(
-    () => Object.values(modulesData).flat().filter(Boolean),
+    () => Object.values(modulesData).flat().filter((m) => m && !isModuleHidden(m.name)),
     [modulesData],
   );
   const totalModules = allModules.length;
@@ -330,10 +337,11 @@ export default function ModuleGrid({
         <div className="space-y-6">
           {filteredCategories.map((category) => {
             const modules = (modulesData[category] || []).filter((m) =>
-              !normalizedSearch ||
+              !isModuleHidden(m.name) &&
+              (!normalizedSearch ||
               (m.displayName || '').toLowerCase().includes(normalizedSearch) ||
               (m.name || '').toLowerCase().includes(normalizedSearch) ||
-              (m.description || '').toLowerCase().includes(normalizedSearch),
+              (m.description || '').toLowerCase().includes(normalizedSearch)),
             );
             if (modules.length === 0) return null;
 

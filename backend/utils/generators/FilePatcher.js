@@ -15,42 +15,6 @@ class FilePatcher {
   }
 
   /**
-   * Patch Dashboard.jsx to ensure proper card background classes
-   */
-  async patchDashboardComponent() {
-    logger.info('Patching Dashboard.jsx for proper card styling');
-    
-    const dashboardPath = path.join(this.projectPath, 'src', 'pages', 'Dashboard.jsx');
-    
-    if (!fs.existsSync(dashboardPath)) {
-      logger.warn('Dashboard.jsx not found, skipping patch');
-      return;
-    }
-
-    let dashboardContent = fs.readFileSync(dashboardPath, 'utf8');
-    
-    // Ensure all cards use bg-card class for proper theming
-    const originalContent = dashboardContent;
-    dashboardContent = dashboardContent.replace(
-      /className="[^"]*bg-white[^"]*"/g,
-      (match) => match.replace('bg-white', 'bg-card')
-    );
-    
-    // Also fix any hardcoded background colors
-    dashboardContent = dashboardContent.replace(
-      /style=\{\{[^}]*backgroundColor:\s*['"][^'"]*['"][^}]*\}\}/g,
-      ''
-    );
-    
-    if (dashboardContent !== originalContent) {
-      fs.writeFileSync(dashboardPath, dashboardContent);
-      logger.info('Dashboard.jsx patched successfully');
-    } else {
-      logger.info('Dashboard.jsx already properly configured');
-    }
-  }
-
-  /**
    * Fix Electron file: rename electron.cjs to electron.js if needed
    */
   async fixElectronFiles() {
@@ -434,7 +398,6 @@ export default defineConfig({
       await this.fixViteConfig();              // Fix Vite config (now includes PostCSS)
       await this.ensurePreloadFile();
       await this.ensureUIComponents();
-      await this.patchDashboardComponent();
       await this.patchPackageJSON(businessName);  // ✅ Patch EXE filename
       
       logger.info('All file patches applied successfully');

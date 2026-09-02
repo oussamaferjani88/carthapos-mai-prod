@@ -1,0 +1,651 @@
+================================================================================
+CARTHAPOS LICENSE SYSTEM - CONVERSION AUDIT (POST-WORK)
+================================================================================
+Date      : 2026-08-15
+Type      : Audit of the work performed + how the license system now works
+Baseline  : The previous state is documented in LICENSE_SYSTEM_AUDIT.txt
+            (read-only audit of the OLD system, score 15/100).
+Scope     : backend, admin, frontend, pos-template, prisma migrations
+Verified  : Against the actual repository source + live smoke tests + E2E.
+
+This document is the counterpart to the pre-work audit: it describes WHAT was
+implemented during the license conversion and HOW the system works today,
+end to end.
+
+================================================================================
+TABLE OF CONTENTS
+  1. Summary of what was done
+  2. Phase-by-phase work log
+  3. New architecture (end to end)
+  4. Cryptographic layer (Ed25519)
+  5. License file format
+  6. Backend: data model + service + API surface
+  7. POS runtime: verification, binding, offline, activation
+  8. IPC contract (Electron)
+  9. POS generator integration
+  10. Admin interface
+  11. Files created / modified / deleted
+  12. Security properties and threat model (after)
+  13. Test evidence (smoke + E2E + builds)
+  14. Known remaining items / notes
+================================================================================
+
+
+================================================================================
+1. SUMMARY OF WHAT WAS DONE
+================================================================================
+
+The license system was rebuilt from a broken, mock-based, symmetric-crypto
+design (score 15/100) into an asymmetric, Ed25519-signed, backend-owned,
+machine/USB-bound license system that the Electron POS actually verifies.
+
+Headline results:
+  - Signing: symmetric HMAC/AES with hardcoded secrets -> Ed25519 with a
+    backend-only private key and a per-build embedded public key.
+  - Binding: unbound "machineId" free text -> real machine fingerprint +
+    real USB device identity, enforced at runtime in Electron.
+  - Lifecycle: no lifecycle at all -> CREATED/ISSUED/ACTIVATED/ACTIVE/
+    SUSPENDED/REVOKED/REPLACED/EXPIRED with full audit history.
+  - Enforcement: gate force-disabled + stub validator -> local Ed25519 verify +
+    status gate + expiry + binding + offline grace + clock-rollback detection.
+  - Admin: read-only list -> full management UI (lifecycle actions, history,
+    real signed license file download).
+  - Mocks removed: SIG=BYPASSED-FOR-WEB-DEPLOYMENT in admin/frontend generators,
+    DEV-LICENSE/VALID-LICENSE fallbacks in the POS, dead ElectronLicenseManager,
+    duplicate legacy stacks.
+
+================================================================================
+2. PHASE-BY-PHASE WORK LOG
+================================================================================
+
+PHASE 0 - Read of the whole stack
+  Reviewed servers, Electron main, preload, hooks, generators, admin/frontend
+  services to map the old license code paths and their wiring.
+
+PHASE 1 - Data model (Prisma)
+  Extended schema: License V2 columns (status, issuedAt, machineFingerprint,
+  usbDeviceId, activatedMachineId, activationCount, transferCount, maxTransfers,
+  legacy, licenseVersion, signedLicensePayload, signature, publicKeyFingerprint,
+  lastValidationResult, revokedAt, suspendedAt, replacedAt, replacedById, ...).
+  New enums: LicenseStatus, LicenseFailureReason.
+  New tables: LicenseActivationHistory, LicenseValidationLog, LicenseTransferHistory.
+  Migration applied by hand: 20260815000000_license_v2_security (migrate dev is
+  broken by a shadow-DB issue, so migrations are written manually and applied
+  with `prisma migrate deploy`). Total migrations now 35.
+  Backfill: all legacy licenses flagged legacy=true, licenseVersion=0.
+
+PHASE 2 - Crypto layer (backend/src/services/license/)
+  crypto.js      - Ed25519 via Node crypto, canonical JSON stringify (sorted
+                   keys, deterministic bytes) so signer/verifier never depend on
+                   byte equality.
+  keys.js        - strict key resolution from env; REFUSES to fall back to any
+                   hardcoded secret.
+  scripts/license-keygen.js - CLI to generate a keypair and print env vars.
+  Keys generated: private PEM in backend/config/license-private.pem (0600),
+  public key embedded via backend/.env (LICENSE_PUBLIC_KEY, plus
+  LICENSE_PRIVATE_KEY_FILE=config/license-private.pem). Public-key fingerprint
+  = 251736810bf16e58. Sign/verify round-trip verified.
+
+PHASE 3 - Backend service/controller/validator/routes + tests
+  licenseRepository.js  - history writers (activation/validation/transfer),
+                          getHistory, enriched findAll.
+  licenseService.js     - full rewrite: create/issue, buildSignedPayload,
+                          generateLicenseFile, activate, deactivate,
+                          suspend/resume/revoke/renew/extend/transfer/
+                          resetBinding/replace, server-side validateLicense,
+                          restricted generic update.
+  licenseController.js  - thin handlers over the service.
+  licenseValidator.js   - Joi schemas for every endpoint.
+  src/routes/licenses.js - the whole V2 route table (see section 6).
+  Automated service test (backend/test_license_service.cjs) - 100% OK (removed
+  after verification).
+
+PHASE 4 - Machine identity (pos-template/src/electron/license/)
+  MachineIdentityProvider.cjs: fingerprint = sha256(platform|arch|machineGuid|
+  cpuModel|cpuCores)[0:32]. Windows GUID via CIM (fallback wmic), Linux via
+  machine-id, macOS via IOPlatformUUID. Intentionally independent of hostname,
+  RAM, drive letters. Cached per process.
+
+PHASE 5 - USB identity (pos-template/src/electron/license/)
+  USBIdentityProvider.cjs: enumerates USB disks via PowerShell CIM
+  (Win32_DiskDrive + partition mapping), extracts PNPDeviceID + SerialNumber,
+  deviceId = sha256(pnpDeviceId|serial)[0:32]. NEVER drive letters/labels.
+  findLicenseOnUSB() locates <drive>/license.key. Unix fallback for /media,
+  /mnt, /Volumes.
+
+PHASE 6 - POS runtime wiring
+  LicenseVerifier.cjs      - offline-first local verification (see section 7).
+  ipc-license-handlers.cjs - registerLicenseHandlers({app, loadAppConfig});
+                             validate-license / activate-license /
+                             detect-usb-drives; canonical contract.
+  preload.cjs              - exposes validateLicense, activateLicense,
+                             detectUSBDrives.
+  electron-modular.cjs     - calls registerLicenseHandlers; old
+                             ElectronLicenseManager import removed.
+  useLicense.js            - Electron path validates + auto-activates when
+                             reason==='ACTIVATION_REQUIRED'; web path only
+                             honors an embedded license (no synthetic license).
+  App.jsx                  - gate: !isPreviewMode() && !licenseValid -> LicenseCheck.
+  Build + lint of pos-template green.
+
+PHASE 8 - Server routing confirmation
+  server.js and server-v2.js both mount src/routes/licenses
+  (/api/licenses + /api/v1/licenses). No legacy imports remain.
+
+PHASE 9 - Generator integration + deletes
+  ThemeCustomizer.js now emits a dynamic security block per build:
+    security.requireUSBLicense = ['USB','HYBRID'].includes(bindingType)
+    security.licensePublicKey   = getPublicKey() (the embedded Ed25519 pubkey)
+    security.licenseServerUrl   = process.env.LICENSE_SERVER_URL ||
+                                  'http://localhost:3001' (NO /api suffix).
+  Removed the mocks SIG=BYPASSED-FOR-WEB-DEPLOYMENT from admin and frontend
+  usePOSGenerator hooks; both now call licenseService.generateLicenseFile().
+  Deleted legacy backend/routes/licenses.js and backend/utils/license.js
+  (both were disconnected duplicates).
+
+PHASE 10 - Admin UI
+  admin/src/lib/api.js      - licensesApi extended: regenerate, activate,
+                              deactivate, validate, suspend, resume, revoke,
+                              renew, extend, transfer, resetBinding, getHistory.
+  admin/src/pages/Licenses.jsx - rewritten: status badges, binding badges,
+                              machineFingerprint/activationCount display,
+                              dropdown actions for every lifecycle op, details
+                              dialog with configuration/modules + history
+                              (activations, validations OK/KO with reason,
+                              transfers). Lint + build green.
+
+PHASE 11 - Security hardening
+  Rate limiting on all license routes (createLimiter, licenseActionLimiter,
+  licenseValidateLimiter) wired from src/middleware/rateLimiter.js.
+  Fixed the /api double-prefix bug: LicenseVerifier._apiUrl() is idempotent.
+  Deleted ElectronLicenseManager.cjs (weak AES/HMAC + fake USB detection) and
+  uninstalled crypto-js from pos-template.
+  Secrets audit: no hardcoded signing secrets remain (keys.js throws if env
+  missing). JWT fallbacks in middleware/auth.js + src/config/index.js were
+  left as-is (application auth domain, documented dev defaults) - out of the
+  license scope.
+  Final runtime smoke + E2E all green (see section 13).
+
+PHASE 12 - Finalization
+  E2E of the admin Licenses page caught and fixed a runtime-only TDZ bug in
+  Licenses.jsx (useEffect referenced loadLicenses before its useCallback was
+  defined) that lint/build could not detect. Page then rendered correctly.
+  Removed all temporary test scripts, the [POS DEBUG] license-JSON console
+  dumps in backend routes/pos.js + src/services/posService.js, and the
+  [validate-license]/[activate-license] debug logs in ipc-license-handlers.cjs.
+  Rebuilt pos-template/admin/frontend; re-verified backend boot.
+
+================================================================================
+3. NEW ARCHITECTURE (END TO END)
+================================================================================
+
+  Admin creates license (wizard / Licenses page)
+    -> POST /api/licenses  {clientId, sector, licenseType, expirationDate,
+                             bindingType: MACHINE|USB|HYBRID, moduleIds,
+                             configuration}
+    -> DB row: status ISSUED, issuedAt set, legacy=false, licenseVersion=1
+    -> auto-issue: generateLicenseFile() signs payload with the Ed25519 private
+       key (backend only) and stores signature + signedLicensePayload + pubkey
+       fingerprint on the row.
+  POS build
+    -> ThemeCustomizer embeds security.licensePublicKey, security.licenseServerUrl
+       (http://localhost:3001) and security.requireUSBLicense into app-config.json.
+  Delivery
+    -> Admin downloads the signed file (license-<KEY>.key) or writes it to USB
+       (USBManager / USBManager.jsx).
+  Activation (first run of the POS)
+    -> Electron reads the signed file (USB for USB/HYBRID, userData copy for
+       MACHINE), verifies the signature locally, detects binding unset
+       (reason ACTIVATION_REQUIRED), calls POST /api/licenses/:id/activate with
+       the computed machineFingerprint and/or usbDeviceId, then re-fetches the
+       re-signed file via /generate-file and stores it locally (MACHINE).
+  Runtime (every start)
+    -> validate-license IPC -> LicenseVerifier.validateLocal(): local verify,
+       no network required for a signed, un-expired, correctly-bound license.
+  Online refresh (opportunistic)
+    -> On offline-grace exhaustion or forced validation, POST
+       /api/licenses/:id/validate with {machineFingerprint, usbDeviceId} to sync
+       server-side REVOKED/SUSPENDED/EXPIRED state.
+
+================================================================================
+4. CRYPTOGRAPHIC LAYER (Ed25519)
+================================================================================
+
+  Key material:
+    - Private key: only on the backend. Loaded from LICENSE_PRIVATE_KEY_FILE
+      (config/license-private.pem, chmod 0600) or LICENSE_PRIVATE_KEY env.
+      keys.js THROWS if neither is configured - no hardcoded fallback exists.
+    - Public key: embedded in every generated POS via
+      security.licensePublicKey (from LICENSE_PUBLIC_KEY env).
+    - Fingerprint of the public key: 251736810bf16e58, stored on each license
+      (publicKeyFingerprint) and in each license file for audit.
+
+  Algorithm: Ed25519 (RFC 8032) via Node's built-in crypto (crypto.generateKeyPairSync
+  'ed25519', crypto.sign/verify with null algorithm). Zero new dependencies.
+
+  Deterministic signing:
+    canonicalStringify() serializes the payload with sorted object keys at all
+    depths, so signer (backend) and verifier (Electron) always hash identical
+    bytes without JSON byte-equality. Signature is base64.
+
+  Rules enforced:
+    - Sign ONLY on the backend (private key never ships).
+    - Verify ONLY locally in Electron (public key is safe to embed).
+    - The POS never trusts client-supplied machineId/binding/expiration/status:
+      all of those live in the SIGNED payload.
+    - A file existing is NOT a valid license: presence + parse + signature +
+      version + status + expiry + binding must all pass.
+
+================================================================================
+5. LICENSE FILE FORMAT
+================================================================================
+
+  JSON (pretty-printed), signed by the backend, verified in Electron:
+
+    {
+      "format": "carthapos-license",
+      "version": 1,
+      "publicKeyFingerprint": "251736810bf16e58",
+      "payload": {
+        "version": 1,
+        "licenseId": "<cuid>",
+        "licenseKey": "XXXX-XXXX-XXXX-XXXX",
+        "clientId": "<cuid>",
+        "clientName": "...",
+        "sector": "...",
+        "licenseType": "SUBSCRIPTION" | "LIFETIME",
+        "bindingType": "MACHINE" | "USB" | "HYBRID",
+        "machineFingerprint": "<sha256[0:32]> or null",
+        "usbDeviceId": "<sha256[0:32]> or null",
+        "modules": [ { id, name, displayName, category, isCore, isEnabled } ],
+        "configuration": { businessName, logo, currency, language, timezone, taxRate },
+        "issuedAt": "<ISO>",
+        "expirationDate": "<ISO> or null",
+        "status": "ISSUED" | "ACTIVATED" | "ACTIVE" | ...
+      },
+      "signature": "<base64 Ed25519>"
+    }
+
+  The file is a CARRIER: for MACHINE binding it is copied into the POS
+  userData directory after activation; for USB/HYBRID it lives at
+  <drive>/license.key and the drive must be present at runtime.
+
+================================================================================
+6. BACKEND: DATA MODEL + SERVICE + API SURFACE
+================================================================================
+
+6.1 Key model fields (License, v2)
+  - status (LicenseStatus): CREATED, ISSUED, ACTIVATED, ACTIVE, SUSPENDED,
+    REVOKED, REPLACED, EXPIRED, RESET.
+  - isActive flag maintained alongside status (suspend/revoke/replace -> false).
+  - machineFingerprint / usbDeviceId: real identity, written ONLY by the
+    dedicated lifecycle endpoints (activation/transfer/reset).
+  - activationCount, transferCount, maxTransfers (default 3).
+  - signedLicensePayload, signature, publicKeyFingerprint, licenseVersion, legacy.
+  - audit timestamps: issuedAt, activatedAt, suspendedAt, revokedAt,
+    lastValidatedAt, replacedAt, replacedById.
+
+6.2 History tables
+  - LicenseActivationHistory (action, fromStatus, toStatus, performedBy, details).
+  - LicenseValidationLog (isValid, reason, status, details) - one row per check.
+  - LicenseTransferHistory (transferType, from/to machine + usb, authorizedBy).
+
+6.3 REST surface (backend/src/routes/licenses.js, mounted at /api/licenses
+    and /api/v1/licenses)
+  GET  /                        list (client+modules+configuration included)
+  GET  /active                  active list
+  GET  /expiring                expiring-soon
+  GET  /key/:licenseKey         by key
+  GET  /client/:clientId        by client
+  GET  /:id                     details
+  GET  /:id/history             full audit history
+  POST /                        create (createLimiter + Joi)
+  POST /admin-create            admin create (same limits)
+  PUT  /:id                     restricted update (rejects SECURITY_SENSITIVE_FIELDS)
+  PUT  /:id/configuration       config update
+  PATCH/:id/toggle              legacy toggle (isActive)
+  DELETE /:id                   delete
+  POST /:id/generate-file       sign/bind and return the license file
+  POST /:id/regenerate          re-sign
+  POST /:id/activate            bind machine/USB (validates identity requirements)
+  POST /:id/deactivate          unbind -> ISSUED
+  POST /:id/validate            server-side validation (writes ValidationLog)
+  POST /:id/suspend | /resume | /revoke
+  POST /:id/renew               set new expirationDate
+  POST /:id/extend              add N days
+  POST /:id/transfer            move binding to new machine/USB (transferCount++)
+  POST /:id/reset-binding       clear binding -> ISSUED
+  POST /:id/replace             new license + mark old REPLACED
+  POST /:id/modules/:moduleId   attach | DELETE detach | PATCH toggle
+
+  Rate limits: createLimiter on POST creates, licenseActionLimiter on
+  generate-file/regenerate/activate/deactivate/suspend/resume/revoke/renew/
+  extend/transfer/reset-binding/replace/module ops, licenseValidateLimiter on
+  validate. Exported from src/middleware/rateLimiter.js.
+
+  SECURITY_SENSITIVE_FIELDS (rejected by the generic PUT): machineId,
+  machineFingerprint, activatedMachineId, usbSerialNumber, usbDeviceId,
+  isActivated, activatedAt, status, signature, signedLicensePayload,
+  publicKeyFingerprint, activationCount, transferCount, maxTransfers, legacy,
+  licenseVersion, lastValidationResult. The client can never self-edit binding,
+  status, or signature through a generic update.
+
+  ApiResponse contract is preserved: success/created -> {status, message, data};
+  admin and frontend API wrappers unwrap {status:'success',data} -> data.
+
+================================================================================
+7. POS RUNTIME: VERIFICATION, BINDING, OFFLINE, ACTIVATION
+================================================================================
+
+7.1 validateLocal() - exact decision order (LicenseVerifier.cjs)
+  1. Dev mode (CARTHAPOS_LICENSE_DEV_MODE=true): allow DEV-LICENSE (build-time
+     escape hatch only).
+  2. Find license source: USB/HYBRID -> USB carrier required; MACHINE -> local
+     userData copy first, USB fallback.
+  3. Parse file: format must be 'carthapos-license', payload + signature present
+     -> else LICENSE_CORRUPTED.
+  4. Public key must be embedded -> else INVALID_SIGNATURE.
+  5. Ed25519 verify over canonical payload -> else INVALID_SIGNATURE.
+  6. payload.version <= 1 -> else UNSUPPORTED_LICENSE_VERSION.
+  7. Clock rollback: if now < persisted lastKnownGoodTime - 12h
+     (CLOCK_ROLLBACK_TOLERANCE_MS) -> CLOCK_ROLLBACK.
+  8. Status gate: REVOKED/REPLACED -> REVOKED; SUSPENDED -> SUSPENDED.
+  9. Expiry: SUBSCRIPTION and now > expirationDate -> EXPIRED.
+  10. Binding (_checkBinding):
+        MACHINE: payload.machineFingerprint must equal the local fingerprint
+                 (unset -> ACTIVATION_REQUIRED, mismatch -> MACHINE_MISMATCH).
+        USB: carrier drive must be present (else USB_NOT_FOUND) and drive.deviceId
+             must equal payload.usbDeviceId (else USB_MISMATCH); unbound carrier
+             -> ACTIVATION_REQUIRED.
+        HYBRID: USB check + MACHINE check.
+  11. Offline grace (SUBSCRIPTION only): anchor = lastKnownGoodTime else issuedAt.
+        If now - anchor > 30 days (DEFAULT_OFFLINE_GRACE_MS), try one online
+        refresh (POST /validate, 8 s timeout); success -> valid, else
+        OFFLINE_GRACE_EXPIRED.
+  12. Persist lastKnownGoodTime = now; copy USB-read MACHINE license into userData.
+  13. Valid -> { isValid:true, status:'ACTIVE', reason:null, license }.
+
+  Note: a subscription that is refreshed online (or re-activated) inside the
+  grace window keeps working offline; the grace clock starts at issue for fresh
+  licenses.
+
+7.2 activate()
+  Finds + parses the signed carrier, requires licenseServerUrl, computes the
+  local fingerprint (+ usbDeviceId from the carrier), POSTs
+  /licenses/:id/activate {machineFingerprint, usbDeviceId}, then POSTs
+  /licenses/:id/generate-file with the same identity to fetch the re-signed
+  (bound) file. MACHINE: stores it in userData. Persists lastKnownGoodTime.
+  Returns { isValid:true, status:'ACTIVATED', ... } or ACTIVATION_REQUIRED.
+
+7.3 _apiUrl() is idempotent
+  base 'http://localhost:3001' -> http://localhost:3001/api/...
+  base 'http://localhost:3001/api' -> same. The /api prefix is never doubled.
+  LICENSE_SERVER_URL must NOT include /api.
+
+================================================================================
+8. IPC CONTRACT (ELECTRON)
+================================================================================
+
+  Every license IPC method returns the canonical shape:
+
+    { isValid: boolean, status: string|null, reason: string|null, license: Object|null }
+
+  Channels (exposed by preload as window.electronAPI.*):
+    validateLicense()  -> LicenseVerifier.validateLocal()
+    activateLicense()  -> LicenseVerifier.activate()
+    detectUSBDrives()  -> USBIdentityProvider.detectUSBDrives()
+
+  Failure reasons (LicenseFailureReason enum in DB + local usage):
+    NO_LICENSE, INVALID_SIGNATURE, EXPIRED, REVOKED, SUSPENDED,
+    MACHINE_MISMATCH, USB_NOT_FOUND, USB_MISMATCH, HYBRID_BINDING_FAILED,
+    CLOCK_ROLLBACK, OFFLINE_GRACE_EXPIRED, LICENSE_CORRUPTED,
+    UNSUPPORTED_LICENSE_VERSION.
+    Plus local-only ACTIVATION_REQUIRED (not present in the DB enum - see notes).
+
+  useLicense.js flow:
+    validateLicense() -> if isValid set license/isValid, else setError(reason).
+    If reason === 'ACTIVATION_REQUIRED' -> attempt activateLicense().
+    Web mode: reads window.__POS_CONFIG__.license if present; no synthetic
+    DEV-LICENSE is granted.
+  App.jsx gate: if (!isPreviewMode() && !licenseValid) render <LicenseCheck />.
+
+================================================================================
+9. POS GENERATOR INTEGRATION
+================================================================================
+
+  backend/utils/generators/ThemeCustomizer.js now writes (in order of the build
+  pipeline, AFTER AssetManager) the authoritative app-config security block:
+    security.requireUSBLicense = ['USB','HYBRID'].includes(license.bindingType)
+    security.licensePublicKey  = getPublicKey()
+    security.licenseServerUrl  = process.env.LICENSE_SERVER_URL || 'http://localhost:3001'
+
+  The old hardcoded requireUSBLicense:false that disabled the gate was removed.
+  Admin + frontend usePOSGenerator hooks call the real backend endpoint
+  licenseService.generateLicenseFile(license.id) instead of fabricating a
+  signature.
+
+================================================================================
+10. ADMIN INTERFACE
+================================================================================
+
+  admin/src/pages/Licenses.jsx
+    - Card grid (per license): client name, license key, sector, binding badge,
+      status badge, activation count, machineFingerprint.
+    - Status labels: CREATED, ISSUED, ACTIVATED, ACTIVE, SUSPENDED, REVOKED,
+      EXPIRED, REPLACED, RESET. Destructive statuses dim the card.
+    - Dropdown actions: view details, download license file, re-sign, resume/
+      suspend, renew, extend, transfer, reset binding, deactivate, revoke.
+    - Details dialog: configuration, modules, and history (activations,
+      validations OK/KO with reason, transfers).
+    - Live reload after every action via licensesApi.* + loadLicenses().
+
+  admin/src/lib/api.js licensesApi: getAll, getById, getByKey, create, update,
+  delete, generateFile, regenerate, activate, deactivate, validate, suspend,
+  resume, revoke, renew, extend, transfer, resetBinding, getHistory.
+
+  admin/src/pages/management/USBManager.jsx: writes the generated license file
+  onto a detected USB drive.
+
+================================================================================
+11. FILES CREATED / MODIFIED / DELETED
+================================================================================
+
+  Created:
+    backend/prisma/migrations/20260815000000_license_v2_security/migration.sql
+    backend/scripts/license-keygen.js
+    backend/src/services/license/crypto.js
+    backend/src/services/license/keys.js
+    backend/config/license-private.pem            (private key, 0600)
+    pos-template/src/electron/license/LicenseVerifier.cjs
+    pos-template/src/electron/license/MachineIdentityProvider.cjs
+    pos-template/src/electron/license/USBIdentityProvider.cjs
+    docs/LICENSE_SYSTEM_AUDIT.txt                 (pre-work audit - context)
+
+  Modified (main):
+    backend/prisma/schema.prisma
+    backend/.env                                  (LICENSE_PUBLIC_KEY, key file path)
+    backend/server.js, server-v2.js               (mount src/routes/licenses)
+    backend/src/routes/licenses.js                (full V2 route table + limits)
+    backend/src/controllers/licenseController.js
+    backend/src/services/licenseService.js        (rewritten)
+    backend/src/repositories/licenseRepository.js
+    backend/src/validators/licenseValidator.js
+    backend/src/middleware/rateLimiter.js         (license limiters)
+    backend/utils/generators/ThemeCustomizer.js   (security block)
+    backend/routes/pos.js, backend/src/services/posService.js (debug log removal)
+    pos-template/src/electron/handlers/ipc-license-handlers.cjs
+    pos-template/public/electron-modular.cjs, public/preload.cjs
+    pos-template/src/hooks/useLicense.js
+    pos-template/src/App.jsx
+    pos-template/package.json + package-lock.json (crypto-js removed)
+    admin/src/lib/api.js
+    admin/src/pages/Licenses.jsx
+    admin/src/hooks/usePOSGenerator.js            (mock removed)
+    frontend/src/hooks/usePOSGenerator.ts         (mock removed)
+    frontend/src/lib/api.ts
+
+  Deleted (dead/legacy/duplicate):
+    backend/routes/licenses.js                    (legacy stack)
+    backend/utils/license.js                      (weak AES/HMAC, dormant)
+    pos-template/src/electron/ElectronLicenseManager.cjs (weak AES/HMAC)
+    Temporary test scripts (backend/test_license_service.cjs,
+    backend/license_cleanup_tmp.cjs, smoke scripts)
+
+================================================================================
+12. SECURITY PROPERTIES AND THREAT MODEL (AFTER)
+================================================================================
+
+  Attack / concern                    Status after the conversion
+  ----------------------------------  --------------------------------------------
+  Forge a license                     Blocked: Ed25519; private key never ships.
+                                      Public key only -> can't sign.
+  Copy license file to another PC     Blocked for MACHINE/HYBRID (fingerprint
+                                      bound + signed). USB binding ties the file
+                                      to the drive deviceId (carrier copy alone
+                                      fails USB_MISMATCH unless drive cloned).
+  Modify license fields client-side   Blocked: everything lives in the signed
+                                      payload; any edit breaks the signature.
+  Tamper the signature/format         Blocked: INVALID_SIGNATURE / LICENSE_CORRUPTED.
+  Edit status/expiry via admin PUT    Blocked: SECURITY_SENSITIVE_FIELDS rejected;
+                                      only dedicated lifecycle endpoints change them.
+  Expired license reuse               Blocked: signed expirationDate checked vs now.
+  Revoked/suspended license           Blocked: status gate on payload + server-side
+                                      validation refresh.
+  Clock rollback to extend expiry     Mitigated: lastKnownGoodTime persisted; >12h
+                                      rollback -> CLOCK_ROLLBACK.
+  Long offline use                    Limited: 30-day offline grace anchored on
+                                      last good validation / issue date.
+  Patch Electron JS                   Out of scope (no code signing); mitigated by
+                                      app.asar packaging. Documented limitation.
+  Hardcoded secrets                   Removed: keys.js throws without env config.
+  Unknown license version             Blocked: UNSUPPORTED_LICENSE_VERSION.
+
+  Never-trusted-from-client fields: machineId, machineFingerprint, usbDeviceId,
+  usbSerialNumber, isActive, expirationDate, status, lastValidatedAt - only the
+  backend signs them; the POS only reports its locally computed identities.
+
+================================================================================
+13. TEST EVIDENCE
+================================================================================
+
+  Backend service tests (test_license_service.cjs): 100% OK - create, key format,
+  generate-file, sign/verify, history.
+
+  Live smoke (server on :3001, round-trip):
+    - create MACHINE license (sector cafe) ................. PASS
+    - generate-file (format carthapos-license v1) ........... PASS
+    - independent Node Ed25519 verify ...................... SIGNATURE VERIFY: OK
+    - activate (mfp=aaaa1111, count=1) ..................... ACTIVATED
+    - validate ok / wrong machine .......................... true ACTIVE / MACHINE_MISMATCH
+    - suspend -> validate .................................. SUSPENDED
+    - history (activations=2, validationLogs=2) ............ PASS
+    - full lifecycle smoke (SUBSCRIPTION HYBRID): create,
+      activate m1/usb1, extend 30d, transfer m2/usb2
+      (count=1 max=3), reset-binding -> ISSUED,
+      suspend/resume/revoke, cleanup ....................... ALL PASS
+    - LIST: 206 licenses, modules/status/bindingType present . PASS
+
+  E2E admin <-> backend (headless Chrome, real stack):
+    - /licenses renders 206 cards with keys + status badges ... PASS
+      (found + fixed a runtime-only TDZ bug in Licenses.jsx).
+    - details dialog loads backend history
+      (Activations (N), Validations (M)) .................. PASS
+
+  Build gates (all green):
+    - admin   npm run build (22 s) + lint clean
+    - frontend npm run build (16.9 s)
+    - pos-template npm run build (25.7 s), dist/electron-modular.cjs
+      and preload.cjs regenerated with the cleaned handlers
+    - backend boots, DB seeded, smoke still green after cleanup.
+
+================================================================================
+14. KNOWN REMAINING ITEMS / NOTES
+================================================================================
+
+  1. ACTIVATION_REQUIRED is returned locally by LicenseVerifier but is NOT part
+     of the DB LicenseFailureReason enum. Either add it to the enum or document
+     it as POS-local; unresolved (flagged for a future decision).
+  2. JWT fallback secrets in backend/middleware/auth.js and src/config/index.js
+     remain (application auth domain, dev defaults documented in
+     ARCHITECTURE.md). Out of the license scope; should be env-gated in
+     production.
+  3. No code signing / installer integrity for the packaged POS yet; a
+     determined attacker can still patch Electron sources. The license gate
+     protects against casual bypass but not against binary patching.
+  4. USB binding uses the drive's PNP device ID + serial; a full disk-image
+     clone would still carry a valid carrier. This is inherent to
+     flash-drive-as-carrier and documented.
+  5. `prisma migrate dev` remains unusable (shadow DB); use
+     `prisma migrate deploy` for future migrations.
+  6. Backend is not left running after tests; start it with `npm start`
+     (port 3001). LICENSE_SERVER_URL must not include the /api suffix.
+
+  6. Backend is not left running after tests; start it with Unknown command: "start"
+
+
+Did you mean one of these?
+  npm star # Mark your favorite packages
+  npm stars # View packages marked as favorites
+  npm start # Start a package
+To see a list of supported npm commands, run:
+  npm help
+     (port 3001). LICENSE_SERVER_URL must not include the /api suffix.
+  7. RESOLVED (2026-08-16): MACHINE-bound POS showed NO_LICENSE at install
+     because the generated installer carried no license file and the server on
+     port 3001 (routes/pos.js) never invoked the embedding logic. Fixed in the
+     SHARED entry utils/pos-generator.js: for MACHINE licenses it now calls
+     licenseService.generateLicenseFile(license.id) and attaches
+     license.__signedFileContent before the modular pipeline runs; the unbound
+     signed license is merged into app-config.json (security + licenseFile) by
+     ThemeCustomizer and ships inside app.asar (files: dist/**/* + public/
+     app-config.json). LicenseVerifier._findLicenseSource falls back to
+     _config().licenseFile and self-activates on first run, persisting the
+     bound copy to userData/license.key.
+
+===============================================================================
+15. EMBEDDED LICENSE FIX - END-TO-END EVIDENCE (2026-08-16)
+===============================================================================
+
+  Root cause: the wizard's generation flow hits routes/pos.js on port 3001,
+  which calls generatePOSApplication -> utils/pos-generator.js -> generators/
+  index.js. Earlier fixes placed embedding logic only in src/services/
+  posService.js (used by server-v2.js, NOT mounted in prod) and nowhere in the
+  live path, so no signed file ever reached the built app.
+
+  Fix (minimal, no redesign): utils/pos-generator.js is the shared entry used
+  by BOTH routes. Before delegating to the modular pipeline, it now generates
+  the signed license file for MACHINE-bound licenses and attaches
+  license.__signedFileContent. ThemeCustomizer (already modified) merges it as
+  { security.licenseFile, licenseFile } into public/app-config.json AND
+  dist/app-config.json. LicenseVerifier._findLicenseSource (already modified)
+  reads _config().licenseFile as the final fallback, returns
+  ACTIVATION_REQUIRED, then self-activates and persists the bound file.
+
+  Live verification (server restarted on :3001 with new code):
+    - created MACHINE license (LicenseE2ETest, key C265CC32-...) ... PASS
+    - POST /api/pos/generate (full local build, LOCAL_BUILD=true) ... PASS
+      path: backend/generated-pos/pos-oussama-c265cc32-.../
+      executablePath: .../carthapos-licensee2etest-Setup-1.0.0.exe
+    - generated project public/app-config.json:
+        security.licensePublicKey present .. true
+        licenseFile present ................ true
+        licenseFile.format ................. carthapos-license
+        licenseFile.payload.bindingType ... MACHINE
+        licenseFile.payload.licenseId ..... cmsvn00fy00012b6y64u8wg4x
+    - dist/app-config.json: identical (licenseFile present) ... PASS
+    - repackaged (npx electron-builder --win) and read inside
+      release/win-unpacked/resources/app.asar:
+        dist/app-config.json  licenseFile present ....... PASS
+        public/app-config.json licenseFile present ...... PASS
+    - runtime chain confirmed: packaged loadAppConfig reads
+      app.getAppPath()/dist/app-config.json (= app.asar/dist/...) and
+      LicenseVerifier._config() returns it; _findLicenseSource falls through
+      (no userData key, no USB, no bundled license.key, no portable file) to
+      _config().licenseFile -> validates -> self-activates on first run.
+
+  Net effect: a MACHINE POS built through the real wizard flow now embeds its
+  signed license, so first launch no longer shows NO_LICENSE.
+
+===============================================================================
+END OF AUDIT
+================================================================================

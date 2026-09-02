@@ -1,0 +1,41 @@
+/**
+ * Scoped design tokens matching the admin panel's POS Generator
+ * (admin/src/App.css) — converted from admin's hex `:root` values to the HSL
+ * triplets frontend/tailwind.config.ts expects (`hsl(var(--x))`).
+ *
+ * Deliberately scoped under .pos-gen-admin-theme rather than touching
+ * frontend/src/index.css's global :root — the client app's global tokens are
+ * also used by the public marketing pages (landing, blog, login), which are
+ * out of scope for this sync and must not visually change.
+ */
+.pos-gen-admin-theme {
+  --background: 240 6% 97%;
+  --foreground: 0 0% 12%;
+
+  --card: 0 0% 100%;
+  --card-foreground: 0 0% 12%;
+
+  --popover: 0 0% 100%;
+  --popover-foreground: 0 0% 12%;
+
+  --primary: 200 4% 13%;
+  --primary-foreground: 0 0% 100%;
+
+  --secondary: 240 4% 95%;
+  --secondary-foreground: 0 0% 12%;
+
+  --muted: 240 4% 95%;
+  --muted-foreground: 0 0% 42%;
+
+  --accent: 240 4% 95%;
+  --accent-foreground: 0 0% 12%;
+
+  --destructive: 9 89% 45%;
+  --destructive-foreground: 0 0% 100%;
+
+  --border: 0 0% 88%;
+  --input: 0 0% 88%;
+  --ring: 240 1% 71%;
+
+  --radius: 0.5rem;
+}

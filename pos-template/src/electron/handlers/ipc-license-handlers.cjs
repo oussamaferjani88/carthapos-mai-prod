@@ -1,25 +1,43 @@
+'use strict';
+
 /**
  * License IPC Handlers
- * Handles USB detection and license validation
+ * Canonical contract: { isValid, status, reason, license }
  */
 
 const { ipcMain } = require('electron');
+const LicenseVerifier = require('../license/LicenseVerifier.cjs');
+const { detectUSBDrives } = require('../license/USBIdentityProvider.cjs');
 
-function registerLicenseHandlers(detectUSBDrives, loadAppConfig) {
-  console.log('🔑 Registering license IPC handlers...');
+function registerLicenseHandlers({ app, loadAppConfig }) {
+  const verifier = new LicenseVerifier({ app, loadAppConfig });
 
   ipcMain.handle('validate-license', async () => {
-    console.log('🔐 IPC: validate-license called');
-    const config = loadAppConfig();
-    return config && config.license ? true : false;
+    try {
+      return await verifier.validateLocal();
+    } catch (error) {
+      console.error('[validate-license] error:', error);
+      return { isValid: false, status: null, reason: 'LICENSE_CORRUPTED', license: null };
+    }
   });
 
-  ipcMain.handle('detect-usb-drives', () => {
-    console.log('🔍 IPC: detect-usb-drives called');
-    return detectUSBDrives();
+  ipcMain.handle('activate-license', async () => {
+    try {
+      return await verifier.activate();
+    } catch (error) {
+      console.error('[activate-license] error:', error);
+      return { isValid: false, status: 'ACTIVATION_REQUIRED', reason: 'ACTIVATION_REQUIRED', license: null };
+    }
   });
-  
-  console.log('✅ License IPC handlers registered');
+
+  ipcMain.handle('detect-usb-drives', async () => {
+    try {
+      return await detectUSBDrives();
+    } catch (error) {
+      console.error('[detect-usb-drives] error:', error);
+      return [];
+    }
+  });
 }
 
 module.exports = { registerLicenseHandlers };

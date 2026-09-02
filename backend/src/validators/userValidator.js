@@ -5,7 +5,7 @@ const Joi = require('joi');
  */
 
 // User roles enum
-const USER_ROLES = ['ADMIN', 'MANAGER', 'CASHIER'];
+const USER_ROLES = ['ADMIN', 'MANAGER', 'BI_SPECIALIST'];
 
 // Create user validation
 const createUserSchema = Joi.object({
@@ -36,7 +36,7 @@ const createUserSchema = Joi.object({
     }),
   role: Joi.string()
     .valid(...USER_ROLES)
-    .default('CASHIER')
+    .default('MANAGER')
     .messages({
       'any.only': `Role must be one of: ${USER_ROLES.join(', ')}`
     })

@@ -13,7 +13,10 @@ const ProductBulkToolbar = memo(function ProductBulkToolbar({
   onDuplicateSelected,
   onExportSelected,
   onClearSelection,
-  showSupplier = false
+  showSupplier = false,
+  canCreate = true,
+  canUpdate = true,
+  canDelete = true
 }) {
   if (selectedCount === 0) return null;
 
@@ -27,33 +30,43 @@ const ProductBulkToolbar = memo(function ProductBulkToolbar({
         <div className="w-px h-6 bg-border" />
 
         <div className="flex items-center gap-1">
-          <Button variant="ghost" size="sm" onClick={onAssignFamily} title="Attribuer une famille">
-            <Tag className="h-4 w-4 mr-1" /> Famille
-          </Button>
-          {showSupplier && (
+          {canUpdate && (
+            <Button variant="ghost" size="sm" onClick={onAssignFamily} title="Attribuer une famille">
+              <Tag className="h-4 w-4 mr-1" /> Famille
+            </Button>
+          )}
+          {showSupplier && canUpdate && (
             <Button variant="ghost" size="sm" onClick={onAssignSupplier} title="Attribuer un fournisseur">
               <Truck className="h-4 w-4 mr-1" /> Fournisseur
             </Button>
           )}
-          <Button variant="ghost" size="sm" onClick={onAssignVat} title="Attribuer un taux de TVA">
-            <Percent className="h-4 w-4 mr-1" /> TVA
-          </Button>
-          <Button variant="ghost" size="sm" onClick={onGenerateBarcodes} title="Générer des codes-barres">
-            <Barcode className="h-4 w-4 mr-1" /> Codes-barres
-          </Button>
-          <Button variant="ghost" size="sm" onClick={onDuplicateSelected} title="Dupliquer">
-            <Copy className="h-4 w-4 mr-1" /> Dupliquer
-          </Button>
+          {canUpdate && (
+            <Button variant="ghost" size="sm" onClick={onAssignVat} title="Attribuer un taux de TVA">
+              <Percent className="h-4 w-4 mr-1" /> TVA
+            </Button>
+          )}
+          {canUpdate && (
+            <Button variant="ghost" size="sm" onClick={onGenerateBarcodes} title="Générer des codes-barres">
+              <Barcode className="h-4 w-4 mr-1" /> Codes-barres
+            </Button>
+          )}
+          {canCreate && (
+            <Button variant="ghost" size="sm" onClick={onDuplicateSelected} title="Dupliquer">
+              <Copy className="h-4 w-4 mr-1" /> Dupliquer
+            </Button>
+          )}
           <Button variant="ghost" size="sm" onClick={onExportSelected} title="Exporter la sélection">
             <Download className="h-4 w-4 mr-1" /> Exporter
           </Button>
         </div>
 
-        <div className="w-px h-6 bg-border" />
+        {canDelete && <div className="w-px h-6 bg-border" />}
 
-        <Button variant="ghost" size="sm" className="text-destructive hover:text-destructive" onClick={onDeleteSelected} title="Supprimer la sélection">
-          <Trash2 className="h-4 w-4 mr-1" /> Supprimer
-        </Button>
+        {canDelete && (
+          <Button variant="ghost" size="sm" className="text-destructive hover:text-destructive" onClick={onDeleteSelected} title="Supprimer la sélection">
+            <Trash2 className="h-4 w-4 mr-1" /> Supprimer
+          </Button>
+        )}
 
         <div className="w-px h-6 bg-border" />
 

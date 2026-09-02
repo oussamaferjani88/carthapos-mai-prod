@@ -1,10 +1,14 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useContext } from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { 
-  LayoutDashboard, 
-  ShoppingCart, 
-  Package, 
-  BarChart3, 
+import {
+  Shield,
+  Menu,
+  X,
+  ChevronRight,
+  LayoutDashboard,
+  ShoppingCart,
+  Package,
+  BarChart3,
   Settings,
   Users,
   TableIcon as TableProperties,
@@ -15,9 +19,6 @@ import {
   Barcode,
   Warehouse,
   Zap,
-  Shield,
-  Menu,
-  X,
   Heart,
   MenuSquare,
   CreditCard,
@@ -26,40 +27,44 @@ import {
   Factory,
   UserCog,
   Car,
-  Cpu,
-  ChevronRight
+  Cpu
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { useAppConfig } from '../hooks/useAppConfig';
 import { useAuth } from '../contexts/AuthContext';
 import { POSConfiguration } from '../lib/POSConfiguration';
+import { navigationConfig as navigationRoutes, isModuleSetEnabled } from '../config/moduleRoutes';
+import PermissionsContext from '../contexts/PermissionsContext';
 
-// Navigation items configuration
-const navigationConfig = [
-  { name: 'Tableau de bord', icon: LayoutDashboard, href: '/', id: 'dashboard' },
-  { name: 'Ventes', icon: ShoppingCart, href: '/sales', id: 'sales' },
-  { name: 'Produits', icon: Package, href: '/products', id: 'products' },
-  { name: 'Stocks', icon: Warehouse, href: '/inventory', id: 'inventory', modules: ['inventory'] },
-  { name: 'Code-barres', icon: Barcode, href: '/barcode', id: 'barcode', modules: ['barcode'] },
-  { name: 'Service rapide', icon: Zap, href: '/quick-service', id: 'quick-service', modules: ['quick-service'] },
-  { name: 'Vente à emporter', icon: Car, href: '/takeaway', id: 'takeaway', modules: ['takeaway'] },
-  { name: 'Clients', icon: Users, href: '/customers', id: 'customers', modules: ['customer-management'] },
-  { name: 'Fidélité', icon: Heart, href: '/loyalty', id: 'loyalty', modules: ['loyalty'] },
-  { name: 'Tables', icon: TableProperties, href: '/tables', id: 'tables', modules: ['tables'] },
-  { name: 'Cuisine', icon: ChefHat, href: '/kitchen', id: 'kitchen', modules: ['kitchen'] },
-  { name: 'Menu', icon: MenuSquare, href: '/menu-management', id: 'menu', modules: ['menu-management'] },
-  { name: 'Rendez-vous', icon: Calendar, href: '/appointments', id: 'appointments', modules: ['appointments'] },
-  { name: 'Services', icon: Briefcase, href: '/services', id: 'services', modules: ['services'] },
-  { name: 'Paiements avancés', icon: CreditCard, href: '/payment-advanced', id: 'payment-advanced', modules: ['payment-advanced'] },
-  { name: 'Cartes cadeaux', icon: Gift, href: '/gift-cards', id: 'gift-cards', modules: ['gift-cards'] },
-  { name: 'Ordonnances', icon: Stethoscope, href: '/prescription', id: 'prescription', modules: ['prescription'] },
-  { name: 'Production', icon: Factory, href: '/production', id: 'production', modules: ['production'] },
-  { name: 'Fournisseurs', icon: Truck, href: '/suppliers', id: 'suppliers', modules: ['suppliers'] },
-  { name: 'Utilisateurs', icon: UserCog, href: '/user-management', id: 'user-management', modules: ['user-management'] },
-  { name: 'Rapports', icon: BarChart3, href: '/reports', id: 'reports' },
-  { name: 'Paramètres', icon: Settings, href: '/settings', id: 'settings' },
-  { name: 'Matériel', icon: Cpu, href: '/hardware-settings', id: 'hardware' },
-];
+// Icons are attached here (the only place they're rendered) rather than
+// shared through config/moduleRoutes.js - see the comment there for why.
+const ICONS_BY_ID = {
+  dashboard: LayoutDashboard,
+  sales: ShoppingCart,
+  products: Package,
+  inventory: Warehouse,
+  barcode: Barcode,
+  'quick-service': Zap,
+  takeaway: Car,
+  customers: Users,
+  loyalty: Heart,
+  tables: TableProperties,
+  kitchen: ChefHat,
+  menu: MenuSquare,
+  appointments: Calendar,
+  services: Briefcase,
+  'payment-advanced': CreditCard,
+  'gift-cards': Gift,
+  prescription: Stethoscope,
+  production: Factory,
+  suppliers: Truck,
+  'user-management': UserCog,
+  reports: BarChart3,
+  settings: Settings,
+  hardware: Cpu
+};
+
+const navigationConfig = navigationRoutes.map(item => ({ ...item, icon: ICONS_BY_ID[item.id] }));
 
 export const POSNavbar = ({ 
   onMobileMenuToggle,
@@ -69,20 +74,7 @@ export const POSNavbar = ({
   const location = useLocation();
   const { user } = useAuth();
   const { config, loading } = useAppConfig();
-
-  const [userModules, setUserModules] = useState(null);
-
-  useEffect(() => {
-    if (user?.id && window.electronAPI?.getUserModules) {
-      window.electronAPI.getUserModules(user.id).then(mods => {
-        if (Array.isArray(mods)) {
-          const map = {};
-          mods.forEach(m => { map[m.module_name] = m.can_read; });
-          setUserModules(map);
-        }
-      }).catch(() => setUserModules(null));
-    }
-  }, [user?.id]);
+  const { get: getPerms, loaded: permsLoaded } = useContext(PermissionsContext);
 
   // Extract theme configuration with fallbacks (même si loading)
   const theme = config?.theme || {};
@@ -120,54 +112,25 @@ export const POSNavbar = ({
      console.log('Enabled modules for navbar:', enabledModules);
      console.log('═══════════════════════════════════════════════════════════');
     
-    return navigationConfig.filter(item => {
-      // Always show items without module requirements
-      if (!item.modules || item.modules.length === 0) {
-        return true;
-      }
-      
-      // Check if any of the item's required modules are enabled
-      const isModuleEnabled = item.modules.some(requiredModule => 
-        enabledModules.some(enabledModule => 
-          // Exact match or contains match
-          enabledModule === requiredModule ||
-          enabledModule.includes(requiredModule) ||
-          requiredModule.includes(enabledModule)
-        )
-      );
-      
-      return isModuleEnabled;
-    }).filter(item => {
+    return navigationConfig.filter(item =>
+      isModuleSetEnabled(item.modules, enabledModules)
+    ).filter(item => {
       // Filter by user role if applicable
       if (!user) return true;
       
-      // Admin sees everything
-      if (user.role === 'admin') return true;
+      // Admin / superadmin sees everything
+      if (user.role === 'admin' || user.role === 'superadmin') return true;
 
-      // Use DB-backed module permissions if available
-      if (userModules) {
-        // For items with a specific module requirement, check user access
-        const itemId = item.id;
-        const moduleKey = itemId === 'customers' ? 'customer-management' : itemId;
-        if (userModules[moduleKey] !== undefined) {
-          return !!userModules[moduleKey];
-        }
-        // If no explicit permission record, fall back to role defaults
-      }
+      // Items without a permission-gated route are always visible.
+      if (!item.perm) return true;
 
-      // Role-based fallback when DB permissions not loaded
-      if (user.role === 'manager') {
-        return item.id !== 'user-management';
-      }
-      
-      // Cashier sees limited pages
-      if (user.role === 'cashier') {
-        return ['dashboard', 'sales', 'products', 'customers'].includes(item.id);
-      }
-      
-      return true;
+      // Menu visibility must match route enforcement exactly: use the same
+      // PermissionsContext resolution as PermissionRoute (role defaults when no
+      // saved rows, strict when a row exists), never a looser fallback.
+      if (!permsLoaded) return true; // rows loading: let the route decide access
+      return !!getPerms(item.perm).read;
     });
-  }, [config, user, userModules]);
+  }, [config, user, getPerms, permsLoaded]);
 
   // Si config est en cours de chargement, ne rien afficher
   if (loading || !config) {

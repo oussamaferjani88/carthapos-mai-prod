@@ -1,0 +1,16 @@
+===========================================================================
+CHAPTER 1 - Project Study (chapitre1.tex)
+Figures to create: 1
+===========================================================================
+
+
+FIGURE 1: fig:host-organization
+-----------------------------------------------------------
+Type: Logo / Image
+Filename: figures/ch1-maktabi-logo.png
+Caption: Maktabi corporate logo.
+
+Description:
+Insert the official Maktabi corporate logo (Hammamet, Tunisia).
+The logo should be centered and displayed at approximately 35% of the text width.
+No additional annotation is needed - this is a simple logo placeholder.

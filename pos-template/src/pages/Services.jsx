@@ -1,6 +1,7 @@
-import { useState, useEffect } from 'react';
-import { 
-  Briefcase, 
+import { useState, useEffect, useRef } from 'react';
+import { usePermissions } from '../contexts/PermissionsContext';
+import {
+  Briefcase,
   Plus, 
   Edit2, 
   Trash2, 
@@ -46,6 +47,15 @@ import {
 
 export default function Services() {
   const { config: electronConfig } = useAppConfig();
+  const { canCreate, canUpdate, canDelete } = usePermissions('services');
+  const permsRef = useRef({ canCreate, canUpdate, canDelete });
+  permsRef.current = { canCreate, canUpdate, canDelete };
+  const permGuard = (action) => {
+    const p = permsRef.current;
+    const ok = action === 'create' ? p.canCreate : action === 'delete' ? p.canDelete : p.canUpdate;
+    if (!ok) alert("Action non autorisée : vous avez un accès en lecture seule sur les services.");
+    return ok;
+  };
   const getConfig = () => {
     if (electronConfig?.theme) {
       return POSConfiguration.createConfig(electronConfig.theme);
@@ -171,6 +181,7 @@ export default function Services() {
       alert('Veuillez remplir tous les champs obligatoires');
       return;
     }
+    if (!permGuard(editingService ? 'update' : 'create')) return;
 
     try {
       if (editingService) {
@@ -211,6 +222,7 @@ export default function Services() {
   };
 
   const deleteService = async (serviceId) => {
+    if (!permGuard('delete')) return;
     if (window.confirm('Êtes-vous sûr de vouloir supprimer ce service ?')) {
       try {
         if (window.electronAPI) {
@@ -265,10 +277,12 @@ export default function Services() {
             Gestion du catalogue de services et prestations
           </p>
         </div>
-        <Button onClick={openCreateDialog}>
-          <Plus className="mr-2 h-4 w-4" />
-          Nouveau service
-        </Button>
+        {canCreate && (
+          <Button onClick={openCreateDialog}>
+            <Plus className="mr-2 h-4 w-4" />
+            Nouveau service
+          </Button>
+        )}
       </div>
 
       {/* Stats Cards */}
@@ -415,17 +429,24 @@ export default function Services() {
                           </Button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end">
-                          <DropdownMenuItem onClick={() => openEditDialog(service)}>
-                            <Edit2 className="mr-2 h-4 w-4" />
-                            Modifier
-                          </DropdownMenuItem>
-                          <DropdownMenuItem 
-                            onClick={() => deleteService(service.id)}
-                            className="text-red-600"
-                          >
-                            <Trash2 className="mr-2 h-4 w-4" />
-                            Supprimer
-                          </DropdownMenuItem>
+                          {canUpdate && (
+                            <DropdownMenuItem onClick={() => openEditDialog(service)}>
+                              <Edit2 className="mr-2 h-4 w-4" />
+                              Modifier
+                            </DropdownMenuItem>
+                          )}
+                          {canDelete && (
+                            <DropdownMenuItem
+                              onClick={() => deleteService(service.id)}
+                              className="text-red-600"
+                            >
+                              <Trash2 className="mr-2 h-4 w-4" />
+                              Supprimer
+                            </DropdownMenuItem>
+                          )}
+                          {!canUpdate && !canDelete && (
+                            <DropdownMenuItem disabled>Lecture seule</DropdownMenuItem>
+                          )}
                         </DropdownMenuContent>
                       </DropdownMenu>
                     </TableCell>
@@ -443,7 +464,7 @@ export default function Services() {
                   : 'Commencez par ajouter votre premier service'
                 }
               </p>
-              {(!searchTerm && selectedCategory === 'all') && (
+              {(!searchTerm && selectedCategory === 'all') && canCreate && (
                 <Button onClick={openCreateDialog}>
                   <Plus className="mr-2 h-4 w-4" />
                   Créer un service

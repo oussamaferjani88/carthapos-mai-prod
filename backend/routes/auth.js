@@ -1,7 +1,14 @@
 const express = require('express');
 const bcrypt = require('bcrypt');
 const { PrismaClient } = require('@prisma/client');
-const { generateToken, optionalAuth } = require('../middleware/auth');
+const {
+  generateToken,
+  verifyToken,
+  setAuthCookie,
+  clearAuthCookie,
+} = require('../middleware/auth');
+const { getUserPermissionKeys } = require('../middleware/permissions');
+const { PERMISSION_CATALOG } = require('../utils/permissionCatalog');
 
 const router = express.Router();
 const prisma = new PrismaClient();
@@ -67,18 +74,20 @@ router.post('/register', async (req, res) => {
   }
 });
 
-// POST /api/auth/login — email or username + password
+// POST /api/auth/login — username or email + password
 router.post('/login', async (req, res) => {
   try {
-    const { email, password } = req.body;
-    if (!email || !password) {
-      return res.status(400).json({ error: 'email and password are required' });
+    const { username, password } = req.body;
+    const identifier = username || req.body.email;
+
+    if (!identifier || !password) {
+      return res.status(400).json({ error: 'username and password are required' });
     }
 
     const user = await prisma.user.findFirst({
-      where: { OR: [{ email }, { username: email }] },
+      where: { OR: [{ email: identifier }, { username: identifier }] },
     });
-    if (!user) {
+    if (!user || !user.isActive) {
       return res.status(401).json({ error: 'Invalid credentials' });
     }
 
@@ -88,16 +97,31 @@ router.post('/login', async (req, res) => {
     }
 
     const token = generateToken(user);
+
+    setAuthCookie(res, token);
+
+    await prisma.user.update({
+      where: { id: user.id },
+      data: { lastLogin: new Date() },
+    });
+
     const client = await prisma.client.findUnique({
       where: { userId: user.id },
       select: { id: true, name: true, email: true },
     });
 
+    let permissions = [];
+    if (user.role === 'SUPER_ADMIN') {
+      permissions = PERMISSION_CATALOG.map((p) => p.key);
+    } else {
+      permissions = await getUserPermissionKeys(user.id);
+    }
+
     res.json({
       success: true,
       data: {
         token,
-        user: { id: user.id, username: user.username, email: user.email, role: user.role },
+        user: { id: user.id, username: user.username, email: user.email, role: user.role, permissions },
         client,
       },
     });
@@ -107,8 +131,14 @@ router.post('/login', async (req, res) => {
   }
 });
 
-// GET /api/auth/me — current user + client
-router.get('/me', optionalAuth, async (req, res) => {
+// POST /api/auth/logout — clear the HttpOnly session cookie
+router.post('/logout', (req, res) => {
+  clearAuthCookie(res);
+  res.json({ success: true, message: 'Logged out' });
+});
+
+// GET /api/auth/me — current user + client (strict authentication)
+router.get('/me', verifyToken, async (req, res) => {
   try {
     if (!req.user || !req.user.id) {
       return res.status(401).json({ error: 'Not authenticated' });
@@ -117,14 +147,23 @@ router.get('/me', optionalAuth, async (req, res) => {
       where: { id: req.user.id },
       select: { id: true, username: true, email: true, role: true, isActive: true },
     });
-    if (!user) return res.status(404).json({ error: 'User not found' });
+    if (!user || !user.isActive) {
+      return res.status(401).json({ error: 'Not authenticated' });
+    }
 
     const client = await prisma.client.findUnique({
       where: { userId: user.id },
       select: { id: true, name: true, email: true, phone: true },
     });
 
-    res.json({ success: true, data: { user, client } });
+    let permissions = [];
+    if (user.role === 'SUPER_ADMIN') {
+      permissions = PERMISSION_CATALOG.map((p) => p.key);
+    } else {
+      permissions = await getUserPermissionKeys(user.id);
+    }
+
+    res.json({ success: true, data: { user: { ...user, permissions }, client } });
   } catch (error) {
     console.error('[AUTH] Me failed:', error);
     res.status(500).json({ error: 'Failed to fetch profile' });

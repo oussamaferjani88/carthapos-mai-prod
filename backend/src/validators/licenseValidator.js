@@ -1,46 +1,31 @@
 const Joi = require('joi');
 
-const validSectors = ['restaurant', 'cafe', 'boutique', 'pharmacy', 'bakery', 'grocery', 'beauty', 'other'];
+const validSectors = ['restaurant', 'cafe', 'boutique', 'retail', 'pharmacy', 'bakery', 'grocery', 'beauty', 'other'];
+const validBindingTypes = ['MACHINE', 'USB', 'HYBRID'];
 
 const createLicenseSchema = Joi.object({
   clientId: Joi.string().required(),
   sector: Joi.string().required().valid(...validSectors),
   licenseType: Joi.string().required().valid('SUBSCRIPTION', 'LIFETIME'),
+  bindingType: Joi.string().optional().valid(...validBindingTypes).default('MACHINE'),
   expirationDate: Joi.date().when('licenseType', {
     is: 'SUBSCRIPTION',
     then: Joi.required(),
-    otherwise: Joi.forbidden()
-  }),
-  machineId: Joi.string().optional().allow('', null),
-  moduleIds: Joi.array().items(Joi.string()).optional()
-});
-
-const adminCreateLicenseSchema = Joi.object({
-  clientId: Joi.string().required(),
-  sector: Joi.string().required().valid(...validSectors),
-  licenseType: Joi.string().required().valid('SUBSCRIPTION', 'LIFETIME'),
-  bindingType: Joi.string().optional().valid('MACHINE', 'USB', 'HYBRID').default('MACHINE'),
-  expirationDate: Joi.date().when('licenseType', {
-    is: 'SUBSCRIPTION',
-    then: Joi.required(),
-    otherwise: Joi.forbidden()
+    otherwise: Joi.allow(null, '')
   }),
   machineId: Joi.string().optional().allow('', null),
   moduleIds: Joi.array().items(Joi.string()).optional(),
-  configuration: Joi.object().optional()
+  modules: Joi.array().items(Joi.string()).optional(),
+  configuration: Joi.object().optional(),
+  createdBy: Joi.string().optional().allow('', null)
 });
+
+const adminCreateLicenseSchema = createLicenseSchema;
 
 const updateLicenseSchema = Joi.object({
   sector: Joi.string().optional().valid(...validSectors),
   licenseType: Joi.string().optional().valid('SUBSCRIPTION', 'LIFETIME'),
-  expirationDate: Joi.date().optional().allow(null),
-  isActive: Joi.boolean().optional(),
-  machineId: Joi.string().optional().allow('', null),
-  bindingType: Joi.string().optional().valid('MACHINE', 'USB', 'HYBRID'),
-  usbSerialNumber: Joi.string().optional().allow('', null),
-  isActivated: Joi.boolean().optional(),
-  activatedAt: Joi.date().optional().allow(null),
-  lastValidatedAt: Joi.date().optional().allow(null)
+  expirationDate: Joi.date().optional().allow(null)
 }).min(1);
 
 const updateConfigurationSchema = Joi.object({
@@ -61,6 +46,55 @@ const updateConfigurationSchema = Joi.object({
   navbarPosition: Joi.string().optional().allow('', null)
 }).min(1);
 
+const generateLicenseFileSchema = Joi.object({
+  machineId: Joi.string().optional().allow('', null),
+  machineFingerprint: Joi.string().optional().allow('', null),
+  usbDeviceId: Joi.string().optional().allow('', null)
+});
+
+const activateLicenseSchema = Joi.object({
+  machineFingerprint: Joi.string().optional().allow('', null),
+  usbDeviceId: Joi.string().optional().allow('', null),
+  performedBy: Joi.string().optional().allow('', null)
+});
+
+const validateLicenseSchema = Joi.object({
+  machineFingerprint: Joi.string().optional().allow('', null),
+  usbDeviceId: Joi.string().optional().allow('', null)
+});
+
+const suspendRevokeSchema = Joi.object({
+  reason: Joi.string().optional().allow('', null),
+  performedBy: Joi.string().optional().allow('', null)
+});
+
+const renewLicenseSchema = Joi.object({
+  expirationDate: Joi.date().required(),
+  performedBy: Joi.string().optional().allow('', null)
+});
+
+const extendLicenseSchema = Joi.object({
+  days: Joi.number().integer().min(1).max(3650).required(),
+  performedBy: Joi.string().optional().allow('', null)
+});
+
+const transferLicenseSchema = Joi.object({
+  machineFingerprint: Joi.string().optional().allow('', null),
+  usbDeviceId: Joi.string().optional().allow('', null),
+  performedBy: Joi.string().optional().allow('', null)
+}).min(1);
+
+const replaceLicenseSchema = Joi.object({
+  clientId: Joi.string().optional(),
+  sector: Joi.string().optional().valid(...validSectors),
+  licenseType: Joi.string().optional().valid('SUBSCRIPTION', 'LIFETIME'),
+  expirationDate: Joi.date().optional().allow(null, ''),
+  moduleIds: Joi.array().items(Joi.string()).optional(),
+  modules: Joi.array().items(Joi.string()).optional(),
+  configuration: Joi.object().optional(),
+  performedBy: Joi.string().optional().allow('', null)
+});
+
 const toggleModuleSchema = Joi.object({
   isEnabled: Joi.boolean().required()
 });
@@ -74,6 +108,14 @@ module.exports = {
   adminCreateLicenseSchema,
   updateLicenseSchema,
   updateConfigurationSchema,
+  generateLicenseFileSchema,
+  activateLicenseSchema,
+  validateLicenseSchema,
+  suspendRevokeSchema,
+  renewLicenseSchema,
+  extendLicenseSchema,
+  transferLicenseSchema,
+  replaceLicenseSchema,
   toggleModuleSchema,
   expiringQuerySchema
 };

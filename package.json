@@ -1,5 +1,8 @@
 {
   "dependencies": {
-    "adm-zip": "^0.5.16"
+    "adm-zip": "^0.5.16",
+    "pptxgenjs": "^4.0.1",
+    "sharp": "^0.35.4",
+    "svg-to-img": "^2.0.9"
   }
 }

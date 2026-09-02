@@ -69,6 +69,11 @@ const DashboardLayout = () => {
     return location.pathname.startsWith(path);
   };
 
+  // Pages that manage their own full-width canvas.
+  const fullBleed =
+    location.pathname.startsWith('/pos-generator') ||
+    /^\/dashboard\/bi-dashboard\/[^/]+$/.test(location.pathname);
+
   useEffect(() => {
     const storedUser = getStoredUser();
     if (!storedUser) {
@@ -95,46 +100,46 @@ const DashboardLayout = () => {
   return (
     <div className="min-h-screen bg-background flex">
       {/* Sidebar */}
-      <aside className="w-64 border-r border-border bg-card hidden lg:block">
+      <aside className="w-[230px] border-r border-border bg-card hidden lg:block">
         <div className="flex flex-col h-full">
           {/* Logo */}
-          <div className="p-6 border-b border-border">
+          <div className="px-3 py-3 border-b border-border">
             <Link to="/" className="flex items-center gap-2">
-              <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center shadow-lg">
-                <span className="text-white font-bold text-xl">C</span>
+              <div className="w-8 h-8 rounded-md bg-primary text-primary-foreground flex items-center justify-center">
+                <span className="font-semibold text-base">C</span>
               </div>
-              <span className="text-xl font-bold bg-gradient-to-r from-blue-500 to-purple-600 bg-clip-text text-transparent">
-                Carthapos
+              <span className="text-[15px] font-semibold tracking-tight text-foreground">
+                CarthaPos
               </span>
             </Link>
           </div>
 
           {/* Navigation */}
-          <nav className="flex-1 p-4 space-y-2">
+          <nav className="flex-1 overflow-y-auto px-2.5 py-3 space-y-0.5">
             {navigation.map((item) => (
               <Link
                 key={item.name}
                 to={item.href}
-                className={`flex items-center gap-3 px-4 py-3 rounded-lg transition-colors ${
+                className={`group flex items-center gap-2.5 px-2.5 py-1.5 rounded-md transition-colors ${
                   isActive(item.href)
-                    ? 'bg-primary text-primary-foreground'
-                    : 'text-muted-foreground hover:bg-muted hover:text-foreground'
+                    ? 'bg-accent font-medium text-foreground'
+                    : 'text-muted-foreground hover:bg-accent/60 hover:text-foreground'
                 }`}
               >
-                <item.icon className="w-5 h-5" />
-                <span className="font-medium">{item.name}</span>
+                <item.icon className="size-[18px] shrink-0" />
+                <span className="truncate text-[13px] leading-tight">{item.name}</span>
               </Link>
             ))}
           </nav>
 
           {/* User Section */}
-          <div className="p-4 border-t border-border space-y-4">
-            <div className="flex items-center gap-3 px-4 py-3">
-              <div className="w-10 h-10 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center">
-                <User className="w-5 h-5 text-white" />
+          <div className="px-2.5 py-3 border-t border-border space-y-3">
+            <div className="flex items-center gap-2.5 px-2.5">
+              <div className="w-8 h-8 rounded-full bg-muted flex items-center justify-center shrink-0">
+                <User className="size-4 text-muted-foreground" />
               </div>
               <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium truncate">
+                <p className="text-[13px] font-medium truncate leading-tight">
                   {user?.name || user?.companyName || "Utilisateur"}
                 </p>
                 <p className="text-xs text-muted-foreground truncate">
@@ -142,25 +147,29 @@ const DashboardLayout = () => {
                 </p>
               </div>
             </div>
-            <div className="flex gap-2 px-4">
+            <div className="flex gap-2 px-2.5">
               <ThemeToggle />
               <LanguageSwitcher />
             </div>
             <Button
               variant="ghost"
-              className="w-full justify-start gap-3 text-muted-foreground hover:text-foreground"
+              className="w-full justify-start gap-2.5 text-[13px] text-muted-foreground hover:text-foreground"
               onClick={handleLogout}
             >
-              <LogOut className="w-5 h-5" />
+              <LogOut className="size-4" />
               {t('dashboard.nav.logout')}
             </Button>
           </div>
         </div>
       </aside>
 
-      {/* Main Content */}
-      <div className="flex-1">
-        <Outlet />
+      {/* Main Content — a single centered, width-capped column so every
+          section lines up the way "Mon espace BI" does. Full-bleed pages
+          (the generator's live preview, an embedded dashboard) opt out. */}
+      <div className="flex-1 overflow-y-auto">
+        <div className={fullBleed ? "" : "mx-auto max-w-6xl p-6"}>
+          <Outlet />
+        </div>
       </div>
     </div>
   );

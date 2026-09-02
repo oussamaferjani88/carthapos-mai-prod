@@ -45,12 +45,12 @@ const LayoutEditor = ({ formData, setFormData }) => {
 
   const renderSelect = ({ value, onValueChange, options }) => (
     <Select value={value} onValueChange={onValueChange}>
-      <SelectTrigger className="h-8 text-xs">
+      <SelectTrigger className="h-7 w-full text-[11px] px-2">
         <SelectValue />
       </SelectTrigger>
       <SelectContent>
         {options.map((opt) => (
-          <SelectItem key={opt.value} value={opt.value}>
+          <SelectItem key={opt.value} value={opt.value} className="text-xs">
             {opt.label}
           </SelectItem>
         ))}
@@ -59,10 +59,10 @@ const LayoutEditor = ({ formData, setFormData }) => {
   );
 
   const renderToggle = ({ label, description, checked, onCheckedChange }) => (
-    <div className="flex items-center justify-between px-2.5 py-2 rounded-md border border-border">
+    <div className="flex items-center justify-between px-2 py-1.5 rounded-md border border-border">
       <div className="min-w-0">
-        <Label className="text-xs font-medium">{label}</Label>
-        <p className="text-[11px] text-muted-foreground leading-tight">{description}</p>
+        <Label className="text-[11px] font-medium">{label}</Label>
+        <p className="text-[10px] text-muted-foreground leading-tight">{description}</p>
       </div>
       <Switch checked={checked} onCheckedChange={onCheckedChange} />
     </div>
@@ -70,35 +70,50 @@ const LayoutEditor = ({ formData, setFormData }) => {
 
   const renderGroup = ({ title, icon, children }) => (
     <div className="border border-border rounded-md overflow-hidden">
-      <div className="flex items-center gap-1.5 px-2.5 py-2 bg-accent/40">
+      <div className="flex items-center gap-1.5 px-2 py-1.5 bg-accent/40">
         {icon}
-        <span className="text-xs font-medium">{title}</span>
+        <span className="text-[11px] font-medium">{title}</span>
       </div>
-      <div className="p-2.5 space-y-2.5">{children}</div>
+      <div className="p-2 space-y-2">{children}</div>
     </div>
   );
 
   return (
     <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-      <TabsList className="grid w-full grid-cols-4 mb-3">
-        <TabsTrigger value="general" className="text-xs">
-          <Layout className="w-3 h-3 mr-1" />Général
+      {/* Exact match of the client customizer's tab bar
+          (frontend/src/components/customizer/LayoutEditor.tsx): the extra
+          per-page "Pages" controls now live in their own left-rail section. */}
+      <TabsList className="grid w-full grid-cols-4 h-8 rounded-md p-0.5 mb-2">
+        <TabsTrigger
+          value="general"
+          className="gap-0 rounded-sm border-0 px-2 py-1 text-[11px] text-muted-foreground data-[state=active]:text-foreground"
+        >
+          <Layout className="size-3 mr-1" />Général
         </TabsTrigger>
-        <TabsTrigger value="components" className="text-xs">
-          <Square className="w-3 h-3 mr-1" />Composants
+        <TabsTrigger
+          value="components"
+          className="gap-0 rounded-sm border-0 px-2 py-1 text-[11px] text-muted-foreground data-[state=active]:text-foreground"
+        >
+          <Square className="size-3 mr-1" />Composants
         </TabsTrigger>
-        <TabsTrigger value="grid" className="text-xs">
-          <Grid className="w-3 h-3 mr-1" />Grille
+        <TabsTrigger
+          value="grid"
+          className="gap-0 rounded-sm border-0 px-2 py-1 text-[11px] text-muted-foreground data-[state=active]:text-foreground"
+        >
+          <Grid className="size-3 mr-1" />Grille
         </TabsTrigger>
-        <TabsTrigger value="forms" className="text-xs">
-          <FormInput className="w-3 h-3 mr-1" />Formulaires
+        <TabsTrigger
+          value="forms"
+          className="gap-0 rounded-sm border-0 px-2 py-1 text-[11px] text-muted-foreground data-[state=active]:text-foreground"
+        >
+          <FormInput className="size-3 mr-1" />Formulaires
         </TabsTrigger>
       </TabsList>
 
-      <TabsContent value="general" className="space-y-4">
-        <div className="space-y-1.5">
-          <Label className="text-xs font-medium">Position de la navigation</Label>
-          <div className="grid grid-cols-3 gap-1.5">
+      <TabsContent value="general" className="space-y-2.5">
+        <div className="space-y-1">
+          <Label className="text-[11px] font-medium">Position de la navigation</Label>
+          <div className="grid grid-cols-3 gap-1">
             {[
               { value: 'left', label: 'Gauche', icon: ArrowLeft },
               { value: 'top', label: 'Haut', icon: ArrowUp },
@@ -110,10 +125,10 @@ const LayoutEditor = ({ formData, setFormData }) => {
                   key={pos.value}
                   variant={formData.configuration.navbarPosition === pos.value ? 'default' : 'outline'}
                   size="sm"
-                  className="justify-center text-xs"
+                  className="justify-center text-[11px] px-2 h-7"
                   onClick={() => handleNavbarPositionChange(pos.value)}
                 >
-                  <PosIcon className="w-3.5 h-3.5" />
+                  <PosIcon className="w-3 h-3" />
                   {pos.label}
                 </Button>
               );
@@ -121,9 +136,9 @@ const LayoutEditor = ({ formData, setFormData }) => {
           </div>
         </div>
 
-        <div className="space-y-1.5">
-          <Label className="text-xs font-medium">Espacement global</Label>
-          <div className="flex items-center gap-3">
+        <div className="space-y-1">
+          <Label className="text-[11px] font-medium">Espacement global</Label>
+          <div className="flex items-center gap-2">
             <Slider
               value={[formData.configuration.spacingScale || 1]}
               onValueChange={handleSpacingChange}
@@ -132,12 +147,12 @@ const LayoutEditor = ({ formData, setFormData }) => {
               step={0.1}
               className="flex-1"
             />
-            <Badge variant="outline">{formData.configuration.spacingScale || 1}x</Badge>
+            <Badge variant="outline" className="text-[10px] px-1.5">{formData.configuration.spacingScale || 1}x</Badge>
           </div>
         </div>
 
-        <div className="space-y-1.5">
-          <Label className="text-xs font-medium">Largeur maximale du contenu</Label>
+        <div className="space-y-1">
+          <Label className="text-[11px] font-medium">Largeur maximale du contenu</Label>
           {renderSelect({
             value: formData.configuration.maxWidth || '1200px',
             onValueChange: handleMaxWidthChange,
@@ -151,7 +166,7 @@ const LayoutEditor = ({ formData, setFormData }) => {
           })}
         </div>
 
-        <div className="space-y-1.5">
+        <div className="space-y-1">
           {renderToggle({
             label: 'Mode compact',
             description: 'Réduire l\'espacement pour plus de densité',
@@ -167,14 +182,14 @@ const LayoutEditor = ({ formData, setFormData }) => {
         </div>
       </TabsContent>
 
-      <TabsContent value="components" className="space-y-4">
+      <TabsContent value="components" className="space-y-2">
         {renderGroup({
           title: 'Cartes et Conteneurs',
-          icon: <Square className="w-3.5 h-3.5 text-muted-foreground" />,
+          icon: <Square className="w-3 h-3 text-muted-foreground" />,
           children: (
             <>
               <div className="space-y-1">
-                <Label className="text-[11px] text-muted-foreground">Arrondi des bordures</Label>
+                <Label className="text-[10px] text-muted-foreground">Arrondi des bordures</Label>
                 {renderSelect({
                   value: formData.configuration.components?.cards?.borderRadius || 'medium',
                   onValueChange: (value) => handleComponentChange('cards', 'borderRadius', value),
@@ -189,8 +204,8 @@ const LayoutEditor = ({ formData, setFormData }) => {
                 })}
               </div>
               <div className="space-y-1">
-                <Label className="text-[11px] text-muted-foreground">Espacement interne des cartes</Label>
-                <div className="flex items-center gap-3">
+                <Label className="text-[10px] text-muted-foreground">Espacement interne des cartes</Label>
+                <div className="flex items-center gap-2">
                   <Slider
                     value={[formData.configuration.components?.cards?.padding || 1]}
                     onValueChange={(value) => handleComponentChange('cards', 'padding', value[0])}
@@ -199,11 +214,11 @@ const LayoutEditor = ({ formData, setFormData }) => {
                     step={0.25}
                     className="flex-1"
                   />
-                  <Badge variant="outline">{formData.configuration.components?.cards?.padding || 1}x</Badge>
+                  <Badge variant="outline" className="text-[10px] px-1.5">{formData.configuration.components?.cards?.padding || 1}x</Badge>
                 </div>
               </div>
               <div className="space-y-1">
-                <Label className="text-[11px] text-muted-foreground">Style d'ombre des cartes</Label>
+                <Label className="text-[10px] text-muted-foreground">Style d'ombre des cartes</Label>
                 {renderSelect({
                   value: formData.configuration.components?.cards?.shadowStyle || 'default',
                   onValueChange: (value) => handleComponentChange('cards', 'shadowStyle', value),
@@ -222,11 +237,11 @@ const LayoutEditor = ({ formData, setFormData }) => {
 
         {renderGroup({
           title: 'Boutons et Interactions',
-          icon: <MousePointer className="w-3.5 h-3.5 text-muted-foreground" />,
+          icon: <MousePointer className="w-3 h-3 text-muted-foreground" />,
           children: (
             <>
               <div className="space-y-1">
-                <Label className="text-[11px] text-muted-foreground">Style des boutons</Label>
+                <Label className="text-[10px] text-muted-foreground">Style des boutons</Label>
                 {renderSelect({
                   value: formData.configuration.components?.buttons?.style || 'default',
                   onValueChange: (value) => handleComponentChange('buttons', 'style', value),
@@ -241,7 +256,7 @@ const LayoutEditor = ({ formData, setFormData }) => {
                 })}
               </div>
               <div className="space-y-1">
-                <Label className="text-[11px] text-muted-foreground">Taille des boutons</Label>
+                <Label className="text-[10px] text-muted-foreground">Taille des boutons</Label>
                 {renderSelect({
                   value: formData.configuration.components?.buttons?.size || 'medium',
                   onValueChange: (value) => handleComponentChange('buttons', 'size', value),
@@ -264,14 +279,14 @@ const LayoutEditor = ({ formData, setFormData }) => {
         })}
       </TabsContent>
 
-      <TabsContent value="grid" className="space-y-4">
+      <TabsContent value="grid" className="space-y-2">
         {renderGroup({
           title: 'Système de Grille',
-          icon: <Grid className="w-3.5 h-3.5 text-muted-foreground" />,
+          icon: <Grid className="w-3 h-3 text-muted-foreground" />,
           children: (
             <>
               <div className="space-y-1">
-                <Label className="text-[11px] text-muted-foreground">Colonnes par défaut</Label>
+                <Label className="text-[10px] text-muted-foreground">Colonnes par défaut</Label>
                 {renderSelect({
                   value: formData.configuration.components?.grid?.columns?.toString() || '3',
                   onValueChange: (value) => handleComponentChange('grid', 'columns', parseInt(value, 10)),
@@ -279,8 +294,8 @@ const LayoutEditor = ({ formData, setFormData }) => {
                 })}
               </div>
               <div className="space-y-1">
-                <Label className="text-[11px] text-muted-foreground">Espacement entre éléments</Label>
-                <div className="flex items-center gap-3">
+                <Label className="text-[10px] text-muted-foreground">Espacement entre éléments</Label>
+                <div className="flex items-center gap-2">
                   <Slider
                     value={[formData.configuration.components?.grid?.gap || 4]}
                     onValueChange={(value) => handleComponentChange('grid', 'gap', value[0])}
@@ -289,7 +304,7 @@ const LayoutEditor = ({ formData, setFormData }) => {
                     step={1}
                     className="flex-1"
                   />
-                  <Badge variant="outline">{formData.configuration.components?.grid?.gap || 4}px</Badge>
+                  <Badge variant="outline" className="text-[10px] px-1.5">{formData.configuration.components?.grid?.gap || 4}px</Badge>
                 </div>
               </div>
             </>
@@ -297,14 +312,14 @@ const LayoutEditor = ({ formData, setFormData }) => {
         })}
       </TabsContent>
 
-      <TabsContent value="forms" className="space-y-4">
+      <TabsContent value="forms" className="space-y-2">
         {renderGroup({
           title: 'Formulaires et Inputs',
-          icon: <FormInput className="w-3.5 h-3.5 text-muted-foreground" />,
+          icon: <FormInput className="w-3 h-3 text-muted-foreground" />,
           children: (
             <>
               <div className="space-y-1">
-                <Label className="text-[11px] text-muted-foreground">Style des champs de saisie</Label>
+                <Label className="text-[10px] text-muted-foreground">Style des champs de saisie</Label>
                 {renderSelect({
                   value: formData.configuration.components?.forms?.inputStyle || 'default',
                   onValueChange: (value) => handleComponentChange('forms', 'inputStyle', value),
@@ -318,7 +333,7 @@ const LayoutEditor = ({ formData, setFormData }) => {
                 })}
               </div>
               <div className="space-y-1">
-                <Label className="text-[11px] text-muted-foreground">Taille des champs</Label>
+                <Label className="text-[10px] text-muted-foreground">Taille des champs</Label>
                 {renderSelect({
                   value: formData.configuration.components?.forms?.inputSize || 'medium',
                   onValueChange: (value) => handleComponentChange('forms', 'inputSize', value),

@@ -7,6 +7,16 @@ const { ipcMain } = require('electron');
 
 const VALID_STATUSES = ['active', 'inactive', 'vip'];
 
+// Fail-open only when no permission flags are passed (legacy callers such as
+// loyalty-point redemptions); when flags are present they are enforced here so
+// the backend can't be bypassed by calling the IPC channel directly.
+function canWrite(perms, action) {
+  if (perms && typeof perms === 'object' && ['canCreate', 'canUpdate', 'canDelete'].includes(action)) {
+    return !!perms[action];
+  }
+  return true;
+}
+
 function validateEmail(email) {
   if (!email || !email.trim()) return null;
   const re = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -90,7 +100,10 @@ function registerCustomerHandlers(ipcMainInstance, databaseManager) {
   });
 
   // ── Add customer ───────────────────────────────────────────────
-  ipcMainInstance.handle('add-customer', async (event, customer) => {
+  ipcMainInstance.handle('add-customer', async (event, customer, perms) => {
+    if (!canWrite(perms, 'canCreate')) {
+      throw new Error('Accès refusé : création de clients non autorisée');
+    }
     const { name, email, phone, address, loyalty_points, notes, tags } = customer;
 
     if (!name || !name.trim()) {
@@ -147,7 +160,10 @@ function registerCustomerHandlers(ipcMainInstance, databaseManager) {
   });
 
   // ── Update customer ────────────────────────────────────────────
-  ipcMainInstance.handle('update-customer', async (event, id, customer) => {
+  ipcMainInstance.handle('update-customer', async (event, id, customer, perms) => {
+    if (!canWrite(perms, 'canUpdate')) {
+      throw new Error('Accès refusé : modification de clients non autorisée');
+    }
     const { name, email, phone, address, loyalty_points, notes, tags, is_active } = customer;
 
     if (!name || !name.trim()) {
@@ -208,7 +224,10 @@ function registerCustomerHandlers(ipcMainInstance, databaseManager) {
   });
 
   // ── Delete customer (cascade-safe) ─────────────────────────────
-  ipcMainInstance.handle('delete-customer', async (event, id) => {
+  ipcMainInstance.handle('delete-customer', async (event, id, perms) => {
+    if (!canWrite(perms, 'canDelete')) {
+      throw new Error('Accès refusé : suppression de clients non autorisée');
+    }
     // Check dependencies
     const salesCount = await new Promise((resolve) => {
       db.get('SELECT COUNT(*) as cnt FROM sales WHERE customer_id = ?', [id], (err, r) => {
@@ -409,7 +428,10 @@ function registerCustomerHandlers(ipcMainInstance, databaseManager) {
   });
 
   // ── Toggle customer active status ──────────────────────────────
-  ipcMainInstance.handle('toggle-customer-active', async (event, id) => {
+  ipcMainInstance.handle('toggle-customer-active', async (event, id, perms) => {
+    if (!canWrite(perms, 'canUpdate')) {
+      throw new Error('Accès refusé : modification de clients non autorisée');
+    }
     try {
       const result = await new Promise((resolve, reject) => {
         db.run(

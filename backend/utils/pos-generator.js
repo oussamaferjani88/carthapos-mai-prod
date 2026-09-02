@@ -30,6 +30,22 @@ async function generatePOSApplication(license, outputPath = null, options = {}) 
   logger.info('🚀 Starting POS generation with new modular architecture');
   
   try {
+    // Embed the signed license carrier for MACHINE-bound POS: the unbound
+    // signed license is carried inside the generated app-config.json so the
+    // installed app can self-activate on first run (bootstrap), then persists
+    // the bound copy to userData. This is the shared entry used by BOTH the
+    // /api/pos routes (server.js legacy route + server-v2 controller).
+    if (license && (license.bindingType || 'MACHINE').toUpperCase() === 'MACHINE' && !license.__signedFileContent) {
+      try {
+        const licenseService = require('../src/services/licenseService');
+        const licenseFile = await licenseService.generateLicenseFile(license.id);
+        license.__signedFileContent = licenseFile.content;
+        logger.info('🔑 Signed license file embedded for app-config');
+      } catch (embedError) {
+        logger.warn('Failed to embed signed license file:', embedError.message);
+      }
+    }
+
     // Delegate to the modular system
     const result = await generateModular(license, outputPath, options);
     

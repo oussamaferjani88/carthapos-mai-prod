@@ -30,7 +30,6 @@ export const POSContent = ({
     const forms = config.components?.forms || {};
 
     const borderRadiusMap = { none: '0', small: '0.25rem', medium: '0.5rem', large: '0.75rem', xl: '1rem', full: '9999px' };
-    const shadowMap = { none: 'none', soft: '0 1px 2px rgba(0,0,0,0.05)', default: '0 1px 3px rgba(0,0,0,0.1), 0 1px 2px rgba(0,0,0,0.06)', hard: '0 10px 15px rgba(0,0,0,0.1)', colored: '0 10px 15px rgba(59,130,246,0.3)' };
     const paddingMap = { 0.5: '0.25rem', 1: '0.5rem', 1.5: '0.75rem', 2: '1rem' };
     const buttonStyleMap = { default: '0.375rem', rounded: '0.5rem', pill: '9999px', square: '0', outline: '0.375rem', ghost: '0.375rem' };
     const sizePxMap = { small: { x: '0.5rem', y: '0.25rem', fs: '0.75rem' }, medium: { x: '1rem', y: '0.5rem', fs: '0.875rem' }, large: { x: '1.5rem', y: '0.75rem', fs: '1rem' }, xl: { x: '2rem', y: '1rem', fs: '1.125rem' } };
@@ -38,7 +37,14 @@ export const POSContent = ({
     const inputSizeMap = { small: { x: '0.5rem', y: '0.25rem', fs: '0.75rem' }, medium: { x: '0.75rem', y: '0.5rem', fs: '0.875rem' }, large: { x: '1rem', y: '0.75rem', fs: '1rem' } };
 
     const br = borderRadiusMap[cards.borderRadius] || '0.5rem';
-    const sh = shadowMap[cards.shadowStyle] || '0 1px 3px rgba(0,0,0,0.1)';
+    // cards.shadowStyle (Layout) n'est plus une 2e échelle de profondeur qui
+    // entre en conflit avec shadowIntensity (Thème) : "none"/"colored" restent
+    // des variantes par carte explicites, sinon on hérite de l'ombre du thème.
+    const sh = cards.shadowStyle === 'none'
+      ? 'none'
+      : cards.shadowStyle === 'colored'
+        ? `0 10px 15px ${config.primaryColor || '#3b82f6'}4D`
+        : POSConfiguration.getShadowStyle(config);
     const pd = paddingMap[cards.padding] || '0.5rem';
     const btnStyle = buttonStyleMap[buttons.style] || '0.375rem';
     const btnSize = sizePxMap[buttons.size] || sizePxMap.medium;
@@ -110,18 +116,31 @@ export const POSContent = ({
     return <PageComponent {...props} />;
   };
 
-  // Padding du contenu : px-2 pt-3 (cohérent avec le POS réel), mais la
+  // Padding du contenu : pt-3 (cohérent avec le POS réel), mais la
   // hauteur remplit la zone défilante (h-full) pour que chaque page occupe
   // tout le viewport et que l'aperçu ne laisse pas de vide en bas. Le pb-20
   // du POS réel (écran plein) est réduit ici car l'aperçu a déjà un footer.
-  const contentPadding = activePage === 'sales'
-    ? 'p-0 h-full'
-    : config.compactMode ? 'p-1.5 h-full' : 'px-2 pt-3 pb-4 h-full';
+  const contentPadding = activePage === 'sales' ? 'p-0 h-full' : 'h-full';
+
+  // spacingScale/maxWidth (Layout > Général) - un multiplicateur sur le
+  // padding vertical de la page et une largeur max centrée. Ce sont les
+  // seuls endroits où ces deux réglages peuvent avoir un effet global sans
+  // devoir réécrire l'espacement interne (fixe, compilé) de chaque page.
+  const spacingScale = config.spacingScale || 1;
+  const maxWidth = config.maxWidth || '1200px';
+  const basePadY = config.compactMode ? 0.375 : 0.75;
+  const contentStyle = {
+    paddingTop: `${basePadY * spacingScale}rem`,
+    paddingBottom: `${(config.compactMode ? 0.375 : 1) * spacingScale}rem`,
+    maxWidth: maxWidth === '100%' ? 'none' : maxWidth,
+    marginLeft: maxWidth === '100%' ? undefined : 'auto',
+    marginRight: maxWidth === '100%' ? undefined : 'auto',
+  };
 
   return (
     <div
       className={cn(
-        'flex-1 flex flex-col min-w-0 relative h-full',
+        'flex-1 flex flex-col min-w-0 relative',
         animationTypeClass,
         animationSpeedClass,
         animationClasses
@@ -129,7 +148,7 @@ export const POSContent = ({
       style={{
         position: 'relative',
         zIndex: 1,
-        minHeight: '100%',
+        minHeight: 0,
         ...(config.gradientBackgrounds ? {
           background: POSConfiguration.getContainerGradient(config),
         } : {}),
@@ -138,18 +157,70 @@ export const POSContent = ({
         ...componentVars,
       }}
     >
-      {/* Styles scopés du customizer — ne s'appliquent qu'à l'intérieur de .pos-preview */}
+      {/* Styles scopés du customizer — ne s'appliquent qu'à l'intérieur de .pos-preview.
+          [data-slot="..."] cible les primitives shadcn/ui (Card/Button/Input/Select
+          exposent toutes un data-slot stable) en plus des anciens divs "bg-white" -
+          faute de quoi les réglages Layout > Composants n'atteignaient que les
+          quelques pages qui n'utilisent pas shadcn. */}
       <style>{`
         .pos-preview .pos-preview-card,
+        .pos-preview [data-slot="card"],
         .pos-preview div[class*="rounded-lg"].bg-white,
         .pos-preview div[class*="rounded-xl"].bg-white {
           border-radius: var(--pos-card-border-radius);
           box-shadow: var(--pos-card-shadow);
+        }
+        .pos-preview .pos-preview-card,
+        .pos-preview [data-slot="card-content"],
+        .pos-preview div[class*="rounded-lg"].bg-white,
+        .pos-preview div[class*="rounded-xl"].bg-white {
           padding: var(--pos-card-padding);
         }
         .pos-preview .pos-preview-grid {
-          grid-template-columns: repeat(var(--pos-grid-columns), minmax(0, 1fr));
-          gap: var(--pos-grid-gap);
+          grid-template-columns: repeat(var(--pos-grid-columns), minmax(0, 1fr)) !important;
+          gap: var(--pos-grid-gap) !important;
+        }
+
+        .pos-preview [data-slot="button"] {
+          border-radius: var(--pos-button-border-radius) !important;
+          padding: var(--pos-button-py) var(--pos-button-px) !important;
+          font-size: var(--pos-button-fs) !important;
+        }
+        .pos-preview [data-slot="button"]:hover {
+          opacity: var(--pos-button-hover);
+        }
+        .pos-preview[data-btn-style="outline"] [data-slot="button"]:not([data-variant="ghost"]) {
+          background-color: transparent !important;
+          border: 1px solid var(--primary) !important;
+          color: var(--primary) !important;
+          box-shadow: none !important;
+        }
+        .pos-preview[data-btn-style="ghost"] [data-slot="button"] {
+          background-color: transparent !important;
+          color: var(--primary) !important;
+          box-shadow: none !important;
+        }
+
+        .pos-preview [data-slot="input"],
+        .pos-preview [data-slot="select-trigger"] {
+          border-radius: var(--pos-input-border-radius) !important;
+          padding: var(--pos-input-py) var(--pos-input-px) !important;
+          font-size: var(--pos-input-fs) !important;
+        }
+        .pos-preview [data-slot="input"]:focus,
+        .pos-preview [data-slot="select-trigger"]:focus {
+          outline: var(--pos-input-focus-ring);
+          outline-offset: 1px;
+        }
+        .pos-preview[data-input-style="underlined"] [data-slot="input"] {
+          border: none !important;
+          border-bottom: 1px solid var(--border) !important;
+          border-radius: 0 !important;
+          background: transparent !important;
+        }
+        .pos-preview[data-input-style="filled"] [data-slot="input"] {
+          background-color: var(--muted) !important;
+          border-color: transparent !important;
         }
       `}</style>
 
@@ -165,10 +236,8 @@ export const POSContent = ({
         )}
         style={{
           backgroundColor: config.backgroundColor,
-          minHeight: '100%',
+          minHeight: 0,
           width: '100%',
-          maxWidth: config.maxWidth !== '100%' ? config.maxWidth : '100%',
-          margin: '0 auto',
           fontFamily: config.fontFamily || 'Inter, system-ui, sans-serif',
           fontSize: config.fontSize || '14px',
           fontWeight: config.fontWeight || '400',
@@ -182,7 +251,7 @@ export const POSContent = ({
           } : {}),
         }}
       >
-        <div className={contentPadding}>{renderContent()}</div>
+        <div className={contentPadding} style={contentStyle}>{renderContent()}</div>
       </main>
 
       {/* Indicateur de mode Drag & Drop (contrôle admin uniquement) */}

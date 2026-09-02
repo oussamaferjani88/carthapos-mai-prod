@@ -4,60 +4,36 @@ const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001/api'
 
 const api = axios.create({
   baseURL: API_BASE_URL,
+  withCredentials: true,
   headers: {
     'Content-Type': 'application/json',
   },
 });
 
-// ============================================================================
-// JWT AUTHENTICATION - DISABLED FOR DEVELOPMENT
-// TODO: Re-enable before production deployment
-// ============================================================================
-
-// Request interceptor - Add JWT token to all requests (DISABLED)
-// api.interceptors.request.use(
-//   (config) => {
-//     const token = localStorage.getItem('pos_admin_token');
-//     if (token) {
-//       config.headers.Authorization = `Bearer ${token}`;
-//     }
-//     return config;
-//   },
-//   (error) => {
-//     return Promise.reject(error);
-//   }
-// );
-
-// Response interceptor - Handle authentication errors (DISABLED)
-// api.interceptors.response.use(
-//   (response) => response,
-//   (error) => {
-//     console.error('API Error:', error);
-//     
-//     // Handle 401 Unauthorized - token expired or invalid
-//     if (error.response?.status === 401) {
-//       const errorCode = error.response?.data?.code;
-//       
-//       if (errorCode === 'TOKEN_EXPIRED' || errorCode === 'INVALID_TOKEN' || errorCode === 'NO_TOKEN') {
-//         // Clear auth data
-//         localStorage.removeItem('pos_admin_token');
-//         localStorage.removeItem('pos_admin_user');
-//         
-//         // Redirect to login if not already there
-//         if (window.location.pathname !== '/login') {
-//           window.location.href = '/login';
-//         }
-//       }
-//     }
-//     
-//     return Promise.reject(error);
-//   }
-// );
+// Session lives in an HttpOnly cookie (set by /api/auth/login), so the axios
+// instance uses withCredentials:true — no token is stored in localStorage.
+// A 401 response (missing/expired/invalid session) redirects to /login below.
 
 // Simple error interceptor for development
 api.interceptors.response.use(
-  (response) => response,
+  (response) => {
+    // Unwrap the v1 ApiResponse envelope ({ status, message, data }) so callers
+    // keep receiving raw payloads, while legacy unwrapped routes pass through.
+    if (
+      response.data &&
+      typeof response.data === 'object' &&
+      response.data.status === 'success' &&
+      'data' in response.data
+    ) {
+      return { ...response, data: response.data.data };
+    }
+    return response;
+  },
   (error) => {
+    // 401 Unauthorized — session cookie missing/expired/invalid
+    if (error.response?.status === 401 && window.location.pathname !== '/login') {
+      window.location.href = '/login';
+    }
     console.error('API Error:', error);
     return Promise.reject(error);
   }
@@ -114,6 +90,18 @@ export const licensesApi = {
   update: (id, data) => api.put(`/licenses/${id}`, data),
   delete: (id) => api.delete(`/licenses/${id}`),
   generateFile: (id, machineId) => api.post(`/licenses/${id}/generate-file`, { machineId }),
+  regenerate: (id) => api.post(`/licenses/${id}/regenerate`),
+  activate: (id, data) => api.post(`/licenses/${id}/activate`, data),
+  deactivate: (id, data) => api.post(`/licenses/${id}/deactivate`, data),
+  validate: (id, data) => api.post(`/licenses/${id}/validate`, data),
+  suspend: (id, data) => api.post(`/licenses/${id}/suspend`, data),
+  resume: (id) => api.post(`/licenses/${id}/resume`),
+  revoke: (id, data) => api.post(`/licenses/${id}/revoke`, data),
+  renew: (id, data) => api.post(`/licenses/${id}/renew`, data),
+  extend: (id, data) => api.post(`/licenses/${id}/extend`, data),
+  transfer: (id, data) => api.post(`/licenses/${id}/transfer`, data),
+  resetBinding: (id, data) => api.post(`/licenses/${id}/reset-binding`, data),
+  getHistory: (id) => api.get(`/licenses/${id}/history`),
 };
 
 // API Users
@@ -124,6 +112,8 @@ export const usersApi = {
   update: (id, data) => api.put(`/users/${id}`, data),
   delete: (id) => api.delete(`/users/${id}`),
   getStats: () => api.get('/users/stats'),
+  getPermissions: () => api.get('/users/permissions'),
+  updatePermissions: (id, permissions) => api.put(`/users/${id}/permissions`, { permissions }),
 };
 
 // API USB

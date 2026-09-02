@@ -1,0 +1,1989 @@
+================================================================================
+               CARTHAPOS -- COMPREHENSIVE ARCHITECTURAL AUDIT
+================================================================================
+Date:       2026-08-18 (verified against source code)
+Scope:      D:\Carthapos (entire repository)
+Purpose:    Single source of truth for architecture, UML diagrams, and PFE report
+Method:     Every claim verified against actual source code before inclusion.
+            Unverifiable claims marked UNVERIFIED or LEGACY/NOT CURRENTLY USED.
+================================================================================
+
+
+================================================================================
+PART 1 -- PROJECT DESCRIPTION
+================================================================================
+
+CarthaPOS is a multi-tenant SaaS platform for generating customized Point-of-Sale
+(POS) desktop applications for small businesses across Tunisia. The platform
+comprises five major subsystems:
+
+  A. Backend API         -- Express.js server: business services, Prisma ORM,
+                            PostgreSQL, BI/ETL pipeline, POS generation
+  B. Admin Dashboard     -- React SPA for CarthaPOS staff: client/license/module
+                            management, POS generation, BI workflow monitoring
+  C. Client Frontend     -- React SPA for business owners: registration, account
+                            management, POS project access, BI workspace
+  D. POS Template        -- Electron desktop app template; source for per-client
+                            customized POS applications via an 8-stage generator
+  E. Generated Client POS -- The final .exe desktop application installed on the
+                            client's hardware, derived from the POS template
+
+The platform supports 6 business sectors: restaurant, cafe, retail, bakery,
+pharmacy, and beauty. Each generated POS is tailored to the client's sector
+with only relevant modules enabled.
+
+BI follows a GIMSI methodology: POS exports operational data as CSV+ZIP,
+uploaded to the backend, processed through an ETL pipeline into a PostgreSQL
+analytical warehouse, and visualized via Metabase dashboards.
+
+
+================================================================================
+PART 2 -- TECHNOLOGY STACK (verified from package.json files)
+================================================================================
+
+BACKEND  (backend/package.json)
+  Runtime:            Node.js 18
+  Framework:          Express.js ^4.18.2
+  ORM:                Prisma ^5.7.1 (@prisma/client + prisma CLI)
+  Database:           PostgreSQL (via Prisma)
+  Auth:               jsonwebtoken ^9.0.2 (JWT), bcrypt ^6.0.0
+  License Signing:    Ed25519 (Node.js built-in crypto module)
+  Security:           helmet ^7.1.0, cors, express-rate-limit ^8.2.1
+  Validation:         joi ^18.0.1
+  File Upload:        multer ^1.4.5-lts.1
+  ZIP Handling:       adm-zip ^0.5.16, unzipper ^0.12.3
+  GitHub Integration: @octokit/rest ^22.0.1
+  API Docs:           swagger-jsdoc ^6.2.8, swagger-ui-express ^5.0.1
+  HTTP Client:        axios ^1.13.4
+  Logging:            morgan ^1.10.0
+  Packaging:          archiver ^7.0.1
+  Additional:         bcryptjs ^2.4.3, crypto-js ^4.2.0, dotenv ^16.3.1
+
+ADMIN DASHBOARD  (admin/package.json)
+  Framework:          React 18.2.0
+  Bundler:            Vite ^6.3.5
+  Language:           JavaScript (JSX), no TypeScript
+  Router:             react-router-dom ^7.6.1
+  UI Library:         Radix UI (26 primitives), shadcn/ui pattern (46 components)
+  CSS:                Tailwind CSS ^4.1.7
+  Forms:              react-hook-form ^7.56.3, zod ^3.24.4
+  Charts:             Recharts ^2.15.3
+  Animation:          Framer Motion ^12.15.0
+  Icons:              Lucide React ^0.510.0
+  State:              React Context (AuthContext, AccessModeContext, DragDropContext)
+  Package Manager:    pnpm 10.4.1
+
+POS TEMPLATE (Electron Desktop App)  (pos-template/package.json)
+  Shell:              Electron ^37.2.0
+  Frontend:           React 18.2.0, Vite ^6.3.5
+  Router:             react-router-dom (HashRouter)
+  Language:           JavaScript (JSX), no TypeScript
+  CSS:                Tailwind CSS ^4.1.7
+  Database:           SQLite 3 (via sqlite3 ^5.1.7)
+  Auth:               bcryptjs ^2.4.3 (local password hashing)
+  Charts:             Recharts
+  UI Library:         Radix UI (15+), shadcn/ui pattern (46 components)
+  Animation:          Framer Motion ^12.15.0
+  Packaging:          electron-builder ^26.0.12 (NSIS x64 Windows, AppImage Linux)
+  License:            USB detection + Ed25519 signature verification
+  IPC:                Electron ipcMain/ipcRenderer (14 handler registration calls)
+
+CLIENT FRONTEND  (frontend/package.json)
+  Framework:          React 18.3.1, Vite ^6.4.2
+  Language:           TypeScript (.tsx), TypeScript ^5.8.3
+  Router:             react-router-dom ^6.30.1
+  CSS:                Tailwind CSS ^3.4.17
+  UI:                 shadcn/ui components
+  Additional:         @tanstack/react-query, i18next, react-i18next,
+                      three, @react-spring/web
+
+DEPLOYMENT / DevOps
+  Container:          Docker (node:18-bullseye base image)
+  Hosting:            Render (render.yaml config present, 3 services + 1 DB)
+  CI/CD:              NONE -- .github/workflows/ does not exist
+  Build Automation:   Makefile (16 targets)
+  BI Dashboards:      Metabase (REST API integration via utils/metabase-client.js)
+
+
+================================================================================
+PART 3 -- SYSTEM ARCHITECTURE
+================================================================================
+
+3.1 ARCHITECTURAL STYLE
+-----------------------
+
+The CarthaPOS platform is a multi-application, multi-tenant SaaS architecture
+combining:
+
+  - Client-server architecture (admin + client frontends -> backend API)
+  - Multi-application architecture (4 separate applications)
+  - Electron desktop architecture (POS: IPC-based renderer/main-process split)
+  - Modular backend architecture (domain-oriented route + service groups)
+  - ETL / data warehouse architecture (BI pipeline)
+  - Multi-tenant SaaS (per-client licensing, isolated data, dashboard assignment)
+
+It is NOT a monolithic layered architecture. Each application is independently
+buildable and deployable. The backend organizes functionality by domain
+(licensing, clients, BI, etc.) rather than by technical layer.
+
+3.2 GLOBAL ARCHITECTURE (logical level)
+---------------------------------------
+
+  +-------------------------------------------------------------------+
+  |                        APPLICATIONS                                |
+  |                                                                    |
+  |  +------------------+  +-----------------+  +-------------------+ |
+  |  | Admin Dashboard  |  | Client Frontend |  | POS Template      | |
+  |  | (React SPA)      |  | (React SPA)     |  | (Electron App)    | |
+  |  | Vite, JS/JSX     |  | Vite, TS/TSX    |  | React + SQLite    | |
+  |  | pnpm             |  | npm             |  | npm               | |
+  |  +--------+---------+  +--------+--------+  +--------+----------+ |
+  |           |                     |                     |           |
+  +-----------|---------------------|---------------------|-----------+
+            HTTP                  HTTP            Local (IPC, no server)
+            |                     |                     |
+  +---------|---------------------|---------------------|-----------+
+  |         v                     v                     v           |
+  |  BACKEND  (Express.js + Prisma + PostgreSQL)                    |
+  |                                                                   |
+  |  +------------------------------------------------------------+ |
+  |  | Middleware: helmet, cors, morgan, json, urlencoded,        | |
+  |  |            timeout (20min), static /uploads,               | |
+  |  |            verifyToken (conditional: AUTH_REQUIRED=true)   | |
+  |  +------------------------------------------------------------+ |
+  |  | Auth Layer: middleware/auth.js (verifyToken + optionalAuth)| |
+  |  |             middleware/permissions.js (RBAC)                | |
+  |  +------------------------------------------------------------+ |
+  |  | Routes: 32 unique route groups mounted at /api/*           | |
+  |  +------------------------------------------------------------+ |
+  |  | Services:                                                   | |
+  |  |   Core: clientService, licenseService, posService,         | |
+  |  |         moduleService, userService, usbService,            | |
+  |  |         license/crypto.js, license/keys.js                 | |
+  |  |   BI:   etlPipeline, warehouseService, biSchemaRegistry,  | |
+  |  |         biProvisioning, analyticsCacheService,             | |
+  |  |         biDataUtils, biInsightGenerator,                   | |
+  |  |         biModelRegistry, dataPreparationService            | |
+  |  |   Gen:  generators/ (8-stage pipeline, 9 components)       | |
+  |  |   Meta: metabase-client.js (REST API proxy)                | |
+  |  +------------------------------------------------------------+ |
+  |  | Database: PostgreSQL via Prisma ORM                         | |
+  |  |   43 models, 10 enums, 36 migrations                       | |
+  |  +------------------------------------------------------------+ |
+  +-------------------------------------------------------------------+
+
+3.3 DEPLOYMENT ARCHITECTURE (physical level)
+--------------------------------------------
+
+  User's Browser              User's POS Hardware
+       |                            |
+       | HTTPS                      | Electron app (local)
+       v                            v
+  +----------+              +----------------+
+  | Render   |              | Generated POS  |
+  | Frontend |              | .exe + SQLite  |
+  | (static) |              +-------+--------+
+  +----+-----+                      |
+       |                            | HTTPS (license check)
+       | HTTPS                      |
+       v                            v
+  +----+-----------------------------+----+
+  |           Render Backend              |
+  |  (Docker: node:18-bullseye)           |
+  |  Express.js + Prisma + ETL            |
+  +----+------------------+--------------+
+       |                  |
+       | Prisma           | Metabase
+       v                  v
+  +----+----+      +-----+------+
+  |PostgreSQL|      |  Metabase   |
+  | (Render  |      | (direct     |
+  |  managed)|      |  PG conn)   |
+  +----------+      +-------------+
+
+  Note: CI/CD is NOT configured. .github/workflows/ does not exist.
+  Deployments are manual via Render dashboard.
+
+
+================================================================================
+PART 4 -- DATABASE / ENTITY MODEL (verified from schema.prisma)
+================================================================================
+
+43 Prisma models in a 1,027-line schema, organized into 8 domain groups:
+
+DOMAIN 1: USER & AUTHORIZATION (3 models)
+  User
+    Fields: id, email, password, fullName, role (UserRole), isActive, ...
+    Relations: permissions (UserPermission), auditLogs, biRequests
+  Permission
+    Fields: id, key, module, description
+    Relations: users (UserPermission)
+  UserPermission
+    Fields: id, userId, permissionId
+    Relations: user -> User, permission -> Permission
+    Purpose: Many-to-many join table
+
+DOMAIN 2: CLIENT & ACCOUNT MANAGEMENT (4 models)
+  Client
+    Fields: id, name, email, phone, address, sector, status, ...
+    Relations: licenses, biDashboardAssignments, biUploads, dimClient
+    Purpose: Tenant entity; represents a business customer
+  Referral
+    Fields: id, referrerId, referredId, status (ReferralStatus), ...
+    Purpose: Client referral tracking
+  AccountType enum: NORMAL, BUSINESS, RESELLER
+  VerificationStatus enum: PENDING, APPROVED, REJECTED
+
+DOMAIN 3: LICENSING (6 models)
+  License
+    Fields: id, clientId, licenseKey, type (LicenseType),
+            status (LicenseStatus), publicKey, privateKey, machineFingerprint,
+            activationCount, maxActivations, expirationDate, ...
+    Relations: client -> Client, activations, validations, transfers,
+               modules (LicenseModule), configuration
+  LicenseActivationHistory
+    Fields: id, licenseId, activatedAt, machineFingerprint, ...
+  LicenseValidationLog
+    Fields: id, licenseId, validatedAt, success, failureReason, ...
+  LicenseTransferHistory
+    Fields: id, licenseId, transferredAt, fromMachine, toMachine, ...
+  LicenseModule
+    Fields: id, licenseId, moduleId
+    Purpose: Many-to-many: License <-> Module
+  LicenseConfiguration
+    Fields: id, licenseId, configJson, ...
+    Purpose: Per-license POS configuration
+
+DOMAIN 4: POS CONFIGURATION / MODULES (2 models)
+  Module
+    Fields: id, name, key, description, isCore, ...
+    Relations: licenses (LicenseModule)
+    Purpose: Defines available POS modules (tables, kitchen, inventory, etc.)
+  UserPosConfiguration
+    Fields: id, userId, configJson, ...
+    Status: DEAD CODE -- defined in schema but never used in application code
+
+DOMAIN 5: OPERATIONAL POS ENTITIES (8 models)
+  Customer
+    Fields: id, name, email, phone, loyaltyPoints, ...
+    Relations: orders, loyaltyTransactions
+  Product
+    Fields: id, name, sku, price, category, stock, ...
+    Relations: orderItems, factInventory, factSaleItem
+  Order
+    Fields: id, orderNumber, type (OrderType), status (OrderStatus),
+            total, customerId, tableId, ...
+    Relations: items (OrderItem), customer, loyaltyTransactions
+  OrderItem
+    Fields: id, orderId, productId, quantity, unitPrice, ...
+    Relations: order -> Order, product -> Product
+  Table
+    Fields: id, number, capacity, status, ...
+  LoyaltyTransaction
+    Fields: id, customerId, orderId, type (LoyaltyTransactionType), points, ...
+    Relations: customer, order
+  GiftCard
+    Fields: id, code, balance, customerId, ...
+  Appointment
+    Fields: id, customerId, date, service, status, ...
+
+DOMAIN 6: BI MANAGEMENT (7 models)
+  BiDashboard
+    Fields: id, metabaseDashboardId, name, type, ...
+    Relations: assignments (BiDashboardAssignment)
+  BiDashboardAssignment
+    Fields: id, dashboardId, clientId, assignedAt, ...
+    Relations: dashboard -> BiDashboard, client -> Client
+  BiDashboardTemplate
+    Fields: id, name, businessType, templateConfigJson, ...
+  BiNotification
+    Fields: id, clientId, message, read, ...
+  BiAnalysisRequest
+    Fields: id, clientId, userId, status, requestJson, ...
+  BiRequest
+    Fields: id, userId, status, type, ...
+    Relations: events (BiRequestEvent)
+  BiRequestEvent
+    Fields: id, requestId, eventType, eventData, ...
+    Relations: request -> BiRequest
+
+DOMAIN 7: BI UPLOAD / ETL TRACKING (4 models)
+  BiUpload
+    Fields: id, clientId, filename, sha256Hash, status, ...
+    Relations: files (BiUploadFile), jobs (BiProcessingJob)
+  BiUploadFile
+    Fields: id, uploadId, filename, dataset, rowCount, ...
+  BiProcessingJob
+    Fields: id, uploadId, status (PROCESSING/COMPLETED/FAILED), ...
+    Relations: logs (BiProcessingLog), upload -> BiUpload
+  BiProcessingLog
+    Fields: id, jobId, level, message, timestamp, ...
+    Relations: job -> BiProcessingJob
+
+DOMAIN 8: ANALYTICAL WAREHOUSE (10 models)
+  DIMENSIONS:
+    DimTime
+      PK: timeKey (YYYYMMDD integer)
+      Fields: date, year, month, day, dayOfWeek, ...
+    DimClient
+      PK: cuid (cuid)
+      Fields: tenantId, clientName, sector, ...
+      UQ: tenantId
+    DimProduct
+      PK: cuid (cuid)
+      Fields: compositeKey (prod_{clientId}_{product_id}), productName, category, ...
+    DimSupplier
+      PK: cuid (cuid)
+      Fields: compositeKey (supp_{clientId}_{supplier_id}), supplierName, ...
+    DimCustomer
+      PK: cuid (cuid)
+      Fields: compositeKey (cust_{clientId}_{customer_id}), customerName, ...
+
+  FACTS:
+    FactSale
+      FKs: dimClientId -> DimClient, dimProductId -> DimProduct,
+           dimTimeId -> DimTime
+      Fields: amount, quantity, discount, ...
+    FactSaleItem
+      FKs: factSaleId -> FactSale, dimProductId -> DimProduct
+      Fields: lineTotal, quantity, unitPrice, ...
+    FactInventory
+      FKs: dimProductId -> DimProduct, dimTimeId -> DimTime
+      Fields: stockLevel, adjustment, ...
+    FactAppointment
+      FK: dimTimeId -> DimTime
+      Fields: duration, type, ...
+    FactKitchenOrder
+      FK: dimTimeId -> DimTime
+      Fields: orderType, preparationTime, ...
+    FactKitchenOrderItem
+      FKs: factKitchenOrder -> FactKitchenOrder, dimProductId -> DimProduct
+      Fields: quantity, status, ...
+
+KEY ENTITY RELATIONSHIPS:
+
+  Client 1---* License
+  Client 1---* BiDashboardAssignment
+  Client 1---* BiUpload
+  Client 1---* DimClient (warehouse)
+
+  License 1---* LicenseActivationHistory
+  License 1---* LicenseValidationLog
+  License 1---* LicenseTransferHistory
+  License *---* Module (via LicenseModule)
+
+  User 1---* UserPermission
+  Permission 1---* UserPermission
+  User 1---* BiRequest
+
+  Customer 1---* Order
+  Customer 1---* LoyaltyTransaction
+  Product 1---* OrderItem
+  Order 1---* OrderItem
+  Order 1---* LoyaltyTransaction
+
+  DimTime 1---* FactSale
+  DimTime 1---* FactInventory
+  DimTime 1---* FactAppointment
+  DimTime 1---* FactKitchenOrder
+  DimClient 1---* FactSale
+  DimProduct 1---* FactSale
+  DimProduct 1---* FactSaleItem
+  DimProduct 1---* FactInventory
+  DimProduct 1---* FactKitchenOrderItem
+
+  BiUpload 1---* BiUploadFile
+  BiUpload 1---* BiProcessingJob
+  BiProcessingJob 1---* BiProcessingLog
+  BiDashboard 1---* BiDashboardAssignment
+  BiRequest 1---* BiRequestEvent
+
+
+================================================================================
+PART 5 -- BACKEND ARCHITECTURE (verified from server.js)
+================================================================================
+
+5.1 SERVER ENTRY POINT
+----------------------
+
+File: backend/server.js (210 lines)
+
+Middleware stack (applied in order):
+  1. helmet (line 65)
+  2. cors with configurable allowlist (line 66)
+  3. morgan logger (line 77)
+  4. express.json limit 10mb (line 78)
+  5. express.urlencoded limit 10mb (line 79)
+  6. timeout 1,200,000ms / 20 minutes (lines 82-86)
+  7. express.static('/uploads') (line 89)
+  8. verifyToken -- CONDITIONAL: only active when AUTH_REQUIRED=true env var
+     (lines 111-113). When AUTH_REQUIRED is unset or false, token verification
+     is skipped globally. Individual routes can still enforce auth.
+
+Public routes (mounted before auth gate, lines 96-100):
+  - /api/users (login is public)
+  - /api/auth (login/registration public)
+  - /api/health (inline GET handler)
+
+Protected routes (mounted after auth gate, lines 117-149):
+  32 mount lines total. 2 are duplicate mounts of the same router.
+
+Unique functional route groups: 32
+
+5.2 ROUTE GROUPS
+----------------
+
+  #  Mount Path                      Router File                    Auth
+  -- -------------------------------  -----------------------------  ----------
+   1 /api/users                       routes/users.js                PUBLIC (login)
+   2 /api/auth                        routes/auth.js                 PUBLIC
+   3 /api/health                      inline handler                 PUBLIC
+   4 /api/clients                     routes/clients.js              PROTECTED
+   5 /api/licenses                    routes/licenses.js             PROTECTED
+   6 /api/modules                     routes/modules.js              PROTECTED
+   7 /api/usb                         routes/usb.js                  PROTECTED
+   8 /api/pos                         routes/pos.js                  PROTECTED
+   9 /api/takeaway                    routes/takeaway.js             PROTECTED
+  10 /api/loyalty                     routes/loyalty.js              PROTECTED
+  11 /api (direct-convert)            routes/direct-convert.js       PROTECTED
+  12 /api (seed-api)                  routes/seed-api.js             PROTECTED
+  13 /api/barcode                     routes/barcode.js              PROTECTED
+  14 /api/suppliers                   routes/suppliers.js            PROTECTED
+  15 /api/menu-management             routes/menu-management.js      PROTECTED
+  16 /api/quick-service               routes/quick-service.js        PROTECTED
+  17 /api/payment-advanced            routes/payment-advanced.js     PROTECTED
+  18 /api/gift-cards                  routes/gift-cards.js           PROTECTED
+  19 /api/prescriptions               routes/prescriptions.js        PROTECTED
+  20 /api/production                  routes/production.js           PROTECTED
+  21 /api/bi-requests                 routes/bi-requests.js          optionalAuth
+  22 /api/bi-uploads                  routes/bi-uploads.js           optionalAuth
+  23 /api/bi/debug                    routes/bi-debug.js             optionalAuth
+  24 /api/bi/dashboards               routes/bi-dashboards.js        optionalAuth
+  25 /api/bi/dashboard (DUP of #24)   routes/bi-dashboards.js        optionalAuth
+  26 /api/bi/dashboard-templates      routes/bi-dashboard-templates  optionalAuth
+  27 /api/bi/metabase                 routes/bi-metabase.js          optionalAuth
+  28 /api/bi/notifications            routes/bi-notifications.js     optionalAuth
+  29 /api/bi/analysis                 routes/bi-analysis.js          optionalAuth
+  30 /api/bi/analytics                routes/bi-analytics.js         optionalAuth
+  31 /api/bi/reviews                  routes/bi-reviews.js           optionalAuth
+  32 /api/bi/review (DUP of #31)      routes/bi-reviews.js           optionalAuth
+  33 /api/bi/assignments              routes/bi-assignments.js       optionalAuth
+  34 /api/bi/stats                    routes/bi-stats.js             optionalAuth
+
+  Note: optionalAuth middleware is applied at mount time in server.js,
+  not inside the route files. Route files use resolveClientId(req)
+  for tenant scoping.
+
+5.3 MIDDLEWARE
+--------------
+
+  backend/src/middleware/ (3 files):
+    validator.js         Joi request validation
+    errorHandler.js      Global error handler
+    rateLimiter.js       Rate limiting configuration
+
+  backend/middleware/ (2 files):
+    auth.js              verifyToken + optionalAuth JWT middleware
+    permissions.js       RBAC permission checking
+
+  Total: 5 middleware files
+
+5.4 SERVICES
+------------
+
+  backend/src/services/ (8 files):
+    clientService.js        Client business logic
+    licenseService.js       License lifecycle management (795 lines)
+    moduleService.js        Module management logic
+    posService.js           POS generation orchestration
+    usbService.js           USB detection logic
+    userService.js          User/auth logic
+    license/crypto.js       Ed25519 signing (generate, sign, verify)
+    license/keys.js         Key loading from env/files
+
+  backend/services/ (9 BI/ETL files):
+    analytics-cache-service.js   ZIP-based analytics cache with LRU eviction
+    bi-data-utils.js             Shared ETL validation utilities
+    bi-insight-generator.js      Automated insight generation
+    bi-model-registry.js         Dimensional model metadata
+    bi-provisioning.js           Metabase dashboard provisioning
+    bi-schema-registry.js        Schema version (2.2.0) + column definitions
+    data-preparation-service.js  Data cleaning/coercion per dataset rules
+    etl-pipeline.js              Main ETL pipeline (~897 lines)
+    warehouse-service.js         Warehouse query methods
+
+  backend/utils/metabase-client.js   Metabase REST API proxy
+
+  Total: 18 service files + 1 utility
+
+5.5 ROUTE FILES INVENTORY
+-------------------------
+
+  backend/src/routes/ (7 files):
+    Only 1 actively mounted by server.js: licenses.js
+    6 are LEGACY/superseded by routes/ versions:
+      clients.js, modules.js, pos.js, usb.js, users.js, health.js
+
+  backend/routes/ (30 files):
+    All 30 actively mounted. No unused files in this directory.
+
+
+================================================================================
+PART 6 -- PERMISSION SYSTEM
+================================================================================
+
+6.1 BACKEND PERMISSION CATALOG
+-------------------------------
+
+File: backend/utils/permissionCatalog.js
+Total: 35 permission keys across 10 modules
+
+  Module       Keys
+  ----------   -----------------------------------------------------------
+  dashboard    dashboard.view
+  clients      clients.view, clients.create, clients.update, clients.delete
+  licenses     licenses.view, licenses.create, licenses.update,
+               licenses.suspend, licenses.revoke, licenses.delete
+  modules      modules.view, modules.manage
+  pos          pos.view, pos.generate, pos.build
+  usb          usb.view, usb.write
+  users        users.view, users.create, users.update, users.delete,
+               users.permissions
+  reports      reports.view, reports.export
+  products     products.view, products.edit
+  inventory    inventory.view, inventory.edit
+  bi           bi.view, bi.requests, bi.assignments, bi.notifications,
+               bi.import, bi.history
+
+6.2 ADMIN DASHBOARD PERMISSIONS
+--------------------------------
+
+File: admin/src/utils/permissions.js
+Contains a DUAL permission system:
+
+  A. POS-facing permissions (PERMISSIONS):
+     41 keys, snake_case format (e.g., sales_read, products_create)
+     9 groups, 4 roles: ADMIN, MANAGER, CASHIER, KITCHEN
+
+  B. Admin dashboard RBAC (ADMIN_PERMISSIONS):
+     35 keys, dot.notation (mirrors backend catalog exactly)
+     10 groups: clients, licenses, modules, pos, usb, users,
+                reports, products, inventory, bi
+
+  ADMIN_ROUTE_PERMISSIONS maps routes to required permission keys.
+  The home route "/" is hardcoded to always-visible.
+
+6.3 USER ROLES (Prisma enum)
+-----------------------------
+
+  UserRole: SUPER_ADMIN, ADMIN, MANAGER, CASHIER, KITCHEN, CLIENT
+
+  Hierarchy (implicit, not enforced by schema):
+    SUPER_ADMIN -- bypasses all permission checks server-side
+    ADMIN       -- full access
+    MANAGER     -- broad operational access
+    CASHIER     -- sales + read-only
+    KITCHEN     -- kitchen + tables only
+    CLIENT      -- exists in enum only; used for license clients, not POS operators
+
+
+================================================================================
+PART 7 -- ADMIN DASHBOARD ARCHITECTURE
+================================================================================
+
+File: admin/src/App.jsx
+Framework: React 18 + Vite + react-router-dom ^7.6.1
+
+PROTECTED ROUTES: 17
+
+  #  Path                           Component              Permission
+  -- -----------------------------  ---------------------  ----------
+   1 /                               Dashboard              (always visible)
+   2 /clients                        Clients                clients.view
+   3 /licenses                       Licenses               licenses.view
+   4 /modules                        Modules                modules.view
+   5 /reports                        Reports                reports.view
+   6 /pos-generator                  POSGenerator           pos.view
+   7 /pos-preview                    POSPreviewPage         pos.view
+   8 /bi-requests                    BIRequests             bi.requests
+   9 /bi-requests/:id                AdminRequestDetail     bi.requests
+  10 /bi-assignments                 AssignmentManager      bi.assignments
+  11 /bi-notifications               AdminNotifications     bi.notifications
+  12 /bi-upload-portal               BiUploadPortal         bi.history
+  13 /bi-wizard                      BiWizard               bi.import
+  14 /bi-dashboard/:dashboardId      AdminDashboardViewer   bi.requests
+  15 /bi-dashboard/:dashboardId/assign AdminDashboardAssign  bi.assignments
+  16 /usb-manager                    USBManager             usb.view
+  17 /user-management                UserManagement         users.view
+
+  + /login (public) and * (catch-all)
+
+PAGES: 38 files across 6 subdirectories
+
+  pages/              (17 files) -- Dashboard, Clients, Licenses, Login, Modules,
+                                    Reports, BIRequests, BiUploadPortal, BiWizard,
+                                    AssignmentManager, AdminDashboardAssign,
+                                    AdminBIReview, AdminBIAnalystWorkspace,
+                                    AdminBIAnalysisDetail, AdminNotifications,
+                                    AdminDashboardViewer, AdminRequestDetail
+  pages/analytics/    (2 files)  -- KpiCard, ChartCard
+  pages/management/   (2 files)  -- UserManagement, USBManager
+  pages/pos/          (2 files)  -- POSGeneratorPage, POSPreviewPage
+  pages/settings/     (3 files)  -- HardwareSettings, SecuritySettings, SystemDiagnostics
+  pages/wizard/       (11 files) -- Step1Upload through Step9Success, StarSchema,
+                                    ModelExplorer, WarehouseInspector
+
+  Total page code: 14,239 lines across 38 files
+
+COMPONENTS:
+  83 custom components (in components/ excluding ui/)
+  46 shadcn/ui components (in components/ui/)
+
+NAVIGATION:
+  Sidebar organized in 4 groups: General (5 items), POS (1 item),
+  BI Analytics (5 items), Administration (2 items).
+  User mode filters to only 2 items (Dashboard + POS Generator).
+
+
+================================================================================
+PART 8 -- CLIENT FRONTEND ARCHITECTURE
+================================================================================
+
+File: frontend/src/App.tsx
+Framework: React 18.3.1 + Vite ^6.4.2 + TypeScript
+
+ROUTES: 19 entries (18 actual + catch-all)
+
+  PUBLIC (with Navbar + Footer): 5
+    /                     Index
+    /features             Features
+    /docs                 Docs
+    /blog                 Blog
+    /contact              Contact
+
+  AUTH-ADJACENT (bare layout): 3
+    /login                Login
+    /register             Register
+    /verification-pending VerificationPending
+
+  DASHBOARD (nested under DashboardLayout): 9
+    /dashboard            Dashboard (index)
+    /dashboard/generator  Generator
+    /dashboard/projects   PosProjects
+    /dashboard/bi-export  BiExportDeploy
+    /dashboard/bi-dashboard BIDashboardViewer
+    /dashboard/bi-dashboard/:dashboardId BIDashboardViewer
+    /dashboard/bi         BiWorkspace
+    /dashboard/bi/requests/new RequestWizard
+    /dashboard/bi/requests/:id RequestDetail
+
+  POS (with DashboardLayout + AccessModeProvider): 1
+    /pos-generator        POSGeneratorPage
+
+  CATCH-ALL: * -> NotFound
+
+PAGES: 20 files
+
+  pages/              (9 files)  -- Index, Features, Docs, Blog, Contact,
+                                    Login, Register, VerificationPending, NotFound
+  pages/dashboard/    (10 files) -- Dashboard, Generator, PosProjects,
+                                    BiExportDeploy, BIDashboardViewer, BiWorkspace,
+                                    RequestWizard, RequestDetail, UserPOSGenerator,
+                                    MyDashboards
+  pages/pos/          (1 file)   -- POSGeneratorPage
+
+
+================================================================================
+PART 9 -- POS TEMPLATE / ELECTRON ARCHITECTURE
+================================================================================
+
+9.1 ENTRY POINT
+---------------
+
+  File: pos-template/public/electron-modular.cjs
+  Declared in package.json "main" field
+
+  Note: preload.cjs is referenced in code but NOT present in source tree.
+  It exists only in dist/preload.cjs (built output). The source file is
+  likely generated or gitignored.
+
+9.2 MAIN PROCESS MANAGERS
+--------------------------
+
+  Instantiated in electron-modular.cjs:
+
+  1. ElectronDatabaseManager (src/electron/ElectronDatabaseManager.cjs)
+     2,286 lines. SQLite init, schema creation, CRUD operations.
+
+  2. ElectronAuthManager (src/electron/ElectronAuthManager.cjs)
+     1,184 lines. Local user auth, permission checking.
+
+  3. ElectronWindowManager (src/electron/ElectronWindowManager.cjs)
+     133 lines. BrowserWindow lifecycle management.
+
+  Additional modules (not directly instantiated but loaded by handlers):
+  4. FileLockManager (src/electron/FileLockManager.cjs)
+     78 lines. Database file locking.
+  5. DatabaseQueryOptimizer (src/electron/DatabaseQueryOptimizer.cjs)
+     106 lines. Query optimization.
+  6. WindowManager (src/electron/managers/WindowManager.cjs)
+     125 lines. Separate from ElectronWindowManager.
+  7. LoggerService (src/electron/services/LoggerService.cjs)
+     47 lines. Structured logging.
+
+  Note: "ElectronLicenseManager" does NOT exist as a class.
+  License verification is handled by ipc-license-handlers.cjs -> LicenseVerifier.cjs.
+
+9.3 IPC HANDLERS
+----------------
+
+  14 registration calls in electron-modular.cjs (registerAllHandlers):
+
+  1.  registerAuthHandlers           (ipc-auth-handlers.cjs)
+  2.  registerDatabaseHandlers       (ipc-database-handlers.cjs)
+  3.  registerLicenseHandlers        (ipc-license-handlers.cjs)
+  4.  registerAppHandlers            (ipc-app-handlers.cjs)
+  5.  registerSalesHandlers          (ipc-sales-handlers.cjs)
+  6.  registerCustomerHandlers       (ipc-customer-handlers.cjs)
+  7.  registerSupplierHandlers       (ipc-supplier-handlers.cjs)
+  8.  registerKitchenHandlers        (ipc-kitchen-handlers.cjs)
+  9.  registerServiceHandlers        (ipc-service-handlers.cjs)
+  10. registerBiExportHandlers       (ipc-bi-export-handler.cjs)
+  11. registerCaisseHandlers         (ipc-cash-register-handlers.cjs)
+  12. registerStockHandlers          (ipc-stock-handlers.cjs)
+  13. registerReportsHandlers        (ipc-reports-handlers.cjs)
+  14. registerHardwareHandlers       (ipc-hardware-handlers.cjs)
+
+  Additional file: ipc-session-store.cjs (8 lines, shared activeSessions Map)
+
+  IPC flow:
+    Renderer -> preload (contextBridge) -> ipcRenderer.invoke(channel)
+    -> ipcMain.handle(channel) -> handler function
+    -> DatabaseManager / AuthManager / Hardware / System
+
+9.4 BI MODULES (pos-template/src/electron/bi/)
+----------------------------------------------
+
+  BiSchemaContract.cjs    Canonical schema definition, v2.2.0, 19 datasets
+  BiDataMapper.cjs        19 mappers: SQLite columns -> canonical BI names
+  BiValidator.cjs         Pre-export validation (required fields, types, empty sets)
+  BiDatasetRegistry.cjs   Dataset registry with SQL queries + module dependencies
+
+9.5 LICENSE MODULES (pos-template/src/electron/license/)
+---------------------------------------------------------
+
+  LicenseVerifier.cjs           Ed25519 signature verification
+  MachineIdentityProvider.cjs   Hardware-derived machine fingerprint
+  USBIdentityProvider.cjs       USB device detection for license binding
+
+9.6 RENDERER PROCESS (pos-template/src/)
+-----------------------------------------
+
+  Pages: 27 files (20,885 lines total)
+    Sales.jsx (2,668), Reports.jsx (1,886), Tables.jsx (1,422),
+    Kitchen.jsx (1,339), Customers.jsx (1,302), Products.jsx (1,085),
+    HardwareSettings.jsx (982), ReceiptDesigner.jsx (1,033),
+    Inventory.jsx (1,034), Dashboard.jsx (601), Settings.jsx (763),
+    GiftCards.jsx (566), Appointments.jsx (636), Services.jsx (542),
+    Suppliers.jsx (500), Prescription.jsx (441), Production.jsx (522),
+    Barcode.jsx (415), QuickService.jsx (471), MenuManagement.jsx (407),
+    Takeaway.jsx (397), PaymentAdvanced.jsx (394), CashRegister.jsx (366),
+    Loyalty.jsx (328), SecuritySettings.jsx (502),
+    SystemDiagnostics.jsx (258), UserAdmin.jsx (25, wrapper)
+
+  Custom components: 24 files (5,536 lines)
+  shadcn/ui components: 46 files (4,664 lines)
+
+  Contexts: AuthContext
+  Hooks (7 files, all real implementations):
+    useAppConfig.js (61 lines)     -- Load app configuration
+    useLicense.js (87 lines)       -- License validation via IPC
+    useThemeApplier.js (215 lines) -- Apply theme to CSS custom properties
+    useSettings.js (144 lines)     -- Settings CRUD via IPC
+    usePerformance.js (165 lines)  -- Memoization, debounce, throttle
+    use-toast.js (149 lines)       -- Toast notification state manager
+    use-mobile.js (19 lines)       -- Mobile breakpoint detection
+
+  Hardware integrations:
+    lib/hardware/thermalPrinter.js (118 lines) -- Real: receipt formatting, IPC
+    lib/hardware/cashDrawer.js (67 lines)       -- Real: open/test/history, IPC
+    lib/keyboard/shortcuts.js (562 lines)       -- Real: 30+ default shortcuts
+
+  POS page routes (App.jsx): 26 named routes + catch-all
+    5 routes conditional on module config (inventory, tables, kitchen,
+    loyalty, suppliers)
+    2 routes map to same component (UserAdmin at /user-admin and /user-management)
+
+9.7 POS ROUTES (App.jsx)
+-------------------------
+
+  #  Path                 Component         Condition
+  -- --------------------  ----------------  ---------------------------
+   1 /                     Dashboard         --
+   2 /sales                Sales             --
+   3 /products             Products          --
+   4 /inventory            Inventory         inventory module enabled
+   5 /barcode              Barcode           --
+   6 /quick-service        QuickService      --
+   7 /customers            Customers         --
+   8 /tables               Tables            tables module enabled
+   9 /kitchen              Kitchen           kitchen module enabled
+  10 /menu-management      MenuManagement    --
+  11 /takeaway             Takeaway          --
+  12 /loyalty              Loyalty           loyalty module enabled
+  13 /payment-advanced     PaymentAdvanced   --
+  14 /gift-cards           GiftCards         --
+  15 /prescription         Prescription      --
+  16 /production           Production        --
+  17 /appointments         Appointments      --
+  18 /services             Services          --
+  19 /suppliers            Suppliers         suppliers module enabled
+  20 /reports              Reports           --
+  21 /settings             Settings          --
+  22 /hardware-settings    HardwareSettings  --
+  23 /receipt-designer     ReceiptDesigner   --
+  24 /caisse               CashRegister      --
+  25 /user-admin           UserAdmin         AdminOnlyRoute
+  26 /user-management      UserAdmin         AdminOnlyRoute (duplicate)
+  *  *                     Navigate to /     catch-all
+
+
+================================================================================
+PART 10 -- POS GENERATION PIPELINE
+================================================================================
+
+Pipeline orchestrator: backend/utils/generators/index.js (272 lines)
+Total: 8 sequential stages, 9 components
+
+Generator components (backend/utils/generators/):
+
+  1. index.js              Pipeline orchestrator (272 lines)
+  2. ProjectBuilder.js     Stage 2: output directory setup
+  3. AssetManager.js       Stage 3: template copy + config creation
+  4. ModuleFilter.js       Stage 4: module enable/disable filtering
+  5. DependencyManager.js  Stage 5: package.json + npm install
+  6. ThemeCustomizer.js    Stage 6: theme/color customization
+  7. FilePatcher.js        Stage 7: post-copy file corrections
+  8. BuildSystemManager.js Stage 8: electron-builder execution
+  9. PerfLogger.js         Performance measurement
+
+STAGE-BY-STAGE DETAIL:
+
+  Stage 1: License Validation
+    Component:   index.js (inline)
+    Responsibility: Ed25519 signature verification, expiration check
+    Input:       License object
+    Output:      Validated license or throws
+    External:    None
+
+  Stage 2: Project Initialization
+    Component:   ProjectBuilder.initialize()
+    Responsibility: Create output directory structure
+    Input:       License, output path
+    Output:      Empty project directory
+    External:    filesystem
+
+  Stage 3: Asset Management
+    Component:   AssetManager
+    Responsibility: Copy template, ensure preload, rename electron files,
+                    create app-config.json, update asset references
+    Input:       Template source, license config, output directory
+    Output:      Populated project with configuration
+    External:    filesystem
+
+  Stage 4: Module Filtering
+    Component:   ModuleFilter
+    Responsibility: Remove pages/components/routes for disabled modules,
+                    keep core modules (sales, products, dashboard, settings)
+    Input:       Project directory, enabled module list
+    Output:      Filtered project
+    External:    filesystem
+
+  Stage 5: Dependency Management
+    Component:   DependencyManager
+    Responsibility: Update package.json, install Tailwind dependencies,
+                    create config files, run npm install
+    Input:       Project directory
+    Output:      Project with installed node_modules
+    External:    npm (executes npm install)
+
+  Stage 6: Theme Customization
+    Component:   ThemeCustomizer
+    Responsibility: Ensure CSS files, update Tailwind config, update
+                    global styles, update component styles, update app config
+                    with colors and logo
+    Input:       Project directory, theme config
+    Output:      Themed project
+    External:    filesystem
+
+  Stage 7: File Patching
+    Component:   FilePatcher
+    Responsibility: Remove unnecessary files, fix electron files,
+                    ensure PostCSS/Tailwind/Vite configs, ensure preload,
+                    ensure UI components, patch dashboard, patch package.json
+    Input:       Project directory
+    Output:      Production-ready project
+    External:    filesystem
+
+  Stage 8: Build
+    Component:   BuildSystemManager.executeFullBuild()
+    Responsibility: Execute electron-builder to produce Windows .exe
+    Input:       Project directory
+    Output:      Windows installer (.exe)
+    External:    electron-builder (NSIS x64), robocopy on Windows
+
+  POST-BUILD (in posService.js):
+    - Find installer in dist/ output
+    - Upload to GitHub release (via @octokit/rest)
+    - Return download URL
+
+FAST MODE: Stages can be skipped via skipNodeModulesInstall, fastMode, skipBuild
+           flags for development/testing.
+
+BUSINESS SECTORS (defined in routes/pos.js:896-938):
+  restaurant  -> pos-core, tables, kitchen, inventory, reports
+  cafe        -> pos-core, quick-service, inventory, reports
+  retail      -> pos-core, inventory, barcode, customer-management, reports
+  bakery      -> pos-core, inventory, production, customer-management, reports
+  pharmacy    -> pos-core, inventory, prescription, customer-management, reports
+  beauty      -> pos-core, appointments, services, customer-management, reports
+
+
+================================================================================
+PART 11 -- BI / ANALYTICS ARCHITECTURE
+================================================================================
+
+11.1 END-TO-END PIPELINE
+-------------------------
+
+  POS App (Electron)          Backend API           PostgreSQL          Metabase
+       |                          |                     |                   |
+  [1] Export triggered            |                     |                   |
+  user clicks "Export BI"         |                     |                   |
+       |                          |                     |                   |
+  [2] IPCBiExportHandler          |                     |                   |
+    read app-config.json          |                     |                   |
+    19 _collect* SQL queries      |                     |                   |
+    (sales, products, customers,  |                     |                   |
+     inventory, product_families, |                     |                   |
+     tables, kitchen_orders,      |                     |                   |
+     kitchen_order_items,         |                     |                   |
+     kitchen_departments,         |                     |                   |
+     table_reservations,          |                     |                   |
+     suppliers, services,         |                     |                   |
+     appointments, shifts,        |                     |                   |
+     cash_drawer_events,          |                     |                   |
+     z_reports, audit_logs,       |                     |                   |
+     vat_rates, sale_items)       |                     |                   |
+       |                          |                     |                   |
+  [3] BiDataMapper                |                     |                   |
+    19 mappers: SQLite columns    |                     |                   |
+    -> canonical BI column names  |                     |                   |
+       |                          |                     |                   |
+  [4] BiValidator                 |                     |                   |
+    validate required fields,     |                     |                   |
+    types, empty datasets         |                     |                   |
+       |                          |                     |                   |
+  [5] BiSchemaContract            |                     |                   |
+    generate CSV files in         |                     |                   |
+    canonical column order,       |                     |                   |
+    attach metadata.json          |                     |                   |
+       |                          |                     |                   |
+  [6] Create ZIP                  |                     |                   |
+    19 CSV files + metadata.json  |                     |                   |
+       |                          |                     |                   |
+  [7] User uploads ZIP            |                     |                   |
+  POST /api/bi-uploads            |                     |                   |
+       |------------------------->|                     |                   |
+       |                          |                     |                   |
+  [8] multer reception            |                     |                   |
+    validate clientId             |                     |                   |
+    SHA-256 hash (dedup)          |                     |                   |
+    Create BiUpload record        |                     |                   |
+    Return 201 immediately        |                     |                   |
+       |                          |                     |                   |
+  [9] ETL Pipeline (triggered)    |                     |                   |
+    Step 1: Extract ZIP           |                     |                   |
+    Step 2: Read metadata.json    |                     |                   |
+    Step 3: Discover CSV files    |                     |                   |
+    Step 4: Schema version check  |                     |                   |
+    Step 5: Validate CSVs         |                     |                   |
+      (columns, types, dupes)     |                     |                   |
+    Step 5b: Data preparation     |                     |                   |
+      (coercion, normalization)   |                     |                   |
+       |                          |                     |                   |
+  [10] DB Transaction             |                     |                   |
+    BiProcessingJob = PROCESSING  |                     |                   |
+       |                          |                     |                   |
+    DimTime upsert                |------------------->| dim_time          |
+    DimClient upsert              |------------------->| dim_clients       |
+    DimProduct upsert (per row)   |------------------->| dim_products      |
+    DimSupplier upsert (per row)  |------------------->| dim_suppliers     |
+    DimCustomer upsert (per row)  |------------------->| dim_customers     |
+       |                          |                     |                   |
+    FactSale upsert (per row)     |------------------->| fact_sales        |
+    FactSaleItem upsert           |------------------->| fact_sale_items   |
+    FactInventory upsert          |------------------->| fact_inventory    |
+    FactAppointment upsert        |------------------->| fact_appointments |
+    FactKitchenOrder upsert       |------------------->| fact_kitchen_ord. |
+    FactKitchenOrderItem upsert   |------------------->| fact_kitchen_ord. |
+       |                          |                     |                   |
+    BiProcessingJob = COMPLETED   |                     |                   |
+    BiUpload = COMPLETED          |                     |                   |
+       |                          |                     |                   |
+  [11] Warehouse Service          |                     |                   |
+    getDashboardSummary()         |<--------------------|                   |
+    business-type-aware queries   |                     |                   |
+       |                          |                     |                   |
+  [12] Metabase                   |                     |                   |
+    Direct PostgreSQL connection  |<--------------------|                   |
+    Dashboard creation per        |                     |                   |
+    business type via REST API    |                     |                   |
+
+11.2 BI SCHEMA
+--------------
+
+  Version: 2.2.0 (bi-schema-registry.js:5)
+  Datasets: 19 (POS-side BiSchemaContract.cjs and backend bi-schema-registry.js)
+  Datasets:
+    sales, products, customers, inventory, product_families, tables,
+    kitchen_orders, kitchen_order_items, kitchen_departments,
+    table_reservations, suppliers, services, appointments, shifts,
+    cash_drawer_events, z_reports, audit_logs, vat_rates, sale_items
+
+11.3 WAREHOUSE STRUCTURE
+------------------------
+
+  Not a pure star schema. It is a dimensional model with:
+  5 dimension tables + 6 fact tables
+
+  Dimensions: DimTime, DimClient, DimProduct, DimSupplier, DimCustomer
+  Facts: FactSale, FactSaleItem, FactInventory, FactAppointment,
+         FactKitchenOrder, FactKitchenOrderItem
+
+  Note: DimSupplier is a standalone dimension (no direct fact FK).
+  FactSaleItem and FactKitchenOrderItem are degenerate/child facts
+  linked to their parent facts.
+
+11.4 METABASE INTEGRATION
+--------------------------
+
+  File: backend/utils/metabase-client.js
+  Integration: REST API via fetch() calls
+  Operations: create collections, copy dashboards, apply tenant filters
+  Provisioning: backend/services/bi-provisioning.js creates per-tenant
+                dashboards from master templates with filters
+
+
+================================================================================
+PART 12 -- DEPLOYMENT ARCHITECTURE
+================================================================================
+
+12.1 RENDER CONFIGURATION (render.yaml)
+----------------------------------------
+
+  3 services + 1 PostgreSQL database:
+
+  Service            Type     Runtime    Details
+  -----------------  -------  ---------  -------------------------------------------
+  carthapos-db       Database PostgreSQL Render managed, database: pos_system
+  carthapos-backend  Web      Docker     Port 10000, healthCheck /api/health
+  carthapos-frontend Web      Static     Build: npm install && npm run build
+  carthapos-admin    Web      Static     Build: npm install && npm run build
+
+  Environment variables configured:
+    FRONTEND_URL: https://carthapos.onrender.com
+    ADMIN_URL: https://carthapos-admin.onrender.com
+
+12.2 DOCKERFILE (backend/Dockerfile)
+-------------------------------------
+
+  Base image:  node:18-bullseye
+  Working dir: /app
+  Steps:
+    1. Copy backend/ to /app
+    2. npm install (production)
+    3. npx prisma generate
+    4. Copy pos-template/ to /app/pos-template
+    5. npm install in pos-template (production)
+    6. mkdir -p /app/generated-pos (chmod 777)
+    7. EXPOSE 10000
+    8. CMD: npx prisma migrate deploy && node server.js
+
+12.3 CI/CD
+-----------
+
+  NONE. .github/workflows/ directory does not exist.
+  No automated build, test, or deployment pipeline is configured.
+  Deployments are manual via Render dashboard.
+
+12.4 MAKEFILE (16 targets)
+---------------------------
+
+  help, install, dev-backend, dev-admin, dev-pos,
+  build-admin, build-pos-template, generate-license, build-pos,
+  test-license, clean, setup-db, start-all, example-restaurant,
+  example-cafe, docs
+
+
+================================================================================
+PART 13 -- KEY STATISTICS SUMMARY (verified)
+================================================================================
+
+  Metric                              Count     Notes
+  ----------------------------------  ------    --------------------------------
+  Backend API route groups            32        (34 mounts - 2 duplicates)
+  Backend route files                 37        (7 src/routes + 30 routes/)
+  Active route files                  31        (6 src/routes/ are legacy)
+  Prisma models                       43        (1 is dead code: UserPosConfig)
+  Prisma enums                        10
+  Prisma migrations                   36        (+ 1 migration_lock.toml)
+  Backend services (core)             8         (6 + 2 in license/)
+  Backend services (BI/ETL)           9
+  Backend middleware files            5         (3 src/middleware + 2 middleware/)
+  Permission keys                     35        (backend catalog)
+  POS generator stages                8
+  POS generator components            9
+  Admin dashboard pages               38        (across 6 subdirectories)
+  Admin routes                        17        (protected)
+  Admin custom components             83
+  Admin shadcn/ui components          46
+  POS template pages                  27
+  POS page routes                     26        (+ catch-all)
+  POS custom components               24
+  POS shadcn/ui components            46
+  POS IPC handler registrations       14
+  POS Electron manager modules        3         (instantiated in main)
+  POS Electron utility modules        4         (FileLock, QueryOpt, WinMgr, Log)
+  POS BI modules                      4
+  POS license modules                 3
+  POS hooks                           7
+  Client frontend pages               20
+  Client frontend routes              18        (+ catch-all)
+  Business sectors supported          6
+  BI schema datasets                  19        (v2.2.0)
+  BI warehouse dimensions             5
+  BI warehouse fact tables            6
+  Makefile targets                    16
+  GitHub workflows                    0         (none configured)
+  Render services                     3         + 1 PostgreSQL DB
+
+
+================================================================================
+PART 14 -- FOLDER STRUCTURE
+================================================================================
+
+  D:\Carthapos\
+  .github/                    Does NOT exist (no CI/CD)
+  admin/                      Admin Dashboard (React SPA)
+    src/
+      App.jsx                 Root component with routing
+      pages/                  38 page components (6 subdirectories)
+      components/             83 custom + 46 shadcn/ui
+      contexts/               AuthContext, AccessModeContext, DragDropContext
+      lib/                    api.js (API client with auth interceptors)
+      utils/                  permissions.js (dual permission system)
+  backend/                    Express.js API server
+    server.js                 Entry point (210 lines)
+    prisma/
+      schema.prisma           43 models, 10 enums (1,027 lines)
+      migrations/             36 migration directories
+      seed.js                 Database seeder
+    src/
+      routes/                 7 files (1 active, 6 legacy)
+      services/               6 core services + license/ (2 files)
+      middleware/             3 files (validator, errorHandler, rateLimiter)
+    routes/                   30 active route files
+    services/                 9 BI/ETL service files
+    middleware/               2 files (auth.js, permissions.js)
+    utils/
+      generators/             9 POS generator components
+      permissionCatalog.js    35 permission keys
+      metabase-client.js      Metabase REST API proxy
+    crypto/
+      licenseCrypto.js        Ed25519 license crypto (alternative path)
+    scripts/                  create-admin.js, seed-permissions.js, etc.
+    uploads/bi-zips/          BI export ZIP storage
+    data/bi-requests.json     JSON file store for BI requests
+    Dockerfile                Docker image (node:18-bullseye, port 10000)
+  frontend/                   Client Frontend (React SPA, TypeScript)
+    src/
+      App.tsx                 Root component with routing
+      pages/                  20 page components (3 directories)
+      components/             shadcn/ui pattern
+  pos-template/               Electron POS App Template
+    public/
+      electron-modular.cjs    Electron main process entry
+      app-config.json         Generated client configuration
+      icons/                  Application icons
+    src/
+      main.jsx                React entry point
+      App.jsx                 Root component with 26 page routes
+      pages/                  27 page components (20,885 lines)
+      components/             24 custom + 46 shadcn/ui
+      hooks/                  7 custom hooks
+      contexts/               AuthContext
+      lib/                    POSConfiguration, hardware, keyboard, utils
+      electron/
+        ElectronDatabaseManager.cjs   (2,286 lines)
+        ElectronAuthManager.cjs       (1,184 lines)
+        ElectronWindowManager.cjs     (133 lines)
+        FileLockManager.cjs           (78 lines)
+        DatabaseQueryOptimizer.cjs    (106 lines)
+        handlers/               14 IPC handler modules + session store
+        bi/                     4 BI modules
+        license/                3 license verification modules
+        managers/               WindowManager.cjs (125 lines)
+        services/               LoggerService.cjs (47 lines)
+      styles/                 CSS files
+    scripts/                  Build/utility scripts
+  docs/                       40+ audit and documentation files
+  scripts/                    Root-level utility scripts
+  Makefile                    Build automation (16 targets)
+  render.yaml                 Render deployment config
+  README.md                   Project documentation
+  LICENSE                     MIT license
+  package.json                Minimal (adm-zip dependency only)
+
+
+================================================================================
+PART 15 -- GLOBAL UML USE CASE MODEL
+================================================================================
+
+15.1 ACTORS
+-----------
+
+PRIMARY ACTORS:
+
+  1. CarthaPOS Administrator
+     Uses: Admin Dashboard
+     Role: Manages the SaaS platform: clients, licenses, modules, users,
+           POS generation, BI workflow, Metabase dashboards.
+
+  2. Client / Business Owner
+     Uses: Client Frontend + Generated POS
+     Role: Registers on the platform, manages their account and POS project,
+           accesses BI dashboards, operates their generated POS application.
+
+  3. POS Operator / Cashier
+     Uses: Generated POS Application
+     Role: Processes sales, manages products/customers/inventory,
+           prints receipts, manages cash register.
+
+SECONDARY ACTORS (role specialization):
+
+  4. POS Manager
+     Inherits from: POS Operator
+     Additional use cases: manage users, security settings, view reports.
+     Note: No formal inheritance in code; role-based permission hierarchy
+           (MANAGER role has broader permissions than CASHIER).
+
+  5. POS Administrator
+     Inherits from: POS Manager
+     Additional use cases: full user administration, system configuration.
+     Note: ADMIN role in POS permission system.
+
+EXTERNAL ACTORS (systems/devices):
+
+  6. PostgreSQL Database
+     Role: Persistent storage for backend data and analytical warehouse.
+
+  7. Metabase
+     Role: BI dashboard visualization, connected via REST API and direct PG.
+
+  8. GitHub API
+     Role: Release creation for generated POS installers (via @octokit/rest).
+
+  9. USB License Device
+     Role: Hardware-bound license storage and verification.
+
+  10. Thermal Printer
+      Role: Receipt printing from POS.
+
+  11. Cash Drawer
+      Role: Cash register I/O from POS.
+
+  12. Barcode Scanner
+      Role: Product barcode input at POS.
+
+15.2 USE CASES BY DOMAIN
+-------------------------
+
+DOMAIN A: ACCOUNT & AUTHENTICATION
+
+  UC-01  Client registers account
+         Actor: Client
+         Path: Client Frontend -> /register
+         Verified: frontend/src/pages/Register.tsx
+
+  UC-02  Client verifies account
+         Actor: Client
+         Path: Client Frontend -> /verification-pending
+         Verified: frontend/src/pages/VerificationPending.tsx
+
+  UC-03  User authenticates (Admin)
+         Actor: CarthaPOS Administrator
+         Path: Admin Dashboard -> /login
+         Verified: admin/src/pages/Login.jsx
+         Include: <<include>> UC-01 or pre-existing account
+
+  UC-04  User authenticates (POS)
+         Actor: POS Operator
+         Path: POS Template -> UserSelectScreen -> password
+         Verified: pos-template/src/components/UserSelectScreen.jsx
+
+  UC-05  User authenticates (Client)
+         Actor: Client
+         Path: Client Frontend -> /login
+         Verified: frontend/src/pages/Login.tsx
+
+  UC-06  User logs out
+         Actor: All authenticated users
+         Verified: All three frontends
+
+DOMAIN B: CLIENT & SAAS MANAGEMENT
+
+  UC-10  Manage clients
+         Actor: CarthaPOS Administrator
+         Path: Admin Dashboard -> /clients
+         Verified: admin/src/pages/Clients.jsx
+         CRUD operations on Client entities.
+
+  UC-11  Manage account
+         Actor: Client
+         Path: Client Frontend -> /dashboard
+         Verified: frontend/src/pages/dashboard/Dashboard.tsx
+
+  UC-12  Manage POS projects
+         Actor: Client
+         Path: Client Frontend -> /dashboard/projects
+         Verified: frontend/src/pages/dashboard/PosProjects.jsx
+
+  UC-13  Select business sector
+         Actor: Client / Administrator
+         Context: During POS generation configuration
+         Verified: backend/routes/pos.js (6 sectors defined)
+
+DOMAIN C: LICENSE MANAGEMENT
+
+  UC-20  Create license
+         Actor: CarthaPOS Administrator
+         Context: licenseService.createLicense()
+         Verified: backend/src/services/licenseService.js
+
+  UC-21  Issue license
+         Actor: CarthaPOS Administrator
+         Context: License status CREATED -> ISSUED
+         Verified: licenseService.js
+
+  UC-22  Activate license
+         Actor: POS Administrator (on client machine)
+         Context: License activation with machine fingerprint
+         Verified: ipc-license-handlers.cjs, LicenseVerifier.cjs
+
+  UC-23  Validate license
+         Actor: POS Application (automatic)
+         Context: Ed25519 signature + expiration + binding check
+         Verified: LicenseVerifier.cjs
+
+  UC-24  Suspend/revoke license
+         Actor: CarthaPOS Administrator
+         Context: licenseService.suspendLicense() / revokeLicense()
+         Verified: licenseService.js
+
+  UC-25  Transfer license
+         Actor: CarthaPOS Administrator
+         Context: Move license to different machine
+         Verified: licenseService.transferLicense()
+
+  UC-26  Bind license to USB
+         Actor: CarthaPOS Administrator
+         Context: USBIdentityProvider for USB-bound licenses
+         Verified: USBIdentityProvider.cjs
+
+DOMAIN D: POS GENERATION
+
+  UC-30  Configure POS project
+         Actor: CarthaPOS Administrator or Client
+         Context: Select sector, modules, branding, theme
+         Verified: admin/src/pages/pos/POSGeneratorPage.jsx
+
+  UC-31  Generate customized POS
+         Actor: CarthaPOS Administrator
+         Trigger: POST /api/pos/generate
+         Verified: backend/services/posService.js, generators/index.js
+
+  UC-32  Preview/test POS
+         Actor: CarthaPOS Administrator
+         Path: Admin Dashboard -> /pos-preview
+         Verified: admin/src/pages/pos/POSPreviewPage.jsx
+
+  UC-33  Download generated POS
+         Actor: Client
+         Context: Download .exe installer from generation result
+         Verified: posService.js (GitHub release upload)
+
+DOMAIN E: POS OPERATIONS
+
+  UC-40  Process sale
+         Actor: POS Operator
+         Context: Cart management, payment, receipt
+         Verified: pos-template/src/pages/Sales.jsx (2,668 lines)
+
+  UC-41  Manage products
+         Actor: POS Operator / Manager
+         Context: CRUD, categories, bulk operations
+         Verified: pos-template/src/pages/Products.jsx (1,085 lines)
+
+  UC-42  Manage customers
+         Actor: POS Operator
+         Context: Customer CRM
+         Verified: pos-template/src/pages/Customers.jsx (1,302 lines)
+
+  UC-43  Manage inventory
+         Actor: POS Manager
+         Context: Stock levels, adjustments
+         Verified: pos-template/src/pages/Inventory.jsx (1,034 lines)
+
+  UC-44  Manage tables
+         Actor: POS Operator (restaurant/cafe)
+         Context: Table status, assignments
+         Verified: pos-template/src/pages/Tables.jsx (1,422 lines)
+
+  UC-45  Manage kitchen orders
+         Actor: POS Kitchen Staff
+         Context: Kitchen Display System, order status
+         Verified: pos-template/src/pages/Kitchen.jsx (1,339 lines)
+
+  UC-46  Manage suppliers
+         Actor: POS Manager
+         Context: Supplier CRUD
+         Verified: pos-template/src/pages/Suppliers.jsx (500 lines)
+
+  UC-47  Process quick-service orders
+         Actor: POS Operator (cafe/fast-food)
+         Context: Fast-service ordering flow
+         Verified: pos-template/src/pages/QuickService.jsx (471 lines)
+
+  UC-48  Process takeaway/delivery orders
+         Actor: POS Operator
+         Context: Takeaway and delivery order management
+         Verified: pos-template/src/pages/Takeaway.jsx (397 lines)
+
+  UC-49  Manage appointments
+         Actor: POS Operator (beauty/pharmacy)
+         Context: Appointment scheduling
+         Verified: pos-template/src/pages/Appointments.jsx (636 lines)
+
+  UC-50  Manage services
+         Actor: POS Operator (beauty)
+         Context: Service catalog
+         Verified: pos-template/src/pages/Services.jsx (542 lines)
+
+  UC-51  Manage loyalty program
+         Actor: POS Operator
+         Context: Loyalty points earn/redeem
+         Verified: pos-template/src/pages/Loyalty.jsx (328 lines)
+
+  UC-52  Manage gift cards
+         Actor: POS Manager
+         Context: Gift card creation/redemption
+         Verified: pos-template/src/pages/GiftCards.jsx (566 lines)
+
+  UC-53  Process prescriptions
+         Actor: POS Operator (pharmacy)
+         Context: Pharmacy prescription management
+         Verified: pos-template/src/pages/Prescription.jsx (441 lines)
+
+  UC-54  Manage production
+         Actor: POS Operator (bakery)
+         Context: Manufacturing/production orders
+         Verified: pos-template/src/pages/Production.jsx (522 lines)
+
+  UC-55  Scan barcodes
+         Actor: POS Operator
+         Context: Barcode scanner integration
+         Verified: pos-template/src/pages/Barcode.jsx (415 lines)
+
+  UC-56  Manage cash register
+         Actor: POS Operator / Manager
+         Context: Shift management, cash drawer
+         Verified: pos-template/src/pages/CashRegister.jsx (366 lines)
+
+  UC-57  Manage payments
+         Actor: POS Manager
+         Context: Payment method configuration
+         Verified: pos-template/src/pages/PaymentAdvanced.jsx (394 lines)
+
+  UC-58  View POS reports
+         Actor: POS Manager
+         Context: Sales reports, analytics
+         Verified: pos-template/src/pages/Reports.jsx (1,886 lines)
+
+  UC-59  Configure hardware
+         Actor: POS Administrator
+         Context: Thermal printer, cash drawer, barcode scanner config
+         Verified: pos-template/src/pages/HardwareSettings.jsx (982 lines)
+
+  UC-60  Design receipts
+         Actor: POS Administrator
+         Context: Visual receipt designer
+         Verified: pos-template/src/pages/ReceiptDesigner.jsx (1,033 lines)
+
+  UC-61  Manage POS users
+         Actor: POS Administrator
+         Context: User CRUD, role assignment
+         Verified: pos-template/src/pages/UserAdmin.jsx -> UserManagementAdvanced
+
+  UC-62  Configure POS settings
+         Actor: POS Administrator
+         Context: Business settings, modules
+         Verified: pos-template/src/pages/Settings.jsx (763 lines)
+
+  UC-63  View POS dashboard
+         Actor: POS Operator / Manager
+         Context: KPIs, charts, recent transactions
+         Verified: pos-template/src/pages/Dashboard.jsx (601 lines)
+
+DOMAIN F: BUSINESS INTELLIGENCE
+
+  UC-70  Export POS data
+         Actor: POS Operator
+         Context: BI export from POS application
+         Verified: pos-template/src/electron/bi/ (4 modules)
+
+  UC-71  Upload BI export
+         Actor: CarthaPOS Administrator or Client
+         Trigger: POST /api/bi-uploads
+         Verified: backend/routes/bi-uploads.js
+
+  UC-72  Process ETL
+         Actor: System (automatic after upload)
+         Context: Extract, validate, prepare, load into warehouse
+         Verified: backend/services/etl-pipeline.js (~897 lines)
+
+  UC-73  View BI dashboards
+         Actor: Client
+         Path: Client Frontend -> /dashboard/bi-dashboard
+         Verified: frontend/src/pages/dashboard/BIDashboardViewer.tsx
+
+  UC-74  Request BI analysis
+         Actor: Client
+         Path: Client Frontend -> /dashboard/bi/requests/new
+         Verified: frontend/src/pages/dashboard/RequestWizard.tsx
+
+  UC-75  Manage BI requests
+         Actor: CarthaPOS Administrator
+         Path: Admin Dashboard -> /bi-requests
+         Verified: admin/src/pages/BIRequests.jsx (1,503 lines)
+
+  UC-76  Provision Metabase dashboards
+         Actor: System (automatic after ETL)
+         Context: Create per-tenant dashboards from templates
+         Verified: backend/services/bi-provisioning.js
+
+  UC-77  Assign dashboards to clients
+         Actor: CarthaPOS Administrator
+         Path: Admin Dashboard -> /bi-assignments
+         Verified: admin/src/pages/AssignmentManager.jsx
+
+  UC-78  Review BI analysis
+         Actor: CarthaPOS Administrator / Analyst
+         Path: Admin Dashboard -> BI review pages
+         Verified: admin/src/pages/AdminBIReview.jsx, AdminBIAnalystWorkspace.jsx
+
+DOMAIN G: ADMINISTRATION
+
+  UC-80  Manage platform users
+         Actor: CarthaPOS Administrator (SUPER_ADMIN)
+         Path: Admin Dashboard -> /user-management
+         Verified: admin/src/pages/management/UserManagement.jsx
+
+  UC-81  Manage POS modules
+         Actor: CarthaPOS Administrator
+         Path: Admin Dashboard -> /modules
+         Verified: admin/src/pages/Modules.jsx
+
+  UC-82  Manage USB licenses
+         Actor: CarthaPOS Administrator
+         Path: Admin Dashboard -> /usb-manager
+         Verified: admin/src/pages/management/USBManager.jsx
+
+  UC-83  View platform statistics
+         Actor: CarthaPOS Administrator
+         Path: Admin Dashboard -> / (dashboard)
+         Verified: admin/src/pages/Dashboard.jsx
+
+  UC-84  Configure BI wizard
+         Actor: CarthaPOS Administrator
+         Path: Admin Dashboard -> /bi-wizard
+         Verified: admin/src/pages/BiWizard.jsx
+
+  UC-85  Manage BI templates
+         Actor: CarthaPOS Administrator
+         Path: Admin Dashboard -> BI template pages
+         Verified: admin/src/pages/wizard/ (9 steps)
+
+15.3 USE CASE RELATIONSHIPS
+----------------------------
+
+<<include>> relationships (mandatory reuse):
+
+  UC-31 (Generate POS)       <<include>>  UC-23 (Validate License)
+    Justification: generators/index.js Stage 1 calls validateLicense()
+
+  UC-31 (Generate POS)       <<include>>  UC-30 (Configure POS)
+    Justification: Generation requires module/sector configuration
+
+  UC-71 (Upload BI export)   <<include>>  UC-03/UC-05 (Authenticate)
+    Justification: bi-uploads route uses optionalAuth middleware
+
+  UC-72 (Process ETL)        <<include>>  UC-71 (Upload BI export)
+    Justification: ETL is triggered after upload completes
+
+  UC-40 (Process sale)       <<include>>  UC-23 (Validate License)
+    Justification: POS validates license on startup
+
+<<extend>> relationships (optional/conditional):
+
+  UC-40 (Process sale)       <<extend>>   UC-51 (Manage loyalty)
+    Justification: Loyalty points are optionally applied during sale
+
+  UC-31 (Generate POS)       <<extend>>   UC-76 (Provision dashboards)
+    Justification: Dashboard provisioning is optional, triggered separately
+
+  UC-43 (Manage inventory)   <<extend>>   UC-46 (Manage suppliers)
+    Justification: Supplier management is optional module
+
+  UC-49 (Manage appointments)<<extend>>   UC-50 (Manage services)
+    Justification: Services module is optional, linked to appointments
+
+Actor generalization:
+
+  POS Operator (UC-40 to UC-63)
+    ^
+    |--- POS Manager (broader permissions: UC-43, UC-52, UC-56-UC-58, UC-61)
+           ^
+           |--- POS Administrator (full access: UC-59-UC-62)
+
+  Note: Not formal code inheritance. Role hierarchy is permission-based:
+  CASHIER < MANAGER < ADMIN in the POS permission system.
+
+
+================================================================================
+PART 16 -- UML DIAGRAM SOURCE DATA
+================================================================================
+
+This section provides structured data for generating UML diagrams.
+Another AI can use this data directly without inspecting the repository.
+
+
+DIAGRAM 1: GLOBAL ARCHITECTURE DIAGRAM
+=======================================
+
+Components:
+  [Admin Dashboard]    React SPA, Vite, JS/JSX
+  [Client Frontend]    React SPA, Vite, TS/TSX
+  [POS Template]       Electron + React, SQLite
+  [Backend API]        Express.js, Prisma, PostgreSQL
+  [ETL Pipeline]       Node.js service
+  [Metabase]           BI visualization
+  [PostgreSQL]         Primary database + warehouse
+
+Relationships:
+  [Admin Dashboard] --HTTP--> [Backend API]
+  [Client Frontend] --HTTP--> [Backend API]
+  [POS Template] --IPC (local)--> [SQLite]
+  [POS Template] --HTTP (license)--> [Backend API]
+  [Backend API] --Prisma ORM--> [PostgreSQL]
+  [ETL Pipeline] --SQL INSERT/UPSERT--> [PostgreSQL]
+  [Metabase] --SQL SELECT--> [PostgreSQL]
+  [Metabase] --REST API--> [Backend API]
+  [Backend API] --REST API--> [GitHub API]
+
+Boundaries:
+  Cloud: [Admin Dashboard] + [Client Frontend] + [Backend API] + [PostgreSQL] + [Metabase]
+  Client Machine: [POS Template] + [SQLite]
+
+
+DIAGRAM 2: GLOBAL UML USE CASE DIAGRAM
+=======================================
+
+Actors outside boundary:
+  [CarthaPOS Administrator]
+  [Client / Business Owner]
+  [POS Operator]
+  [POS Manager] (generalization of POS Operator)
+  [POS Administrator] (generalization of POS Manager)
+  [PostgreSQL]
+  [Metabase]
+  [GitHub API]
+  [USB Device]
+  [Thermal Printer]
+  [Cash Drawer]
+  [Barcode Scanner]
+
+System Boundary: "CarthaPOS Platform"
+
+Packages inside boundary:
+  Account & Authentication:
+    UC-01 Register, UC-02 Verify, UC-03/04/05 Login, UC-06 Logout
+
+  SaaS / Client Management:
+    UC-10 Manage Clients, UC-11 Manage Account, UC-12 POS Projects, UC-13 Select Sector
+
+  Licensing:
+    UC-20 Create, UC-21 Issue, UC-22 Activate, UC-23 Validate,
+    UC-24 Suspend/Revoke, UC-25 Transfer, UC-26 USB Bind
+
+  POS Generation:
+    UC-30 Configure, UC-31 Generate, UC-32 Preview, UC-33 Download
+
+  POS Operations:
+    UC-40 Process Sale, UC-41 Products, UC-42 Customers, UC-43 Inventory,
+    UC-44 Tables, UC-45 Kitchen, UC-46 Suppliers, UC-47 Quick Service,
+    UC-48 Takeaway, UC-49 Appointments, UC-50 Services, UC-51 Loyalty,
+    UC-52 Gift Cards, UC-53 Prescriptions, UC-54 Production,
+    UC-55 Barcode, UC-56 Cash Register, UC-57 Payments, UC-58 Reports,
+    UC-59 Hardware Config, UC-60 Receipt Design, UC-61 User Admin,
+    UC-62 Settings, UC-63 Dashboard
+
+  Business Intelligence:
+    UC-70 Export, UC-71 Upload, UC-72 ETL, UC-73 View Dashboards,
+    UC-74 Request Analysis, UC-75 Manage Requests, UC-76 Provision,
+    UC-77 Assign, UC-78 Review
+
+  Administration:
+    UC-80 Manage Users, UC-81 Manage Modules, UC-82 USB Licenses,
+    UC-83 Statistics, UC-84 BI Wizard, UC-85 BI Templates
+
+Actor-Use Case associations:
+  [CarthaPOS Administrator] --> UC-03, UC-10, UC-20-UC-26, UC-30-UC-31,
+    UC-75-UC-78, UC-80-UC-85
+  [Client / Business Owner] --> UC-01, UC-02, UC-05, UC-06, UC-11-UC-13,
+    UC-30, UC-33, UC-70, UC-73-UC-74
+  [POS Operator] --> UC-04, UC-40-UC-42, UC-44-UC-50, UC-53-UC-55,
+    UC-58, UC-63
+  [POS Manager] --> UC-43, UC-52, UC-56-UC-58
+  [POS Administrator] --> UC-59-UC-62
+
+
+DIAGRAM 3: CLASS / ENTITY RELATIONSHIP DIAGRAM
+================================================
+
+See PART 4 (Database / Entity Model) for complete specification.
+
+Key clusters:
+  Client cluster: Client, License, LicenseActivationHistory,
+    LicenseValidationLog, LicenseTransferHistory, LicenseModule,
+    LicenseConfiguration, Module
+  User cluster: User, Permission, UserPermission
+  POS cluster: Customer, Product, Order, OrderItem, Table,
+    LoyaltyTransaction, GiftCard, Appointment
+  BI Management cluster: BiDashboard, BiDashboardAssignment,
+    BiDashboardTemplate, BiNotification, BiAnalysisRequest,
+    BiRequest, BiRequestEvent
+  ETL Tracking cluster: BiUpload, BiUploadFile, BiProcessingJob,
+    BiProcessingLog
+  Warehouse cluster: DimTime, DimClient, DimProduct, DimSupplier,
+    DimCustomer, FactSale, FactSaleItem, FactInventory,
+    FactAppointment, FactKitchenOrder, FactKitchenOrderItem
+
+Relationship cardinalities:
+  Client 1---* License
+  License 1---* LicenseActivationHistory
+  License *---* Module (via LicenseModule)
+  User *---* Permission (via UserPermission)
+  Customer 1---* Order
+  Order 1---* OrderItem
+  Product 1---* OrderItem
+  BiUpload 1---* BiProcessingJob
+  BiDashboard 1---* BiDashboardAssignment
+  DimClient 1---* FactSale
+  DimProduct 1---* FactSale
+  DimTime 1---* FactSale
+
+
+DIAGRAM 4: POS GENERATION SEQUENCE DIAGRAM
+============================================
+
+Participants:
+  [Admin UI]        Admin Dashboard POSGenerator page
+  [Backend API]     posService.js
+  [Generator]       generators/index.js pipeline
+  [Stage 1-8]       Individual generator components
+  [GitHub API]      @octokit/rest
+
+Sequence:
+  1. [Admin UI] -> [Backend API]: POST /api/pos/generate (clientId, licenseKey, sector, modules)
+  2. [Backend API] -> [Generator]: generatePOSApplication(license, outputPath)
+  3. [Generator] -> [Stage 1]: validateLicense(license) -- Ed25519 verify
+  4. [Generator] -> [Stage 2]: ProjectBuilder.initialize() -- create output dir
+  5. [Generator] -> [Stage 3]: AssetManager -- copy template, create config
+  6. [Generator] -> [Stage 4]: ModuleFilter -- remove disabled modules
+  7. [Generator] -> [Stage 5]: DependencyManager -- update package.json, npm install
+  8. [Generator] -> [Stage 6]: ThemeCustomizer -- apply colors/branding
+  9. [Generator] -> [Stage 7]: FilePatcher -- fix configs, remove unused files
+  10. [Generator] -> [Stage 8]: BuildSystemManager -- electron-builder (NSIS x64)
+  11. [Generator] -> [GitHub API]: createRelease() -- upload .exe
+  12. [Generator] -> [Backend API]: return { downloadUrl, posId }
+  13. [Backend API] -> [Admin UI]: 201 Created { posId, status, downloadUrl }
+
+
+DIAGRAM 5: BI DATA FLOW / ETL DIAGRAM
+=======================================
+
+Participants:
+  [POS App]           Generated Electron POS
+  [BI Export]         ipc-bi-export-handler + BiDataMapper + BiValidator + BiSchemaContract
+  [Backend API]       bi-uploads.js route
+  [ETL Pipeline]      etl-pipeline.js
+  [Data Prep]         data-preparation-service.js
+  [Schema Registry]   bi-schema-registry.js
+  [Warehouse]         PostgreSQL (dim_*, fact_*)
+  [Warehouse Svc]     warehouse-service.js
+  [Metabase]          Dashboard visualization
+
+Flow:
+  1. [POS App] -> [BI Export]: collect 19 datasets from SQLite
+  2. [BI Export]: map to canonical columns (BiDataMapper)
+  3. [BI Export]: validate (BiValidator)
+  4. [BI Export]: generate CSVs + metadata.json (BiSchemaContract)
+  5. [BI Export] -> [POS App]: create ZIP file
+  6. [POS App] -> [Backend API]: POST /api/bi-uploads (multipart ZIP)
+  7. [Backend API]: multer receive, SHA-256 hash, create BiUpload record
+  8. [Backend API] -> [ETL Pipeline]: run(uploadId)
+  9. [ETL Pipeline]: extract ZIP, read metadata, discover CSVs
+  10. [ETL Pipeline] -> [Schema Registry]: validateSchema(version, columns)
+  11. [ETL Pipeline]: validate CSVs (types, dupes, empty)
+  12. [ETL Pipeline] -> [Data Prep]: prepare rows (coerce, normalize)
+  13. [ETL Pipeline] -> [Warehouse]: $transaction (upsert dims, then facts)
+  14. [Warehouse Svc] -> [Warehouse]: getDashboardSummary() (analytics queries)
+  15. [Metabase] -> [Warehouse]: direct SQL for dashboard visualization
+  16. [Backend API] -> [Metabase]: provision tenant dashboards (REST API)
+
+
+DIAGRAM 6: DEPLOYMENT DIAGRAM
+===============================
+
+Nodes:
+  [Cloud: Render]
+    [carthapos-frontend]  Static site (React SPA)
+    [carthapos-admin]     Static site (React SPA)
+    [carthapos-backend]   Docker container (node:18-bullseye)
+      Port: 10000
+      Includes: backend + pos-template (for generation)
+    [carthapos-db]        PostgreSQL (Render managed)
+    [Metabase]            BI visualization (external or Render)
+
+  [Client Machine]
+    [Generated POS .exe]  Electron app (Windows)
+    [SQLite DB]           Local database
+    [USB License Key]     Optional hardware license
+    [Thermal Printer]     Receipt printer
+    [Cash Drawer]         Cash register
+    [Barcode Scanner]     Input device
+
+  [Development Machine]
+    [GitHub Repository]   Source code
+    [Makefile]            Build automation
+
+Connections:
+  User Browser --HTTPS--> [carthapos-frontend] or [carthapos-admin]
+  [carthapos-frontend] --HTTPS--> [carthapos-backend]
+  [carthapos-admin] --HTTPS--> [carthapos-backend]
+  [carthapos-backend] --SQL--> [carthapos-db]
+  [carthapos-backend] --REST API--> [GitHub API]
+  [Metabase] --SQL--> [carthapos-db]
+  [Generated POS] --HTTPS (license check)--> [carthapos-backend]
+  [Generated POS] --local IPC--> [SQLite DB]
+  [Generated POS] --USB--> [USB License Key]
+  [Generated POS] --serial/USB--> [Thermal Printer]
+  [Generated POS] --serial/USB--> [Cash Drawer]
+  [Generated POS] --USB--> [Barcode Scanner]
+
+
+================================================================================
+PART 17 -- REPORT ARCHITECTURE SUMMARY
+================================================================================
+
+The CarthaPOS platform implements a multi-tenant Software-as-a-Service (SaaS)
+architecture designed to generate customized Point-of-Sale desktop applications
+for small businesses in Tunisia. The system comprises five primary subsystems:
+a backend API server, an administration dashboard, a client-facing web portal,
+a configurable Electron POS template, and the derived client-specific POS
+applications.
+
+The backend is built on Express.js with Prisma ORM managing a PostgreSQL database
+containing 43 entity models organized across eight domain groups: user
+authorization, client management, licensing, POS configuration, operational
+entities, business intelligence management, ETL tracking, and an analytical
+warehouse with five dimension tables and six fact tables. The API exposes 32
+unique route groups handling authentication, client lifecycle, Ed25519-signed
+license management, POS generation orchestration, and a comprehensive BI
+workflow.
+
+The POS generation pipeline follows an eight-stage sequential process: license
+validation, project initialization, template asset management, module filtering
+based on the client's business sector, dependency management with npm
+installation, theme customization, post-copy file patching, and desktop
+application compilation via electron-builder. The pipeline produces a Windows
+NSIS installer distributed through GitHub releases.
+
+The Electron POS application uses an IPC-based architecture separating the
+renderer process (React, 27 page components, 70+ UI components) from the
+main process (SQLite database management, authentication, license verification,
+hardware integration). Local data persists in SQLite with 42 operational
+tables. The application supports six business sectors -- restaurant, cafe,
+retail, bakery, pharmacy, and beauty -- with sector-specific module
+configurations.
+
+Business intelligence follows the GIMSI methodology: the POS application
+exports 19 operational datasets as CSV files within a ZIP archive, validated
+against a versioned schema (v2.2.0). The backend ETL pipeline extracts,
+validates, prepares, and loads data into a PostgreSQL analytical warehouse
+within a database transaction. Metabase connects directly to the warehouse
+for dashboard visualization, with per-tenant dashboard provisioning via the
+Metabase REST API.
+
+The platform is deployed on Render as three services (two static frontends
+and one Docker container hosting the backend) with a managed PostgreSQL
+database. No CI/CD pipeline is currently configured; deployments are
+performed manually.
+
+
+================================================================================
+PART 18 -- CORRECTIONS APPLIED
+================================================================================
+
+This section documents all corrections made from the original audit.
+
+  #  Claim (original)                    Correction
+  -- ---------------------------------  -----------------------------------------
+   1 Route groups: 27                     Actual: 32 unique (2 duplicate mounts)
+   2 Migrations: 37                      Actual: 36 (+ 1 lock.toml)
+   3 Core services: 7                    Actual: 8 (6 + 2 license/)
+   4 Middleware: 3-4 files               Actual: 5 (3 src/ + 2 root middleware/)
+   5 verifyToken: always-on              Actual: conditional (AUTH_REQUIRED=true)
+   6 ElectronLicenseManager exists       Does NOT exist; logic in ipc-license-handlers
+   7 5 manager modules                   3 instantiated + 4 utility modules
+   8 Preload in public/ source           Only in dist/ (built output)
+   9 Admin pages: 17                     Actual: 38 files across 6 subdirectories
+  10 Admin custom components: 17         Actual: 83
+  11 POS hooks: 5                        Actual: 7
+  12 BI mappers: 9                       Actual: 19 (schema v2.2.0)
+  13 ETL pipeline: 1394 lines            Actual: ~897 lines
+  14 BiSchemaContract v1.0.0             Actual: v2.2.0
+  15 License states include RENEWED      Not a distinct state; RENEWED not in enum
+  16 Frontend react-router-dom v7        Actual: v6.30.1
+  17 Frontend Tailwind CSS v4            Actual: v3.4.17
+  18 .github/workflows/ exists           Does NOT exist (no CI/CD)
+  19 POS ElectronManager modules: 5      Actual: 3 instantiated
+  20 UserPosConfiguration active         DEAD CODE -- defined but unused
+  21 src/routes/ all active               6 of 7 are legacy/superseded
+  22 BI route auth inside files           Auth applied at server.js mount level
+
+
+================================================================================
+END OF ARCHITECTURAL AUDIT
+================================================================================

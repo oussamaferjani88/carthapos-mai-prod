@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import { Search, Lock, Clock, Shield, User, ChefHat, Banknote, X } from 'lucide-react'
 
 const ROLE_COLORS = {
+  superadmin: 'bg-purple-500/10 text-purple-600 border-purple-500/20',
   admin: 'bg-destructive/10 text-destructive border-destructive/20',
   manager: 'bg-orange-500/10 text-orange-600 border-orange-500/20',
   cashier: 'bg-emerald-500/10 text-emerald-600 border-emerald-500/20',
@@ -9,6 +10,7 @@ const ROLE_COLORS = {
 }
 
 const ROLE_LABELS = {
+  superadmin: 'Super admin',
   admin: 'Administrateur',
   manager: 'Gérant',
   cashier: 'Caissier',
@@ -16,6 +18,7 @@ const ROLE_LABELS = {
 }
 
 const ROLE_ICONS = {
+  superadmin: Shield,
   admin: Shield,
   manager: User,
   cashier: Banknote,

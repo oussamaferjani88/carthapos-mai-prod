@@ -3,7 +3,9 @@ import { useTranslation } from "react-i18next";
 import { Plus, Package, Calendar, Download, Eye, RefreshCw, FileUp } from "lucide-react";
 import { Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { posStatusMeta } from "@/lib/posStatus";
 import {
   Dialog,
   DialogContent,
@@ -405,62 +407,54 @@ const Dashboard = () => {
       label: t("dashboard.stats.totalSystems"),
       value: posSystems.length,
       icon: Package,
-      color: "text-blue-500",
     },
     {
       label: t("dashboard.stats.activeSystems"),
       value: posSystems.filter((p) => p.status === "active" || p.status === "ready").length,
       icon: Eye,
-      color: "text-green-500",
     },
     {
       label: t("dashboard.stats.totalModules"),
       value: posSystems.reduce((acc, p) => acc + p.modules, 0),
       icon: Package,
-      color: "text-purple-500",
     },
   ];
 
   return (
-    <div className="min-h-screen bg-background">
-      <div className="border-b border-border bg-card">
-        <div className="max-w-7xl mx-auto px-6 lg:px-8 py-6">
-          <div
-            ref={headerRef}
-            className={`flex flex-col md:flex-row md:items-center md:justify-between gap-4 transition-all duration-700 ${
-              headerVisible ? "opacity-100 translate-y-0" : "opacity-0 translate-y-10"
-            }`}
-          >
-            <div>
-              <h1 className="text-3xl font-bold mb-2">{t("dashboard.title")}</h1>
-              <p className="text-muted-foreground">{t("dashboard.subtitle")}</p>
-            </div>
-            <Link to="/dashboard/generator">
-              <Button size="lg" className="gap-2">
-                <Plus className="w-5 h-5" />
-                {t("dashboard.createNew")}
-              </Button>
-            </Link>
-          </div>
+    <div className="space-y-6">
+      <div
+        ref={headerRef}
+        className={`flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 transition-all duration-700 ${
+          headerVisible ? "opacity-100 translate-y-0" : "opacity-0 translate-y-4"
+        }`}
+      >
+        <div>
+          <h1 className="text-xl font-semibold tracking-tight sm:text-[22px]">{t("dashboard.title")}</h1>
+          <p className="mt-1 text-[13px] text-muted-foreground">{t("dashboard.subtitle")}</p>
         </div>
+        <Link to="/dashboard/generator">
+          <Button className="gap-2">
+            <Plus className="w-4 h-4" />
+            {t("dashboard.createNew")}
+          </Button>
+        </Link>
       </div>
 
-      <div className="max-w-7xl mx-auto px-6 lg:px-8 py-8">
-        <div className="grid md:grid-cols-3 gap-6 mb-8">
-          {stats.map((stat, index) => (
-            <Card key={index} className="animate-fade-in" style={{ animationDelay: `${index * 100}ms` }}>
-              <CardHeader className="flex flex-row items-center justify-between pb-2">
-                <CardTitle className="text-sm font-medium text-muted-foreground">{stat.label}</CardTitle>
-                <stat.icon className={`w-5 h-5 ${stat.color}`} />
-              </CardHeader>
-              <CardContent>
-                <div className="text-3xl font-bold">{stat.value}</div>
-              </CardContent>
-            </Card>
-          ))}
-        </div>
+      <div className="grid gap-4 sm:grid-cols-3">
+        {stats.map((stat, index) => (
+          <Card key={index} className="animate-fade-in" style={{ animationDelay: `${index * 100}ms` }}>
+            <CardHeader className="flex flex-row items-center justify-between pb-2">
+              <CardTitle className="text-sm font-medium text-muted-foreground">{stat.label}</CardTitle>
+              <stat.icon className="w-5 h-5 text-muted-foreground" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-semibold">{stat.value}</div>
+            </CardContent>
+          </Card>
+        ))}
+      </div>
 
-        <Card>
+      <Card>
           <CardHeader>
             <CardTitle>{t("dashboard.myPOS")}</CardTitle>
             <CardDescription>{t("dashboard.myPOSDescription")}</CardDescription>
@@ -496,17 +490,9 @@ const Dashboard = () => {
                     <div className="flex-1">
                       <div className="flex items-center gap-3 mb-2">
                         <h3 className="text-lg font-semibold">{pos.name}</h3>
-                        <span
-                          className={`px-2 py-1 text-xs rounded-full ${
-                            pos.status === "active" || pos.status === "ready"
-                              ? "bg-green-500/10 text-green-500"
-                              : pos.status === "building"
-                              ? "bg-blue-500/10 text-blue-500"
-                              : "bg-yellow-500/10 text-yellow-500"
-                          }`}
-                        >
-                          {pos.status}
-                        </span>
+                        <Badge variant={posStatusMeta(pos.status).variant}>
+                          {posStatusMeta(pos.status).label}
+                        </Badge>
                       </div>
                       <div className="flex flex-wrap gap-4 text-sm text-muted-foreground">
                         <span className="flex items-center gap-1">
@@ -557,7 +543,6 @@ const Dashboard = () => {
             )}
           </CardContent>
         </Card>
-      </div>
 
       <Dialog open={detailsOpen} onOpenChange={setDetailsOpen}>
         <DialogContent className="max-w-2xl">
@@ -578,7 +563,7 @@ const Dashboard = () => {
                 </div>
                 <div>
                   <div className="text-muted-foreground">Status</div>
-                  <div className="font-medium">{getStatusLabel(selectedLicense)}</div>
+                  <div className="font-medium">{posStatusMeta(getStatusLabel(selectedLicense)).label}</div>
                 </div>
                 <div>
                   <div className="text-muted-foreground">Created</div>

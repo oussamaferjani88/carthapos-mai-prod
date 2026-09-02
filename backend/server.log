@@ -1,6 +1,0 @@
-DEBUG: About to export functions
-DEBUG: Functions exported successfully
-🚀 Server running on http://0.0.0.0:3001
-📊 Environment: undefined
-✅ Database already seeded (Modules exist).
-127.0.0.1 - - [29/May/2026:08:32:03 +0000] "GET /api/health HTTP/1.1" 200 72 "-" "curl/8.19.0"

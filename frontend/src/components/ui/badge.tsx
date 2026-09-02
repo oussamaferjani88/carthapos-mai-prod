@@ -12,6 +12,11 @@ const badgeVariants = cva(
         secondary: "border-transparent bg-secondary text-secondary-foreground hover:bg-secondary/80",
         destructive: "border-transparent bg-destructive text-destructive-foreground hover:bg-destructive/80",
         outline: "text-foreground",
+        // Added to match the admin panel's Badge variants (admin/src/components/ui/badge.jsx)
+        success: "border-transparent bg-green-50 text-green-700 hover:bg-green-100",
+        warning: "border-transparent bg-amber-50 text-amber-700 hover:bg-amber-100",
+        info: "border-transparent bg-blue-50 text-blue-700 hover:bg-blue-100",
+        neutral: "border-transparent bg-gray-100 text-gray-600 hover:bg-gray-200",
       },
     },
     defaultVariants: {

@@ -45,7 +45,7 @@ const DATASET_RULES = {
   },
   products: {
     required: ['product_id'],
-    integer: ['product_id', 'stock', 'vat_rate_id'],
+    integer: ['product_id', 'stock', 'manage_stock', 'vat_rate_id'],
     numeric: ['price', 'cost_price'],
     date: ['created_at', 'updated_at'],
     text: ['name', 'barcode', 'description', 'unit', 'supplier'],
@@ -74,7 +74,7 @@ const DATASET_RULES = {
   },
   inventory: {
     required: ['product_id'],
-    integer: ['product_id', 'stock', 'min_stock', 'times_sold', 'needs_reorder'],
+    integer: ['product_id', 'stock', 'min_stock', 'times_sold', 'needs_reorder', 'manage_stock'],
     numeric: ['price', 'cost_price', 'inventory_value'],
     date: [],
     text: ['product_name', 'unit', 'supplier'],

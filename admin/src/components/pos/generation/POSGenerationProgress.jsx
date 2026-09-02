@@ -1,273 +1,184 @@
-import React, { useState, useEffect } from 'react';
-import { Progress } from '../../ui/progress';
-import { Card, CardContent } from '../../ui/card';
-import { Badge } from '../../ui/badge';
-import { 
-  CheckCircle, 
-  AlertCircle, 
-  Loader2, 
-  Zap,
-  Code,
-  Settings,
-  Download,
-  Cpu,
-  FileText,
-  Rocket,
-  Sparkles
-} from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { Check, X, Loader2, CheckCircle, AlertCircle } from 'lucide-react';
+import { cn } from '@/lib/utils';
 
-const POSGenerationProgress = ({ 
-  isVisible = false, 
-  onComplete = () => {},
+/**
+ * Generation progress modal.
+ *
+ * Steps are driven entirely by the caller (`steps` + `activeStepId`) so the
+ * list always reflects what actually ran for this build — e.g. the "Écriture
+ * USB" step only appears when a USB target was selected. Step status is derived
+ * from the active step's position, never accumulated, so skipped steps can't be
+ * shown as "Terminé".
+ */
+
+const FALLBACK_STEPS = [
+  { id: 'validate', label: 'Validation de la configuration', description: 'Vérification des paramètres' },
+  { id: 'license', label: 'Génération de la licence', description: 'Création du fichier de licence sécurisé' },
+  { id: 'build', label: 'Construction de l\'application', description: 'Assemblage du POS personnalisé' },
+  { id: 'finalize', label: 'Finalisation', description: 'Optimisation et préparation du téléchargement' },
+];
+
+const clamp = (n) => Math.min(100, Math.max(0, Number.isFinite(n) ? n : 0));
+
+const POSGenerationProgress = ({
+  isVisible = false,
   steps = [],
-  currentStep = 0,
+  activeStepId = null,
   progress = 0,
   currentAction = '',
   error = null,
-  variant = 'modern' // 'modern', 'elegant', 'futuristic'
+  onComplete = () => {},
 }) => {
   const [displayProgress, setDisplayProgress] = useState(0);
-  const [completedSteps, setCompletedSteps] = useState(new Set());
-  
-  // Animation fluide du pourcentage
+
   useEffect(() => {
-    const timer = setTimeout(() => {
-      setDisplayProgress(progress);
-    }, 100);
+    if (!isVisible) {
+      setDisplayProgress(0);
+      return undefined;
+    }
+    const timer = setTimeout(() => setDisplayProgress(clamp(progress)), 80);
     return () => clearTimeout(timer);
-  }, [progress]);
+  }, [progress, isVisible]);
 
-  // Marquer les étapes comme complétées
   useEffect(() => {
-    if (currentStep > 0) {
-      setCompletedSteps(prev => new Set([...prev, currentStep - 1]));
-    }
-  }, [currentStep]);
-
-  const defaultSteps = [
-    {
-      id: 'validation',
-      label: 'Validation des paramètres',
-      icon: Settings,
-      color: 'text-blue-500',
-      description: 'Vérification de la configuration'
-    },
-    {
-      id: 'license',
-      label: 'Génération de licence',
-      icon: FileText,
-      color: 'text-green-500',
-      description: 'Création du fichier de licence'
-    },
-    {
-      id: 'usb',
-      label: 'Écriture USB',
-      icon: Download,
-      color: 'text-purple-500',
-      description: 'Installation sur le support'
-    },
-    {
-      id: 'build',
-      label: 'Construction POS',
-      icon: Code,
-      color: 'text-orange-500',
-      description: 'Compilation de l\'application'
-    },
-    {
-      id: 'finalization',
-      label: 'Finalisation',
-      icon: Rocket,
-      color: 'text-pink-500',
-      description: 'Optimisation et packaging'
-    }
-  ];
-
-  const processSteps = steps.length > 0 ? steps : defaultSteps;
+    if (isVisible && clamp(progress) >= 100 && !error) onComplete();
+  }, [isVisible, progress, error, onComplete]);
 
   if (!isVisible) return null;
 
-  const getVariantStyles = () => {
-    switch (variant) {
-      case 'elegant':
-        return {
-          container: 'bg-gradient-to-br from-slate-50 to-white border border-slate-200 shadow-2xl',
-          progress: 'bg-gradient-to-r from-slate-600 to-slate-800',
-          accent: 'text-slate-600'
-        };
-      case 'futuristic':
-        return {
-          container: 'bg-gradient-to-br from-cyan-50 to-blue-50 border border-cyan-200 shadow-2xl',
-          progress: 'bg-gradient-to-r from-cyan-500 via-blue-500 to-purple-500',
-          accent: 'text-cyan-600'
-        };
-      default: // modern
-        return {
-          container: 'bg-gradient-to-br from-blue-50 to-purple-50 border border-blue-200 shadow-2xl',
-          progress: 'bg-gradient-to-r from-blue-500 via-purple-500 to-pink-500',
-          accent: 'text-blue-600'
-        };
-    }
+  const activeSteps = steps.length > 0 ? steps : FALLBACK_STEPS;
+  const activeIndex = activeSteps.findIndex((step) => step.id === activeStepId);
+  const finished = clamp(progress) >= 100 && !error;
+
+  const statusFor = (index) => {
+    if (finished) return 'done';
+    if (error && index === activeIndex) return 'error';
+    if (activeIndex < 0) return 'pending';
+    if (index < activeIndex) return 'done';
+    if (index === activeIndex) return 'active';
+    return 'pending';
   };
 
-  const styles = getVariantStyles();
+  const title = error
+    ? 'Génération interrompue'
+    : finished
+      ? 'POS généré avec succès'
+      : 'Génération du POS';
+  const HeaderIcon = error ? AlertCircle : finished ? CheckCircle : Loader2;
 
   return (
-    <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-6">
-      <Card className={`w-full max-w-2xl ${styles.container} overflow-hidden`}>
-        <CardContent className="p-0">
-          {/* Header avec animation */}
-          <div className="relative p-8 pb-6 text-center">
-            <div className="absolute inset-0 bg-gradient-to-r from-blue-600/10 via-purple-600/10 to-pink-600/10 animate-pulse" />
-            <div className="relative">
-              <div className="flex items-center justify-center mb-4">
-                <div className="relative">
-                  <Sparkles className={`w-8 h-8 ${styles.accent} animate-spin`} />
-                  <div className="absolute inset-0 w-8 h-8 rounded-full bg-current opacity-20 animate-ping" />
-                </div>
-              </div>
-              <h2 className="text-2xl font-bold bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent mb-2">
-                Génération de votre POS
-              </h2>
-              <p className="text-muted-foreground">
-                {error ? 'Une erreur est survenue' : currentAction || 'Préparation en cours...'}
-              </p>
-            </div>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm">
+      <div className="w-full max-w-md overflow-hidden rounded-lg border border-border bg-card shadow-xl">
+        {/* Header */}
+        <div className="flex items-start gap-3 px-6 pt-6">
+          <span
+            className={cn(
+              'flex size-9 shrink-0 items-center justify-center rounded-lg',
+              error
+                ? 'bg-destructive/10 text-destructive'
+                : finished
+                  ? 'bg-foreground text-background'
+                  : 'bg-muted text-foreground',
+            )}
+          >
+            <HeaderIcon className={cn('size-4', !error && !finished && 'animate-spin')} />
+          </span>
+          <div className="min-w-0 flex-1 pt-0.5">
+            <h2 className="text-sm font-semibold text-foreground">{title}</h2>
+            <p className="mt-0.5 truncate text-xs text-muted-foreground">
+              {error || currentAction || 'Préparation en cours…'}
+            </p>
           </div>
+          <span className="shrink-0 pt-0.5 font-mono text-xs tabular-nums text-muted-foreground">
+            {Math.round(displayProgress)}%
+          </span>
+        </div>
 
-          {/* Barre de progression principale */}
-          <div className="px-8 pb-6">
-            <div className="relative">
-              <Progress 
-                value={displayProgress} 
-                className="h-3 bg-muted/30 rounded-full overflow-hidden"
-              />
-              <div 
-                className={`absolute top-0 left-0 h-3 rounded-full transition-all duration-700 ease-out ${styles.progress}`}
-                style={{ width: `${displayProgress}%` }}
-              >
-                {/* Effet brillant qui se déplace */}
-                <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/30 to-transparent w-1/3 animate-shimmer-right" />
-              </div>
-            </div>
-            
-            {/* Pourcentage avec animation */}
-            <div className="flex justify-between items-center mt-3">
-              <span className="text-sm text-muted-foreground">
-                Progression
-              </span>
-              <div className="flex items-center space-x-2">
-                <Badge variant="secondary" className="font-mono">
-                  {Math.round(displayProgress)}%
-                </Badge>
-                {error && (
-                  <Badge variant="destructive" className="animate-pulse">
-                    <AlertCircle className="w-3 h-3 mr-1" />
-                    Erreur
-                  </Badge>
-                )}
-              </div>
-            </div>
+        {/* Progress bar */}
+        <div className="px-6 pt-4">
+          <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted">
+            <div
+              className={cn(
+                'h-full rounded-full transition-[width] duration-700 ease-out',
+                error ? 'bg-destructive' : 'bg-primary',
+              )}
+              style={{ width: `${displayProgress}%` }}
+            />
           </div>
+        </div>
 
-          {/* Étapes détaillées */}
-          <div className="px-8 pb-8">
-            <div className="space-y-3">
-              {processSteps.map((step, index) => {
-                const isCompleted = completedSteps.has(index);
-                const isCurrent = index === currentStep;
-                const IconComponent = step.icon;
+        {/* Steps */}
+        <ol className="px-6 py-5">
+          {activeSteps.map((step, index) => {
+            const status = statusFor(index);
+            const isLast = index === activeSteps.length - 1;
 
-                return (
-                  <div 
-                    key={step.id}
-                    className={`
-                      flex items-center space-x-4 p-4 rounded-lg transition-all duration-500
-                      ${isCurrent ? 'bg-primary/10 border border-primary/20 shadow-sm' : ''}
-                      ${isCompleted ? 'bg-green-50 border border-green-200' : ''}
-                      ${!isCurrent && !isCompleted ? 'bg-muted/30' : ''}
-                    `}
+            return (
+              <li key={step.id} className="flex gap-3">
+                <div className="flex flex-col items-center">
+                  <span
+                    className={cn(
+                      'flex size-5 shrink-0 items-center justify-center rounded-full border text-[10px] font-medium transition-colors',
+                      status === 'done' && 'border-transparent bg-foreground text-background',
+                      status === 'active' && 'border-primary bg-background text-primary',
+                      status === 'error' && 'border-transparent bg-destructive text-white',
+                      status === 'pending' && 'border-border bg-background text-muted-foreground',
+                    )}
                   >
-                    {/* Icône avec état */}
-                    <div className="relative flex-shrink-0">
-                      {isCompleted ? (
-                        <div className="w-8 h-8 bg-green-500 rounded-full flex items-center justify-center">
-                          <CheckCircle className="w-5 h-5 text-white" />
-                        </div>
-                      ) : isCurrent ? (
-                        <div className="w-8 h-8 bg-primary rounded-full flex items-center justify-center animate-pulse">
-                          <Loader2 className="w-5 h-5 text-white animate-spin" />
-                        </div>
-                      ) : (
-                        <div className="w-8 h-8 bg-muted rounded-full flex items-center justify-center">
-                          <IconComponent className={`w-5 h-5 ${step.color}`} />
-                        </div>
+                    {status === 'done' && <Check className="size-3" />}
+                    {status === 'active' && <Loader2 className="size-3 animate-spin" />}
+                    {status === 'error' && <X className="size-3" />}
+                    {status === 'pending' && index + 1}
+                  </span>
+                  {!isLast && (
+                    <span
+                      className={cn(
+                        'my-1 w-px flex-1',
+                        status === 'done' ? 'bg-foreground/25' : 'bg-border',
                       )}
-                    </div>
-
-                    {/* Contenu */}
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center justify-between">
-                        <h4 className={`
-                          font-medium transition-colors
-                          ${isCurrent ? 'text-primary' : ''}
-                          ${isCompleted ? 'text-green-700' : ''}
-                        `}>
-                          {step.label}
-                        </h4>
-                        {isCurrent && (
-                          <Badge variant="default" className="animate-pulse">
-                            <Zap className="w-3 h-3 mr-1" />
-                            En cours
-                          </Badge>
-                        )}
-                        {isCompleted && (
-                          <Badge variant="secondary" className="bg-green-100 text-green-700">
-                            <CheckCircle className="w-3 h-3 mr-1" />
-                            Terminé
-                          </Badge>
-                        )}
-                      </div>
-                      <p className={`
-                        text-sm transition-colors
-                        ${isCurrent ? 'text-primary/70' : 'text-muted-foreground'}
-                      `}>
-                        {step.description}
-                      </p>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-
-          {/* Indicateur de performance */}
-          <div className="border-t bg-muted/20 p-4">
-            <div className="flex items-center justify-between text-xs text-muted-foreground">
-              <div className="flex items-center space-x-2">
-                <Cpu className="w-4 h-4" />
-                <span>Optimisation automatique</span>
-              </div>
-              <div className="flex items-center space-x-4">
-                <span>Temps estimé: ~30s</span>
-                <div className="flex items-center space-x-1">
-                  <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse" />
-                  <span>Système opérationnel</span>
+                    />
+                  )}
                 </div>
-              </div>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
 
-      <style jsx="true">{`
-        @keyframes shimmer-right {
-          0% { transform: translateX(-100%); }
-          100% { transform: translateX(300%); }
-        }
-        .animate-shimmer-right {
-          animation: shimmer-right 2s ease-in-out infinite;
-        }
-      `}</style>
+                <div className={cn('min-w-0 flex-1', !isLast && 'pb-5')}>
+                  <div className="flex items-center justify-between gap-2">
+                    <p
+                      className={cn(
+                        'text-sm font-medium',
+                        status === 'pending' ? 'text-muted-foreground' : 'text-foreground',
+                      )}
+                    >
+                      {step.label}
+                    </p>
+                    {status === 'done' && (
+                      <span className="shrink-0 text-xs text-muted-foreground">Terminé</span>
+                    )}
+                    {status === 'active' && (
+                      <span className="shrink-0 text-xs text-primary">En cours…</span>
+                    )}
+                    {status === 'error' && (
+                      <span className="shrink-0 text-xs font-medium text-destructive">Échec</span>
+                    )}
+                  </div>
+                  <p className="mt-0.5 text-xs text-muted-foreground">{step.description}</p>
+                </div>
+              </li>
+            );
+          })}
+        </ol>
+
+        {/* Footer */}
+        <div className="border-t border-border bg-muted/40 px-6 py-3">
+          <p className="text-xs text-muted-foreground">
+            {error
+              ? 'La fenêtre se ferme automatiquement…'
+              : finished
+                ? 'Ouverture du récapitulatif…'
+                : 'La construction peut prendre quelques minutes selon les modules sélectionnés.'}
+          </p>
+        </div>
+      </div>
     </div>
   );
 };

@@ -133,11 +133,58 @@ const readLimiter = rateLimit({
   }
 });
 
+/**
+ * Rate limiter for license lifecycle/activation operations.
+ * Limits abuse of destructive or identity-binding endpoints.
+ */
+const licenseActionLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 30, // Limit each IP to 30 lifecycle actions per 15 minutes
+  message: {
+    error: 'Too many license operations from this IP, please try again later.',
+    retryAfter: '15 minutes'
+  },
+  standardHeaders: true,
+  legacyHeaders: false,
+  handler: (req, res) => {
+    res.status(429).json({
+      success: false,
+      error: 'Too many license operations from this IP, please try again later.',
+      retryAfter: '15 minutes'
+    });
+  }
+});
+
+/**
+ * Rate limiter for license validation checks.
+ * The Electron POS polls this endpoint on startup (best-effort), so the limit
+ * is generous while still preventing high-volume enumeration.
+ */
+const licenseValidateLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 60, // Limit each IP to 60 validation checks per 15 minutes
+  message: {
+    error: 'Too many license validation requests from this IP, please try again later.',
+    retryAfter: '15 minutes'
+  },
+  standardHeaders: true,
+  legacyHeaders: false,
+  handler: (req, res) => {
+    res.status(429).json({
+      success: false,
+      error: 'Too many license validation requests from this IP, please try again later.',
+      retryAfter: '15 minutes'
+    });
+  }
+});
+
 module.exports = {
   generalLimiter,
   authLimiter,
   createLimiter,
   posGenerationLimiter,
   usbLimiter,
-  readLimiter
+  readLimiter,
+  licenseActionLimiter,
+  licenseValidateLimiter
 };

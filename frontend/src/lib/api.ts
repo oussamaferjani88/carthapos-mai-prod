@@ -9,7 +9,19 @@ const api = axios.create({
 });
 
 api.interceptors.response.use(
-  (response) => response,
+  (response) => {
+    // Unwrap the v1 ApiResponse envelope ({ status, message, data }) so callers
+    // keep receiving raw payloads, while legacy unwrapped routes pass through.
+    if (
+      response.data &&
+      typeof response.data === 'object' &&
+      response.data.status === 'success' &&
+      'data' in response.data
+    ) {
+      return { ...response, data: response.data.data };
+    }
+    return response;
+  },
   (error) => {
     console.error('API Error:', error);
     return Promise.reject(error);

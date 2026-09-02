@@ -10,7 +10,10 @@
     "dev:v2": "nodemon server-v2.js",
     "db:migrate": "npx prisma migrate dev",
     "db:generate": "npx prisma generate",
+    "db:generate:warehouse": "npx prisma generate --schema=prisma-warehouse/schema.prisma",
     "db:seed": "node prisma/seed.js",
+    "db:create-admin": "node scripts/create-admin.js",
+    "db:seed-permissions": "node scripts/seed-permissions.js",
     "seed:bi-templates": "node scripts/seed-bi-templates.js",
     "db:reset": "npx prisma migrate reset",
     "db:studio": "npx prisma studio"

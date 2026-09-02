@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
+import { usePermissions } from '../contexts/PermissionsContext';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
 import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
@@ -107,6 +108,15 @@ export default function Settings() {
   const { license } = useLicense();
   const { settings: dbSettings, loading: dbLoading, setMultipleSettings, reload } = useSettings();
   const { toast } = useToast();
+  const { canCreate, canUpdate, canDelete, readOnly } = usePermissions('settings');
+  const permsRef = useRef({ canCreate, canUpdate, canDelete });
+  permsRef.current = { canCreate, canUpdate, canDelete };
+  const permGuard = useCallback((action) => {
+    const p = permsRef.current;
+    const ok = action === 'create' ? p.canCreate : action === 'delete' ? p.canDelete : p.canUpdate;
+    if (!ok) toast?.({ title: 'Action non autorisée', description: 'Accès en lecture seule sur les paramètres.', variant: 'destructive' });
+    return ok;
+  }, [toast]);
 
   const [activeModule, setActiveModule] = useState(null);
   const [settings, setSettings] = useState(DEFAULT_SETTINGS);
@@ -155,6 +165,7 @@ export default function Settings() {
 
   const handleAddKitchenDept = async () => {
     if (!newDeptName.trim()) return;
+    if (!permGuard('create')) return;
     try {
       await window.electronAPI.addKitchenDepartment({ name: newDeptName.trim(), icon: newDeptIcon.trim() || null, is_active: 1 });
       setNewDeptName(''); setNewDeptIcon('');
@@ -165,6 +176,7 @@ export default function Settings() {
 
   const handleUpdateKitchenDept = async (id) => {
     if (!editDeptName.trim()) return;
+    if (!permGuard('update')) return;
     try {
       await window.electronAPI.updateKitchenDepartment(id, { name: editDeptName.trim(), icon: editDeptIcon.trim() || null });
       setEditingDept(null);
@@ -174,6 +186,7 @@ export default function Settings() {
   };
 
   const handleToggleKitchenDept = async (id, isActive) => {
+    if (!permGuard('update')) return;
     try {
       await window.electronAPI.updateKitchenDepartment(id, { is_active: isActive ? 0 : 1 });
       await loadKitchenDepartments();
@@ -181,6 +194,7 @@ export default function Settings() {
   };
 
   const handleDeleteKitchenDept = async (id) => {
+    if (!permGuard('delete')) return;
     try {
       await window.electronAPI.deleteKitchenDepartment(id);
       setShowDeleteDeptConfirm(null);
@@ -236,8 +250,9 @@ export default function Settings() {
   useEffect(() => { loadVatRates(); }, []);
   const loadVatRates = async () => { try { if (window.electronAPI?.getVatRates) setVatRates(await window.electronAPI.getVatRates() || []); } catch {} };
 
-  const handleSettingChange = (key, value) => { setSettings(prev => ({ ...prev, [key]: value })); setDirty(true); };
+  const handleSettingChange = (key, value) => { if (readOnly) return; setSettings(prev => ({ ...prev, [key]: value })); setDirty(true); };
   const handleSave = async () => {
+    if (!permGuard('update')) return;
     for (const [key, value] of Object.entries(settings)) { const err = validateField(key, value); if (err) { toast({ title: 'Validation', description: `${key}: ${err}`, variant: 'destructive' }); return; } }
     setLoading(true);
     try {
@@ -268,16 +283,18 @@ export default function Settings() {
   const handleImportFile = (e) => { const file = e.target.files[0]; if (!file) return; const reader = new FileReader(); reader.onload = (ev) => setImportJson(ev.target.result); reader.readAsText(file); e.target.value = ''; };
   const handleImport = async () => {
     if (!importJson.trim()) return;
+    if (!permGuard('update')) return;
     try { if (window.electronAPI?.importSettings) { const r = await window.electronAPI.importSettings(importJson); if (r.success) { await reload(); setImportJson(''); setShowImportDialog(false); toast({ title: 'Import réussi', description: `${r.count} paramètres importés.` }); } else { toast({ title: 'Erreur', description: r.error, variant: 'destructive' }); } } }
     catch (e) { toast({ title: 'Erreur', description: e.message, variant: 'destructive' }); }
   };
   const handleAddVatRate = async () => {
     if (!newVatRate.name || !newVatRate.rate) return;
+    if (!permGuard('create')) return;
     try { await window.electronAPI.addVatRate({ name: newVatRate.name, rate: parseFloat(newVatRate.rate), is_active: true }); setNewVatRate({ name: '', rate: '' }); loadVatRates(); }
     catch (e) { toast({ title: 'Erreur', description: e.message, variant: 'destructive' }); }
   };
-  const handleUpdateVatRate = async (id, updates) => { try { await window.electronAPI.updateVatRate(id, updates); loadVatRates(); } catch (e) { toast({ title: 'Erreur', description: e.message, variant: 'destructive' }); } };
-  const handleDeleteVatRate = async (id) => { try { await window.electronAPI.deleteVatRate(id); loadVatRates(); } catch (e) { toast({ title: 'Erreur', description: e.message, variant: 'destructive' }); } };
+  const handleUpdateVatRate = async (id, updates) => { if (!permGuard('update')) return; try { await window.electronAPI.updateVatRate(id, updates); loadVatRates(); } catch (e) { toast({ title: 'Erreur', description: e.message, variant: 'destructive' }); } };
+  const handleDeleteVatRate = async (id) => { if (!permGuard('delete')) return; try { await window.electronAPI.deleteVatRate(id); loadVatRates(); } catch (e) { toast({ title: 'Erreur', description: e.message, variant: 'destructive' }); } };
 
   const matchSearch = (text) => !globalSearch || text.toLowerCase().includes(globalSearch.toLowerCase());
   const s = settings;
@@ -335,6 +352,12 @@ export default function Settings() {
   // ── General / Backup / Appearance / System pages ──
   return (
     <SettingsLayout active={activeModule} onBack={() => setActiveModule(null)} onNavigate={setActiveModule} isKitchenEnabled={isKitchenEnabled}>
+      {readOnly && (
+        <div className="mb-4 rounded-lg border border-amber-300 bg-amber-50 px-4 py-2.5 text-sm text-amber-800 flex items-center gap-2">
+          <Lock className="h-4 w-4 shrink-0" />
+          Accès en lecture seule : vous pouvez consulter les paramètres mais pas les modifier.
+        </div>
+      )}
       {activeModule === 'general' && (
         <div className="space-y-8">
           <SectionHeader icon={Building2} title="Informations de l'entreprise" description="Nom, adresse et coordonnées de votre établissement" />

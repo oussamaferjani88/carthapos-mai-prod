@@ -782,7 +782,7 @@ class ElectronDatabaseManager {
           password_hash TEXT NOT NULL,
           full_name TEXT DEFAULT '',
           email TEXT UNIQUE,
-          role TEXT NOT NULL CHECK(role IN ('admin', 'cashier', 'manager', 'server')) DEFAULT 'cashier',
+          role TEXT NOT NULL CHECK(role IN ('admin', 'superadmin', 'cashier', 'manager', 'server')) DEFAULT 'cashier',
           badge_id TEXT UNIQUE,
           pin TEXT,
           is_active BOOLEAN DEFAULT 1,
@@ -1832,6 +1832,13 @@ class ElectronDatabaseManager {
       if (!e.message?.includes('duplicate column')) console.warn(`⚠️ Migration (products.preparation_time): ${e.message}`);
     }
 
+    try {
+      await this.runQuery('ALTER TABLE products ADD COLUMN manage_stock BOOLEAN DEFAULT 1');
+      console.log('✅ Migration: products.manage_stock added');
+    } catch (e) {
+      if (!e.message?.includes('duplicate column')) console.warn(`⚠️ Migration (products.manage_stock): ${e.message}`);
+    }
+
     // ── Kitchen departments indexes ──
     try {
       await this.runQuery('CREATE INDEX IF NOT EXISTS idx_kitchen_dept_name ON kitchen_departments(name)');
@@ -1897,6 +1904,18 @@ class ElectronDatabaseManager {
         console.warn(`⚠️ Migration (cash_drawer_events CHECK): ${e.message}`);
       }
     }
+
+    // ── Link appointments to an existing customer record ──
+    try {
+      await this.runQuery("ALTER TABLE appointments ADD COLUMN customer_id INTEGER DEFAULT NULL REFERENCES customers(id)");
+      console.log('✅ Migration: Added customer_id to appointments');
+    } catch (e) {
+      if (!e.message?.includes('duplicate column')) console.warn(`⚠️ Migration (appointments.customer_id): ${e.message}`);
+    }
+    try {
+      await this.runQuery('CREATE INDEX IF NOT EXISTS idx_appointments_customer ON appointments(customer_id)');
+      console.log('✅ Migration: Added index on appointments.customer_id');
+    } catch (e) { /* already exists */ }
 
     // ── Backfill shift_id for legacy sales ──
     try {

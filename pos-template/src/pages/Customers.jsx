@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import {
   Plus, Search, User, Phone, Mail, MapPin, Star, Edit2, Trash2, Gift,
   ShoppingBag, TrendingUp, Award, Heart, Clock, DollarSign, Receipt, X,
@@ -8,6 +8,7 @@ import {
 } from 'lucide-react';
 import { POSConfiguration } from '../lib/POSConfiguration';
 import { useAppConfig } from '../hooks/useAppConfig';
+import { usePermissions } from '../contexts/PermissionsContext';
 import { getCurrencySymbol } from '../utils/currency';
 
 import { Button } from '../components/ui/button';
@@ -59,6 +60,15 @@ const SORT_OPTIONS = [
 
 export default function Customers() {
   const { config: electronConfig } = useAppConfig();
+  const { canCreate, canUpdate, canDelete, canManage } = usePermissions('customers');
+  const permsRef = useRef({ canCreate, canUpdate, canDelete });
+  permsRef.current = { canCreate, canUpdate, canDelete };
+  const permGuard = (action) => {
+    const p = permsRef.current;
+    const ok = action === 'create' ? p.canCreate : action === 'delete' ? p.canDelete : p.canUpdate;
+    if (!ok) alert("Action non autorisée : vous avez un accès en lecture seule sur les clients.");
+    return ok;
+  };
   const getConfig = () => {
     if (electronConfig && electronConfig.theme) {
       return POSConfiguration.createConfig(electronConfig.theme);
@@ -154,6 +164,7 @@ export default function Customers() {
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!validateForm()) return;
+    if (!permGuard(editingCustomer ? 'update' : 'create')) return;
     setSaving(true);
     try {
       const payload = {
@@ -167,11 +178,11 @@ export default function Customers() {
       };
       if (editingCustomer) {
         if (window.electronAPI) {
-          await window.electronAPI.updateCustomer(editingCustomer.id, payload);
+          await window.electronAPI.updateCustomer(editingCustomer.id, payload, permsRef.current);
         }
       } else {
         if (window.electronAPI) {
-          await window.electronAPI.addCustomer(payload);
+          await window.electronAPI.addCustomer(payload, permsRef.current);
         }
       }
       setDialogOpen(false);
@@ -214,8 +225,9 @@ export default function Customers() {
 
   const handleDelete = async (customer) => {
     if (!window.electronAPI) return;
+    if (!permGuard('delete')) return;
     try {
-      await window.electronAPI.deleteCustomer(customer.id);
+      await window.electronAPI.deleteCustomer(customer.id, permsRef.current);
       setDeleteTarget(null);
       setDeleteError('');
       await loadCustomers();
@@ -228,7 +240,7 @@ export default function Customers() {
     try {
       setTogglingId(customer.id);
       if (window.electronAPI) {
-        await window.electronAPI.toggleCustomerActive(customer.id);
+        await window.electronAPI.toggleCustomerActive(customer.id, permsRef.current);
       }
       await loadCustomers();
     } catch (error) {
@@ -254,6 +266,7 @@ export default function Customers() {
   };
 
   const handleImportCSV = () => {
+    if (!permGuard('create')) return;
     const input = document.createElement('input');
     input.type = 'file'; input.accept = '.csv';
     input.onchange = async (e) => {
@@ -275,7 +288,7 @@ export default function Customers() {
         };
         if (!customerData.name) continue;
         try {
-          if (window.electronAPI) await window.electronAPI.addCustomer(customerData);
+          if (window.electronAPI) await window.electronAPI.addCustomer(customerData, permsRef.current);
           count++;
         } catch { /* skip duplicates */ }
       }
@@ -306,6 +319,7 @@ export default function Customers() {
   };
 
   const handleSaveLevel = () => {
+    if (!permGuard('update')) return;
     if (!levelForm.name.trim() || levelForm.min < 0) return;
     let updated;
     if (editingLevel !== null) {
@@ -320,6 +334,7 @@ export default function Customers() {
   };
 
   const handleDeleteLevel = (idx) => {
+    if (!permGuard('update')) return;
     saveLoyaltyLevels(loyaltyLevels.filter((_, i) => i !== idx));
     setEditingLevel(null);
   };
@@ -492,18 +507,20 @@ export default function Customers() {
             </p>
           </div>
           <div className="flex items-center gap-2">
-            <Button variant="outline" size="sm" onClick={handleImportCSV}>
+            <Button variant="outline" size="sm" onClick={handleImportCSV} disabled={!canCreate}>
               <Upload className="h-4 w-4 mr-1" /> Importer
             </Button>
-            <Button variant="outline" size="sm" onClick={handleExportCSV} disabled={filteredAndSorted.length === 0}>
+            <Button variant="outline" size="sm" onClick={handleExportCSV} disabled={!canManage || filteredAndSorted.length === 0}>
               <Download className="h-4 w-4 mr-1" /> Exporter
             </Button>
-            <Button variant="outline" size="sm" onClick={() => setLoyaltyDialogOpen(true)}>
+            <Button variant="outline" size="sm" onClick={() => setLoyaltyDialogOpen(true)} disabled={!canManage}>
               <Settings className="h-4 w-4 mr-1" /> Niveaux
             </Button>
-            <Button onClick={openCreateDialog}>
-              <Plus className="h-4 w-4 mr-1" /> Nouveau client
-            </Button>
+            {canCreate && (
+              <Button onClick={openCreateDialog}>
+                <Plus className="h-4 w-4 mr-1" /> Nouveau client
+              </Button>
+            )}
           </div>
         </div>
 
@@ -679,14 +696,16 @@ export default function Customers() {
                         </TableCell>
                         <TableCell>
                           <div className="flex items-center gap-0.5" onClick={(e) => e.stopPropagation()}>
-                            <Tooltip>
-                              <TooltipTrigger asChild>
-                                <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => openEditDialog(customer)}>
-                                  <Edit2 className="h-3.5 w-3.5" />
-                                </Button>
-                              </TooltipTrigger>
-                              <TooltipContent>Modifier</TooltipContent>
-                            </Tooltip>
+                            {canUpdate && (
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => openEditDialog(customer)}>
+                                    <Edit2 className="h-3.5 w-3.5" />
+                                  </Button>
+                                </TooltipTrigger>
+                                <TooltipContent>Modifier</TooltipContent>
+                              </Tooltip>
+                            )}
                             <Tooltip>
                               <TooltipTrigger asChild>
                                 <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => openDetailView(customer)}>
@@ -695,23 +714,26 @@ export default function Customers() {
                               </TooltipTrigger>
                               <TooltipContent>Détails</TooltipContent>
                             </Tooltip>
-                            <Tooltip>
-                              <TooltipTrigger asChild>
-                                <Button
-                                  variant="ghost"
-                                  size="icon"
-                                  className="h-7 w-7"
-                                  onClick={() => handleToggleActive(customer)}
-                                  disabled={togglingId === customer.id}
-                                >
-                                  {togglingId === customer.id
-                                    ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                                    : <Power className={`h-3.5 w-3.5 ${isActive ? 'text-emerald-500' : 'text-muted-foreground'}`} />
-                                  }
-                                </Button>
-                              </TooltipTrigger>
-                              <TooltipContent>{isActive ? 'Désactiver' : 'Activer'}</TooltipContent>
-                            </Tooltip>
+                            {canUpdate && (
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    className="h-7 w-7"
+                                    onClick={() => handleToggleActive(customer)}
+                                    disabled={togglingId === customer.id}
+                                  >
+                                    {togglingId === customer.id
+                                      ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                      : <Power className={`h-3.5 w-3.5 ${isActive ? 'text-emerald-500' : 'text-muted-foreground'}`} />
+                                    }
+                                  </Button>
+                                </TooltipTrigger>
+                                <TooltipContent>{isActive ? 'Désactiver' : 'Activer'}</TooltipContent>
+                              </Tooltip>
+                            )}
+                            {canDelete && (
                             <Tooltip>
                               <TooltipTrigger asChild>
                                 <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive hover:text-destructive" onClick={() => { setDeleteTarget(customer); setDeleteError(''); }}>
@@ -720,6 +742,7 @@ export default function Customers() {
                               </TooltipTrigger>
                               <TooltipContent>Supprimer</TooltipContent>
                             </Tooltip>
+                            )}
                           </div>
                         </TableCell>
                       </TableRow>
@@ -1180,7 +1203,7 @@ export default function Customers() {
 
             <DialogFooter className="flex-shrink-0 pt-2">
               <Button variant="outline" onClick={() => setDetailOpen(false)}>Fermer</Button>
-              {detailCustomer && (
+              {detailCustomer && canUpdate && (
                 <Button onClick={() => { setDetailOpen(false); openEditDialog(detailCustomer); }}>
                   <Edit2 className="h-4 w-4 mr-1" /> Modifier
                 </Button>

@@ -5,6 +5,20 @@ const bcrypt = require('bcryptjs'); // standard in this project, often bcryptjs 
 const prisma = new PrismaClient();
 
 async function autoSeed() {
+    // RBAC permissions are seeded + users normalized on EVERY startup (idempotent).
+    try {
+        const { seedPermissions, normalizeUsers } = require('./seedPermissions');
+        const seeded = await seedPermissions(prisma);
+        console.log(`🔑 Permission catalog ensured: ${seeded} permissions`);
+        const changes = await normalizeUsers(prisma);
+        if (changes.length) {
+            console.log('👤 User normalization changes:');
+            changes.forEach((c) => console.log(`   - ${c}`));
+        }
+    } catch (error) {
+        console.error('❌ Permission seed failed:', error);
+    }
+
     try {
         // 1. Check if seeding is needed
         const moduleCount = await prisma.module.count();
@@ -288,8 +302,9 @@ async function autoSeed() {
             }
         });
 
-        // 4. Create Admin User
-        console.log('👤 Creating default admin user...');
+        // 4. Create default user (downgraded to MANAGER — legacy default credential,
+        //    never an ADMIN. The canonical SUPER_ADMIN is created via npm run db:create-admin.)
+        console.log('👤 Creating default user...');
         const hashedPassword = await bcrypt.hash('admin123', 10);
 
         await prisma.user.upsert({
@@ -299,7 +314,7 @@ async function autoSeed() {
                 username: 'admin',
                 email: 'admin@carthapos.com',
                 password: hashedPassword,
-                role: 'ADMIN',
+                role: 'MANAGER',
                 isActive: true
             }
         });

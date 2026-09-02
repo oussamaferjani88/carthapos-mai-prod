@@ -1,6 +1,17 @@
 export class POSConfiguration {
   static createConfig(configuration = {}) {
     return {
+      // Préserver toutes les propriétés de configuration non listées
+      // explicitement ci-dessous (currentUser, onLogout, isPreviewMode,
+      // selectedComponent, etc.). Placé EN PREMIER exprès : chaque champ
+      // énuméré plus bas relit déjà `configuration.<champ>` lui-même (donc la
+      // valeur de l'appelant n'est jamais perdue), alors que le mettre en
+      // DERNIER écraserait les objets imbriqués déjà correctement défaultés
+      // ci-dessous (`pageLayout`, `components`) par la version brute/partielle
+      // reçue en entrée dès qu'une seule propriété imbriquée est modifiée -
+      // exactement ce que produit un seul clic dans LayoutEditor.
+      ...configuration,
+
       // Basic Business Info
       businessName: configuration.businessName || 'POS System',
       logo: configuration.logo || null,
@@ -109,6 +120,25 @@ export class POSConfiguration {
       maxWidth: configuration.maxWidth || '1200px',
       navbarCollapsible: configuration.navbarCollapsible || false,
       
+      // Mise en page par page — Priorité 1 : Panier de la page Ventes.
+      // Options prédéfinies uniquement (pas de positionnement pixel), pour
+      // rester simple et fiable (cf. Layout > Composants de page). Le même
+      // schéma page -> composant -> {visible, position, size, density} est
+      // pensé pour être réutilisé sur d'autres pages plus tard.
+      pageLayout: {
+        ...configuration.pageLayout,
+        sales: {
+          ...configuration.pageLayout?.sales,
+          cart: {
+            visible: configuration.pageLayout?.sales?.cart?.visible !== false,
+            position: configuration.pageLayout?.sales?.cart?.position || 'left',
+            size: configuration.pageLayout?.sales?.cart?.size || 'medium',
+            density: configuration.pageLayout?.sales?.cart?.density || 'normal',
+            ...configuration.pageLayout?.sales?.cart
+          }
+        }
+      },
+
       // Composants - Nouvelles personnalisations
       components: {
         cards: {
@@ -152,29 +182,80 @@ export class POSConfiguration {
       enableCustomerLoyalty: configuration.enableCustomerLoyalty || false,
       enableStaffScheduling: configuration.enableStaffScheduling || false,
       enableKitchenDisplay: configuration.enableKitchenDisplay || false,
-      enableDeliveryTracking: configuration.enableDeliveryTracking || false,
-      
-      // Préserver toutes les autres propriétés de configuration (comme currentUser, onLogout, etc.)
-      ...configuration
+      enableDeliveryTracking: configuration.enableDeliveryTracking || false
     };
   }
 
   static getStyles(config) {
+    const cardBackground = config.cardBackgroundColor || config.backgroundColor;
     return {
       card: {
-        backgroundColor: config.backgroundColor,
+        backgroundColor: cardBackground,
         borderColor: config.cardBorderColor,
+        borderRadius: this.getBorderRadiusRem(config.components?.cards?.borderRadius || config.borderRadius),
         color: config.textColor,
         boxShadow: this.getShadowStyle(config),
         transition: config.animations ? 'all 0.2s ease-in-out' : 'none',
         backdropFilter: config.glassEffect ? 'blur(10px) saturate(200%)' : 'none',
-        background: config.gradientBackgrounds ? this.getGradientBackground(config) : config.backgroundColor
+        background: config.gradientBackgrounds ? this.getGradientBackground(config) : cardBackground
       },
       animation: config.animations ? 'all 0.2s ease-in-out' : 'none',
       container: {
         background: config.gradientBackgrounds ? this.getContainerGradient(config) : config.backgroundColor,
         backdropFilter: config.glassEffect ? 'blur(10px)' : 'none'
       }
+    };
+  }
+
+  // Relative-luminance contrast helper: returns a readable text color for a
+  // given background hex. Used for primary/secondary/accent "-foreground"
+  // pairs the theme presets don't define explicitly.
+  static getContrastText(hex) {
+    if (!hex || typeof hex !== 'string') return '#ffffff';
+    const clean = hex.replace('#', '');
+    if (clean.length !== 6) return '#ffffff';
+    const r = parseInt(clean.slice(0, 2), 16) / 255;
+    const g = parseInt(clean.slice(2, 4), 16) / 255;
+    const b = parseInt(clean.slice(4, 6), 16) / 255;
+    const toLinear = (c) => (c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4));
+    const luminance = 0.2126 * toLinear(r) + 0.7152 * toLinear(g) + 0.0722 * toLinear(b);
+    return luminance > 0.5 ? '#111827' : '#ffffff';
+  }
+
+  // Keyword -> rem/px value for card border-radius, shared by getStyles()
+  // and getShadcnThemeVars() below (same vocabulary POSContent.jsx's
+  // componentVars map uses for the Layout panel's per-component radius).
+  static getBorderRadiusRem(keyword) {
+    const map = { none: '0', small: '0.25rem', medium: '0.5rem', large: '0.75rem', xl: '1rem', full: '9999px' };
+    return map[keyword] || map.medium;
+  }
+
+  // CSS-variable overrides for the exact names shadcn/ui components read
+  // (admin/src/App.css's @theme inline block: --primary, --card, --border,
+  // --radius, etc. are plain hex/rem values, not HSL, so these can be
+  // spread directly into a style prop). Scoping this on the .pos-preview
+  // root wrapper makes every shadcn Button/Card/Select/Dialog inside the
+  // preview - including deeply nested module pages - follow the selected
+  // POS theme instead of the admin app's own fixed brand colors.
+  static getShadcnThemeVars(config) {
+    const cardBg = config.cardBackgroundColor || config.backgroundColor;
+    const radius = this.getBorderRadiusRem(config.components?.cards?.borderRadius || config.borderRadius);
+    return {
+      '--primary': config.primaryColor,
+      '--primary-foreground': this.getContrastText(config.primaryColor),
+      '--secondary': config.secondaryColor,
+      '--secondary-foreground': this.getContrastText(config.secondaryColor),
+      '--card': cardBg,
+      '--card-foreground': config.textColor,
+      '--popover': cardBg,
+      '--popover-foreground': config.textColor,
+      '--muted-foreground': config.textMutedColor,
+      '--accent': config.accentColor,
+      '--accent-foreground': this.getContrastText(config.accentColor),
+      '--border': config.cardBorderColor,
+      '--input': config.cardBorderColor,
+      '--ring': config.primaryColor,
+      '--radius': radius,
     };
   }
 

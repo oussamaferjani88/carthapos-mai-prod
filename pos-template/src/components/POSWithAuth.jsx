@@ -120,6 +120,7 @@ const POSWithAuth = ({ config, children }) => {
 
   const getRoleIcon = (role) => {
     switch (role) {
+      case 'superadmin': return <Shield className="w-4 h-4" />;
       case 'admin': return <Settings className="w-4 h-4" />;
       case 'manager': return <UserCheck className="w-4 h-4" />;
       case 'cashier': return <User className="w-4 h-4" />;
@@ -127,8 +128,19 @@ const POSWithAuth = ({ config, children }) => {
     }
   };
 
+  const getRoleLabel = (role) => {
+    switch (role) {
+      case 'superadmin': return 'Super admin';
+      case 'admin': return 'Administrateur';
+      case 'manager': return 'Manager';
+      case 'cashier': return 'Caissier';
+      default: return role;
+    }
+  };
+
   const getRoleBadgeVariant = (role) => {
     switch (role) {
+      case 'superadmin': return 'default';
       case 'admin': return 'destructive';
       case 'manager': return 'default';
       case 'cashier': return 'secondary';
@@ -252,7 +264,7 @@ const POSWithAuth = ({ config, children }) => {
                             {getRoleIcon(user.role)}
                             <span className="font-medium">{user.username}</span>
                             <Badge variant={getRoleBadgeVariant(user.role)} className="text-xs py-0 px-1">
-                              {user.role}
+                              {getRoleLabel(user.role)}
                             </Badge>
                           </div>
                           <span className="text-muted-foreground">{user.password}</span>

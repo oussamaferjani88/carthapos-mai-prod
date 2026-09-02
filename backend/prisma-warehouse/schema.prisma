@@ -1,0 +1,248 @@
+generator client {
+  provider = "prisma-client-js"
+  output   = "../prisma-warehouse-generated"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("WAREHOUSE_DATABASE_URL")
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Dimension Tables
+// ═══════════════════════════════════════════════════════════════
+
+model DimClient {
+  id           String     @id @default(cuid())
+  tenantId     String?    @unique
+  exportId     String?
+  name         String
+  businessType String?
+  createdAt    DateTime   @default(now())
+  factSales    FactSale[]
+  factSaleItems FactSaleItem[]
+  factKitchenOrderItems FactKitchenOrderItem[]
+
+  @@map("dim_clients")
+}
+
+model DimProduct {
+  id            String          @id @default(cuid())
+  tenantId      String?
+  exportId      String?
+  productId     String?
+  name          String
+  category      String?
+  family        String?
+  barcode       String?
+  manageStock   Int?
+  createdAt     DateTime        @default(now())
+  factSales     FactSale[]
+  factInventory FactInventory[]
+  factSaleItems FactSaleItem[]
+
+  @@map("dim_products")
+}
+
+model DimSupplier {
+  id         String   @id @default(cuid())
+  tenantId   String?
+  exportId   String?
+  supplierId String?
+  name       String
+  contact    String?
+  phone      String?
+  email      String?
+  createdAt  DateTime @default(now())
+
+  @@map("dim_suppliers")
+}
+
+model DimCustomer {
+  id           String    @id @default(cuid())
+  tenantId     String?
+  exportId     String?
+  customerId   String?
+  name         String
+  email        String?
+  phone        String?
+  address      String?
+  loyaltyPoints Int?
+  totalSpent   Float?
+  visitCount   Int?
+  lastVisitDate DateTime?
+  tags         String?
+  isActive     Int?
+  createdAt    DateTime  @default(now())
+  factSales    FactSale[]
+
+  @@map("dim_customers")
+}
+
+model DimTime {
+  id                Int                @id
+  date              DateTime           @unique
+  year              Int
+  quarter           Int
+  month             Int
+  day               Int
+  dayOfWeek         Int?
+  isWeekend         Boolean?
+  createdAt         DateTime           @default(now())
+  factSales         FactSale[]
+  factInventory     FactInventory[]
+  factAppointments  FactAppointment[]
+  factKitchenOrders FactKitchenOrder[]
+  factSaleItems     FactSaleItem[]
+  factKitchenOrderItems FactKitchenOrderItem[]
+
+  @@map("dim_time")
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Fact Tables
+// ═══════════════════════════════════════════════════════════════
+
+model FactSale {
+  id            String   @id @default(cuid())
+  tenantId      String?
+  exportId      String?
+  dimClientId   String?
+  dimProductId  String?
+  dimTimeId     Int?
+  dimCustomerId String?
+  saleId        String?
+  customerId    String?
+  total         Float
+  tax           Float?
+  discount      Float?
+  paymentMethod String?
+  transactionHour Int?
+  createdAt     DateTime @default(now())
+
+  dimClient   DimClient?   @relation(fields: [dimClientId], references: [id])
+  dimProduct  DimProduct?  @relation(fields: [dimProductId], references: [id])
+  dimTime     DimTime?     @relation(fields: [dimTimeId], references: [id])
+  dimCustomer DimCustomer? @relation(fields: [dimCustomerId], references: [id])
+
+  @@unique([exportId, saleId])
+  @@map("fact_sales")
+}
+
+model FactInventory {
+  id           String   @id @default(cuid())
+  tenantId     String?
+  exportId     String?
+  rowIndex     Int?
+  dimProductId String?
+  dimTimeId    Int?
+  productName  String?
+  stock        Int
+  price        Float?
+  timesSold    Int?
+  createdAt    DateTime @default(now())
+
+  dimProduct DimProduct? @relation(fields: [dimProductId], references: [id])
+  dimTime    DimTime?    @relation(fields: [dimTimeId], references: [id])
+
+  @@unique([exportId, rowIndex])
+  @@map("fact_inventory")
+}
+
+model FactAppointment {
+  id            String   @id @default(cuid())
+  tenantId      String
+  exportId      String
+  rowIndex      Int
+  dimTimeId     Int?
+  customerName  String
+  customerPhone String?
+  serviceId     String?
+  duration      Int?
+  status        String
+  createdAt     DateTime @default(now())
+
+  dimTime DimTime? @relation(fields: [dimTimeId], references: [id])
+
+  @@unique([exportId, rowIndex])
+  @@map("fact_appointments")
+}
+
+model FactKitchenOrder {
+  id          String   @id @default(cuid())
+  tenantId    String
+  exportId    String
+  rowIndex    Int
+  dimTimeId   Int?
+  orderId     String?
+  tableNumber Int?
+  items       String?
+  priority    String?
+  status      String
+  transactionHour Int?
+  startedAt   DateTime?
+  readyAt     DateTime?
+  completedAt DateTime?
+  createdAt   DateTime @default(now())
+
+  dimTime DimTime? @relation(fields: [dimTimeId], references: [id])
+
+  @@unique([exportId, rowIndex])
+  @@map("fact_kitchen_orders")
+}
+
+model FactSaleItem {
+  id            String   @id @default(cuid())
+  tenantId      String?
+  exportId      String?
+  dimClientId   String?
+  dimProductId  String?
+  dimTimeId     Int?
+  saleItemId    String?
+  saleId        String?
+  productId     String?
+  quantity      Int
+  unitPrice     Float?
+  lineTotal     Float?
+  vatRate       Float?
+  vatAmount     Float?
+  paymentMethod String?
+  productName   String?
+  category      String?
+  family        String?
+  transactionHour Int?
+  createdAt     DateTime @default(now())
+
+  dimClient  DimClient?  @relation(fields: [dimClientId], references: [id])
+  dimProduct DimProduct? @relation(fields: [dimProductId], references: [id])
+  dimTime    DimTime?    @relation(fields: [dimTimeId], references: [id])
+
+  @@unique([exportId, saleItemId])
+  @@map("fact_sale_items")
+}
+
+model FactKitchenOrderItem {
+  id                 String   @id @default(cuid())
+  tenantId           String?
+  exportId           String?
+  dimClientId        String?
+  dimTimeId          Int?
+  kitchenOrderItemId String?
+  orderId            String?
+  saleId             String?
+  productId          String?
+  productName        String?
+  quantity           Int
+  unitPrice          Float?
+  lineTotal          Float?
+  department         String?
+  preparationTime    Int?
+  transactionHour    Int?
+  createdAt          DateTime @default(now())
+
+  dimClient DimClient? @relation(fields: [dimClientId], references: [id])
+  dimTime   DimTime?   @relation(fields: [dimTimeId], references: [id])
+
+  @@unique([exportId, kitchenOrderItemId])
+  @@map("fact_kitchen_order_items")
+}

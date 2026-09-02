@@ -221,7 +221,7 @@ export const POSInventory = ({ config, modules, setNotification }) => {
   const hasFilters = search || filterFamily !== 'all' || filterStatus !== 'all';
 
   return (
-    <div className="space-y-4 p-6" style={{ fontFamily: config.fontFamily, fontSize: config.fontSize, color: textColor }}>
+    <div className="space-y-4 py-6" style={{ fontFamily: config.fontFamily, fontSize: config.fontSize, color: textColor }}>
       {/* HEADER */}
       <div className="flex items-center justify-between flex-wrap gap-2">
         <div>

@@ -1,18 +1,34 @@
-# PostgreSQL Database - defined in the databases section
+# Render deployment topology for the CarthaPos demo.
+# Services: backend (Docker) · frontend (static) · admin (static) · metabase (Docker)
+# Databases: carthapos-db (app) · carthapos-warehouse-db (BI warehouse) · carthapos-metabase-db (Metabase)
+
 databases:
   - name: carthapos-db
     databaseName: pos_system
-    plan: free
+    plan: starter
+
+  # BI data warehouse used by the ETL pipeline (Dim/Fact tables). Read by Metabase.
+  - name: carthapos-warehouse-db
+    databaseName: pos_system_warehouse
+    plan: starter
+
+  # Metabase's own application database (dashboards, settings, users).
+  - name: carthapos-metabase-db
+    databaseName: metabase
+    plan: starter
 
 services:
-  # Backend API (handles license management + POS generation)
+  # ======================================================================
+  # Backend API (license management + POS generation + BI + Metabase proxy)
+  # ======================================================================
   - type: web
     name: carthapos-backend
     runtime: docker
-    # Omit 'plan' field - free tier is selected during dashboard creation
     rootDir: .
     dockerContext: .
     dockerfilePath: backend/Dockerfile
+    plan: starter
+    healthCheckPath: /api/health
     envVars:
       - key: NODE_ENV
         value: production
@@ -22,14 +38,39 @@ services:
         fromDatabase:
           name: carthapos-db
           property: connectionString
+      - key: WAREHOUSE_DATABASE_URL
+        fromDatabase:
+          name: carthapos-warehouse-db
+          property: connectionString
+      # License signing keys (REQUIRED or backend refuses to start).
+      # Private key is the backend/config/license-private.pem value (base64/PEM inline).
+      - key: LICENSE_PRIVATE_KEY
+        sync: false
+      - key: LICENSE_PUBLIC_KEY
+        sync: false
       - key: JWT_SECRET
         generateValue: true
       - key: ENCRYPTION_KEY
         generateValue: true
+      - key: AUTH_REQUIRED
+        value: "false"
+      - key: CORS_ORIGINS
+        value: "https://carthapos-admin.onrender.com,https://carthapos.onrender.com"
       - key: FRONTEND_URL
         value: https://carthapos.onrender.com
       - key: ADMIN_URL
         value: https://carthapos-admin.onrender.com
+      # Metabase provisioning (backend calls Metabase REST API).
+      - key: METABASE_BASE_URL
+        value: https://carthapos-metabase.onrender.com
+      - key: METABASE_PUBLIC_URL
+        value: https://carthapos-metabase.onrender.com
+      - key: METABASE_EMBED_ENABLED
+        value: "true"
+      - key: METABASE_USER
+        sync: false
+      - key: METABASE_PASSWORD
+        sync: false
       - key: GITHUB_TOKEN
         sync: false
       - key: GITHUB_OWNER
@@ -40,26 +81,66 @@ services:
         value: /app/generated-pos
       - key: NODE_OPTIONS
         value: "--max-old-space-size=450"
-    healthCheckPath: /api/health
 
-  # Frontend (Public website - landing page, register, login)
+  # ======================================================================
+  # Public website (landing, register, login)
+  # ======================================================================
   - type: web
     name: carthapos-frontend
     runtime: static
     rootDir: frontend
-    buildCommand: npm install && npm run build
+    buildCommand: npm i -g pnpm && pnpm install && pnpm run build
     staticPublishPath: dist
     envVars:
       - key: VITE_API_URL
         value: https://carthapos-backend.onrender.com/api
 
-  # Admin Panel (For CarthaPos staff - manage licenses, generate POS)
+  # ======================================================================
+  # Admin panel (CarthaPos staff)
+  # ======================================================================
   - type: web
     name: carthapos-admin
     runtime: static
     rootDir: admin
-    buildCommand: npm install && npm run build
+    buildCommand: npm i -g pnpm && pnpm install && pnpm run build
     staticPublishPath: dist
     envVars:
       - key: VITE_API_URL
         value: https://carthapos-backend.onrender.com/api
+
+  # ======================================================================
+  # Metabase (BI dashboards + admin analytics + client-embedded dashboards)
+  # ======================================================================
+  - type: web
+    name: carthapos-metabase
+    runtime: docker
+    dockerfilePath: metabase/Dockerfile
+    rootDir: .
+    dockerContext: .
+    plan: starter
+    envVars:
+      - key: MB_DB_TYPE
+        value: postgres
+      - key: MB_DB_DBNAME
+        value: metabase
+      - key: MB_DB_HOST
+        fromDatabase:
+          name: carthapos-metabase-db
+          property: host
+      - key: MB_DB_PORT
+        fromDatabase:
+          name: carthapos-metabase-db
+          property: port
+      - key: MB_DB_USER
+        fromDatabase:
+          name: carthapos-metabase-db
+          property: user
+      - key: MB_DB_PASS
+        fromDatabase:
+          name: carthapos-metabase-db
+          property: password
+      - key: MB_PORT
+        value: "3000"
+      # Optional but recommended once you create the embedding secret in Metabase UI.
+      - key: MB_EMBEDDING_SECRET
+        sync: false

@@ -1,11 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { Gift, CreditCard, Plus, Check, X, DollarSign, Users, Calendar, BarChart3 } from 'lucide-react';
-import { useThemeApplier } from '../hooks/useThemeApplier';
 import { getCurrencySymbol } from '../utils/currency';
+import { usePermissions } from '../contexts/PermissionsContext';
 
 const GiftCards = () => {
-  useThemeApplier();
-
+  const { canCreate, canUpdate } = usePermissions('gift_cards');
   const formatCurrency = (amount) => {
     const val = parseFloat(amount) || 0;
     return `${val.toFixed(2)} ${getCurrencySymbol('TND')}`;
@@ -135,6 +134,7 @@ const GiftCards = () => {
   };
 
   const handleCreateGiftCard = () => {
+    if (!canCreate) { alert("Action non autorisée : accès en lecture seule sur les cartes cadeaux."); return; }
     const expiryDate = new Date();
     expiryDate.setMonth(expiryDate.getMonth() + parseInt(newCard.expiryMonths));
     
@@ -178,6 +178,7 @@ const GiftCards = () => {
   };
 
   const handleRedeemCard = (cardId, amount) => {
+    if (!canUpdate) { alert("Action non autorisée : accès en lecture seule sur les cartes cadeaux."); return; }
     const card = giftCards.find(c => c.id === cardId);
     if (!card || card.currentValue < amount) return;
 
@@ -239,13 +240,15 @@ const GiftCards = () => {
             Gérez l'émission et l'utilisation des cartes cadeaux
           </p>
         </div>
-        <button
-          onClick={() => setShowNewCardForm(true)}
-          className="px-4 py-2 bg-primary text-primary-foreground rounded-md hover:bg-primary/90 flex items-center gap-2"
-        >
-          <Plus className="w-4 h-4" />
-          Nouvelle Carte Cadeau
-        </button>
+        {canCreate && (
+          <button
+            onClick={() => setShowNewCardForm(true)}
+            className="px-4 py-2 bg-primary text-primary-foreground rounded-md hover:bg-primary/90 flex items-center gap-2"
+          >
+            <Plus className="w-4 h-4" />
+            Nouvelle Carte Cadeau
+          </button>
+        )}
       </div>
 
       {/* Stats Cards */}

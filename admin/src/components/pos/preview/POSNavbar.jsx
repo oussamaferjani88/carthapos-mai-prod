@@ -221,6 +221,8 @@ export const POSNavbar = ({
     ? renderTopNavbar()
     : renderOverlayNavbar();
 
+  const isVertical = config.navbarPosition === 'left' || config.navbarPosition === 'right';
+
   return (
     <DraggableComponent
       id="navbar"
@@ -230,8 +232,9 @@ export const POSNavbar = ({
       style={{
         position: 'relative',
         zIndex: 30,
-        height: '100%',
         flexShrink: 0,
+        height: isVertical ? '100%' : 'auto',
+        // Dans flex-row, order:2 place la navbar après le contenu → côté droit
         ...(config.navbarPosition === 'right' ? { order: 2 } : {}),
       }}
     >

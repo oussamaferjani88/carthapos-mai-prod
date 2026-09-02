@@ -1,4 +1,5 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
+import { usePermissions } from '../contexts/PermissionsContext';
 import { 
   Calendar, 
   Clock, 
@@ -38,6 +39,15 @@ import {
 import { getCurrencySymbol } from '../utils/currency';
 
 export default function Appointments() {
+  const { canCreate, canUpdate, canDelete } = usePermissions('appointments');
+  const permsRef = useRef({ canCreate, canUpdate, canDelete });
+  permsRef.current = { canCreate, canUpdate, canDelete };
+  const permGuard = (action) => {
+    const p = permsRef.current;
+    const ok = action === 'create' ? p.canCreate : action === 'delete' ? p.canDelete : p.canUpdate;
+    if (!ok) alert("Action non autorisée : vous avez un accès en lecture seule sur les rendez-vous.");
+    return ok;
+  };
   const [appointments, setAppointments] = useState([]);
   const [customers, setCustomers] = useState([]);
   const [services, setServices] = useState([]);
@@ -146,6 +156,7 @@ export default function Appointments() {
       alert('Veuillez remplir tous les champs obligatoires');
       return;
     }
+    if (!permGuard(editingAppointment ? 'update' : 'create')) return;
 
     try {
       if (editingAppointment) {
@@ -153,7 +164,17 @@ export default function Appointments() {
         console.log('Update appointment:', formData);
       } else {
         if (window.electronAPI) {
-          await window.electronAPI.addAppointment(formData);
+          const selectedCustomer = customers.find((c) => c.id === formData.customer_id);
+          const selectedService = services.find((s) => s.name === formData.service_name);
+          await window.electronAPI.addAppointment({
+            customerId: formData.customer_id,
+            customerName: selectedCustomer?.name || '',
+            customerPhone: selectedCustomer?.phone || '',
+            serviceId: selectedService?.id || null,
+            appointmentDate: formData.appointment_date,
+            notes: formData.notes,
+            status: 'scheduled',
+          });
         }
       }
       
@@ -181,6 +202,7 @@ export default function Appointments() {
   };
 
   const updateAppointmentStatus = async (appointmentId, newStatus) => {
+    if (!permGuard('update')) return;
     try {
       if (window.electronAPI) {
         await window.electronAPI.updateAppointmentStatus(appointmentId, newStatus);
@@ -293,10 +315,12 @@ export default function Appointments() {
             Gestion du planning et des rendez-vous clients
           </p>
         </div>
-        <Button onClick={openCreateDialog}>
-          <Plus className="mr-2 h-4 w-4" />
-          Nouveau rendez-vous
-        </Button>
+        {canCreate && (
+          <Button onClick={openCreateDialog}>
+            <Plus className="mr-2 h-4 w-4" />
+            Nouveau rendez-vous
+          </Button>
+        )}
       </div>
 
       {/* Date Selector */}

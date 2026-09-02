@@ -1,0 +1,381 @@
+===========================================================================
+CHAPTER 5 - Release 2: Generation Engine and Administration Platform (chapitre5.tex)
+Figures to create: 9
+===========================================================================
+
+
+FIGURE 1: fig:usecase-sprint3
+-----------------------------------------------------------
+Type: UML Use-Case Diagram
+Filename: figures/ch5-usecase-sprint3.png
+Caption: Use-case diagram scoped to Sprint 3: POS generation and configuration
+
+Description:
+Draw a UML use-case diagram for Sprint 3 scope.
+
+ACTORS:
+  - Operator (administrator)
+  - Client (business owner - both have access to the same generator)
+
+SYSTEM BOUNDARY: Sprint 3 - POS Generator and Configuration
+
+USE CASES:
+  - Configure Generation (set business parameters)
+  - Select Sector (restaurant, cafe, retail, bakery, pharmacy, beauty/salon)
+  - Select Modules (enable/disable from the module catalog)
+  - Configure Theme (primaryColor, secondaryColor, accentColor, logo)
+  - Preview Configuration (view before generating)
+  - Generate POS (trigger the 8-stage pipeline)
+  - Download Installer (.exe output)
+
+Both actors connect to all use cases - the generator is shared.
+CONNECT: Operator -- all UCs, Client -- all UCs
+
+
+===========================================================================
+
+
+FIGURE 2: fig:pos-generation-pipeline
+-----------------------------------------------------------
+Type: Pipeline / Flow Diagram
+Filename: figures/ch5-pos-generation-pipeline.png
+Caption: Design of the CarthaPOS POS generation pipeline
+
+Description:
+Draw the 8-stage generation pipeline as a horizontal or vertical flow.
+Each stage is a box with input/output annotations.
+
+STAGE 1: License Validation
+  Input: licenseKey, machineFingerprint
+  Process: Verify Ed25519 signature, check expiry, check machine binding
+  Output: validated license payload
+
+STAGE 2: Directory Initialization
+  Input: outputPath, businessName
+  Process: Create output directory structure
+  Output: empty project skeleton
+
+STAGE 3: Template Copy
+  Input: pos-template/ source
+  Process: Copy Electron template to output directory
+  Output: full template copy
+
+STAGE 4: Module Filtering
+  Input: licenseModules (enabled/disabled list)
+  Process: Remove code for disabled modules, update imports
+  Output: filtered template with only enabled modules
+
+STAGE 5: Dependency Installation
+  Input: package.json from template
+  Process: npm install in output directory
+  Output: node_modules installed
+
+STAGE 6: Theme Customization
+  Input: LicenseConfiguration (colors, logo, businessName)
+  Process: Inject CSS variables, replace logo, update config files
+  Output: themed application
+
+STAGE 7: File Patching
+  Input: license payload, sector config, client info
+  Process: Inject license into POS code, patch database config
+  Output: configured application
+
+STAGE 8: Build
+  Input: configured application
+  Process: electron-builder (optional asar, optional installer)
+  Output: .exe installer or portable app
+
+Use numbered boxes connected by arrows. Add a decision diamond after
+stage 1 (valid license? yes -> continue, no -> abort).
+Add a decision after stage 8 (build success? yes -> expose download, no -> error).
+
+
+===========================================================================
+
+
+FIGURE 3: fig:classdiagram-sprint3
+-----------------------------------------------------------
+Type: UML Class Diagram
+Filename: figures/ch5-classdiagram-sprint3.png
+Caption: Licensing and configuration class diagram for Sprint 3
+
+Description:
+Draw a UML class diagram for the Prisma models introduced/extended in Sprint 3.
+
+CLASSES:
+
+  License
+    - id, clientId (FK), licenseKey, sector, licenseType
+    - (SUBSCRIPTION or LIFETIME)
+    - expirationDate, isActive, machineId
+    - bindingType (default MACHINE)
+    - isActivated, activationCount
+    - transferCount, maxTransfers
+    - status (LicenseStatus enum)
+    - signature, signedLicensePayload, publicKeyFingerprint
+
+  LicenseConfiguration
+    - id, licenseId (unique FK)
+    - businessName, logo, primaryColor, secondaryColor, accentColor
+    - 50+ UI/theme fields
+    - rawConfig (Json), posConfigVersion
+
+  Module
+    - id, name (unique), displayName, description, category, isCore
+
+  LicenseModule (join table)
+    - licenseId (FK), moduleId (FK), isEnabled
+    - Unique: [licenseId, moduleId]
+
+  UserPosConfiguration
+    - id, userId (FK), licenseId (unique FK)
+    - businessName, sector, outputPath
+    - buildStatus, lastBuiltAt
+
+  LicenseActivationHistory
+    - id, licenseId (FK), action, fromStatus, toStatus
+    - details (Json), performedBy, performedAt
+
+  LicenseValidationLog
+    - id, licenseId (FK), isValid, reason
+    - (LicenseFailureReason enum)
+    - status, details (Json), validatedAt
+
+  LicenseTransferHistory
+    - id, licenseId (FK), transferType
+    - fromMachineFingerprint, toMachineFingerprint
+    - fromUsbDeviceId, toUsbDeviceId
+    - authorizedBy, authorizedAt, details (Json)
+
+RELATIONSHIPS:
+  License 1--1 LicenseConfiguration
+  License 1--N LicenseModule N--1 Module
+  License 1--N LicenseActivationHistory
+  License 1--N LicenseValidationLog
+  License 1--N LicenseTransferHistory
+  User 1--1 UserPosConfiguration N--1 License
+
+
+===========================================================================
+
+
+FIGURE 4: fig:pos-generator-screenshot
+-----------------------------------------------------------
+Type: Screenshot
+Filename: figures/ch5-pos-generator-screenshot.png
+Caption: CarthaPOS POS generation and configuration interface
+
+Description:
+Take a screenshot of the administration interface showing the POS
+generation wizard. The screenshot should show:
+
+  - The sector selection dropdown or cards
+  - The module filtering list with enable/disable toggles
+  - The theme configuration (color pickers, logo upload)
+  - The Generate button
+  - Optionally the build status/progress area
+
+File: admin/src/pages/PosGenerator.jsx or similar
+Crop to show the full generation wizard interface.
+Add a thin border around the screenshot.
+
+
+===========================================================================
+
+
+FIGURE 5: fig:usecase-sprint4
+-----------------------------------------------------------
+Type: UML Use-Case Diagram
+Filename: figures/ch5-usecase-sprint4.png
+Caption: Use-case diagram scoped to Sprint 4: administration dashboard
+
+Description:
+Draw a UML use-case diagram for Sprint 4 scope.
+
+ACTOR:
+  - Operator (administrator)
+
+SYSTEM BOUNDARY: Sprint 4 - Administration Dashboard
+
+USE CASES:
+  GENERAL:
+    - View Dashboard (overview stats)
+    - View Reports
+
+  CLIENT MANAGEMENT:
+    - Create Client
+    - Edit Client
+    - Delete Client
+    - View Client Details
+
+  LICENSE MANAGEMENT:
+    - Create License
+    - Configure License Modules
+    - Configure License Theme
+    - Activate License
+    - Transfer License
+    - Suspend License
+    - Revoke License
+
+  MODULE MANAGEMENT:
+    - View Module Catalog
+    - Manage Modules
+
+  USER MANAGEMENT (super-admin only):
+    - Create User
+    - Edit User
+    - Assign Permissions
+    - Delete User
+
+  BI OPERATIONS:
+    - View BI Requests
+    - Assign BI Specialist
+    - Import BI Data
+    - View BI History
+
+CONNECT: Operator -- all UCs
+
+
+===========================================================================
+
+
+FIGURE 6: fig:admin-client-sequence
+-----------------------------------------------------------
+Type: UML Sequence Diagram
+Filename: figures/ch5-admin-client-sequence.png
+Caption: Sequence of client management in the administration interface
+
+Description:
+Draw a UML sequence diagram for a client management operation (e.g., create client).
+
+LIFELINES:
+  Operator -> Admin Frontend -> Backend API -> Middleware -> Client Service -> Prisma Client -> PostgreSQL
+
+SEQUENCE (Create Client):
+
+  1. Operator fills in client form (name, email, phone, address)
+  2. Admin Frontend sends POST /api/clients
+  3. Backend API receives request
+  4. Middleware: JWT verification (extract userId from token)
+  5. Middleware: Permission check (clients.create)
+  6. Client Service: validate input data
+  7. Client Service: check email uniqueness
+  8. Prisma Client: INSERT into clients table
+  9. PostgreSQL: execute INSERT
+  10. Prisma Client: return created client
+  11. Client Service: format response
+  12. Backend API: return 201 with client object
+  13. Admin Frontend: update client list, show success toast
+
+ERROR BRANCH (if email already exists):
+  Step 7 detects duplicate -> return 409 Conflict
+
+Use activation bars. Show middleware as a combined activation.
+Use alt fragment for the error branch.
+
+
+===========================================================================
+
+
+FIGURE 7: fig:classdiagram-sprint4
+-----------------------------------------------------------
+Type: UML Class Diagram
+Filename: figures/ch5-classdiagram-sprint4.png
+Caption: Client management class diagram for Sprint 4
+
+Description:
+Draw a UML class diagram for the Sprint 4 models focused on client management.
+
+CLASSES:
+
+  Client
+    - id, name, email (unique), phone, address
+    - userId (unique FK -> User)
+    - Associations: has many Licenses, has many BiRequests,
+      has many BiDashboards, has many BiNotifications
+
+  User
+    - id, username, email, role, isActive
+    - Associations: has many UserPermissions
+
+  UserPosConfiguration
+    - id, userId (FK), licenseId (unique FK)
+    - businessName, sector, outputPath
+    - buildStatus, lastBuiltAt
+
+  License
+    - (see Sprint 3 class diagram for full attributes)
+    - Associations: belongs to Client, has LicenseConfiguration
+
+  LicenseConfiguration
+    - (see Sprint 3)
+
+RELATIONSHIPS:
+  Client 1--1 User (optional, via userId)
+  Client 1--N License
+  Client 1--N UserPosConfiguration (via User)
+  User 1--1 UserPosConfiguration N--1 License
+
+
+===========================================================================
+
+
+FIGURE 8: fig:admin-navigation
+-----------------------------------------------------------
+Type: Navigation / Sitemap Diagram
+Filename: figures/ch5-admin-navigation.png
+Caption: Functional organization of the CarthaPOS administration interface
+
+Description:
+Draw a tree/sitemap diagram showing the administration frontend navigation.
+Group items by sidebar section as defined in Layout.jsx.
+
+ROOT: CarthaPOS Administration
+
+SECTION 1 - General:
+  - Dashboard (/)  [visible to all]
+  - Clients (/clients)  [requires: clients.view]
+  - Licenses (/licenses)  [requires: licenses.view]
+  - Modules (/modules)  [requires: modules.view]
+  - Reports (/reports)  [requires: reports.view]
+
+SECTION 2 - POS:
+  - POS Generator (/pos-generator)  [visible to all]
+
+SECTION 3 - BI Analytics:
+  - BI Requests (/bi-requests)  [requires: bi.requests]
+  - Assignments (/bi-assignments)  [requires: bi.assignments]
+  - Notifications (/bi-notifications)  [requires: bi.notifications]
+  - BI Import (/bi-wizard)  [requires: bi.import]
+  - BI History (/bi-upload-portal)  [requires: bi.history]
+
+SECTION 4 - Administration:
+  - User Management (/user-management)  [SUPER_ADMIN only]
+  - USB Manager (/usb-manager)  [requires: usb.view]
+
+Use a sidebar-style layout or a tree diagram.
+Show permission keys as small labels next to each item.
+Use lock icons for permission-gated items.
+
+
+===========================================================================
+
+
+FIGURE 9: fig:admin-interface-screenshot
+-----------------------------------------------------------
+Type: Screenshot
+Filename: figures/ch5-admin-interface-screenshot.png
+Caption: CarthaPOS administration interface
+
+Description:
+Take a screenshot of the administration interface showing the main
+dashboard or a management page. The screenshot should show:
+
+  - The sidebar navigation with the 4 sections
+  - The main content area (e.g., client list or dashboard stats)
+  - The top bar with user info and logout
+  - Permission-gated items visible/hidden based on role
+
+File: admin/src/pages/ or admin/src/components/
+Crop to show the full browser window with the admin interface.
+Add a thin border around the screenshot.

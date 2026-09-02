@@ -1,6 +1,4 @@
-import { Card, CardHeader, CardTitle, CardContent } from '../ui/card';
-import { Badge } from '../ui/badge';
-import { Palette, Check } from 'lucide-react';
+import { Check } from 'lucide-react';
 
 interface ThemeSelectorProps {
   formData: any;
@@ -64,6 +62,8 @@ const themes = [
   },
 ];
 
+// Ported from admin/src/components/customizer/ThemeSelector.jsx (flat button
+// list, no Card chrome, matching the rest of the redesigned customizer panels)
 const ThemeSelector = ({ formData, setFormData }: ThemeSelectorProps) => {
   const currentTheme = formData?.configuration?.themeId || null;
 
@@ -75,61 +75,42 @@ const ThemeSelector = ({ formData, setFormData }: ThemeSelectorProps) => {
   };
 
   return (
-    <Card className="border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 shadow-sm">
-      <CardHeader className="pb-1.5 pt-2.5 px-3">
-        <CardTitle className="text-xs flex items-center text-gray-900 dark:text-gray-100">
-          <Palette className="w-3.5 h-3.5 mr-1.5" />
-          Thèmes prédéfinis
-        </CardTitle>
-      </CardHeader>
-      <CardContent className="space-y-1.5 px-3 pb-3">
-        <div className="grid grid-cols-1 gap-1.5">
-          {themes.map((theme) => {
-            const isSelected = currentTheme === theme.id;
-            return (
-              <button
-                key={theme.id}
-                onClick={() => applyTheme(theme)}
-                className={`p-2 border rounded-lg text-left group transition-all ${
-                  isSelected
-                    ? 'border-primary bg-primary/5 ring-2 ring-primary/20'
-                    : 'border-border hover:bg-accent hover:border-primary/50'
-                }`}
-              >
-                <div className="flex items-start space-x-2">
-                  <div className="flex-shrink-0">
-                    <div
-                      className="w-8 h-8 rounded-lg border-2 border-white shadow-sm flex items-center justify-center"
-                      style={{ backgroundColor: theme.preview }}
-                    >
-                      {isSelected && <Check className="w-4 h-4 text-white" />}
-                    </div>
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center space-x-1.5">
-                      <div className="font-medium text-sm">{theme.name}</div>
-                      {isSelected && (
-                        <Badge variant="default" className="text-[10px] px-1.5 py-0">Actuel</Badge>
-                      )}
-                    </div>
-                    <div className="text-xs text-muted-foreground leading-tight">{theme.description}</div>
-                  </div>
-                </div>
-              </button>
-            );
-          })}
-        </div>
-
-        <div className="mt-1.5 p-1.5 bg-blue-50 dark:bg-blue-950/20 rounded-lg border border-blue-200 dark:border-blue-800">
-          <div className="text-xs">
-            <p className="font-medium text-blue-800 dark:text-blue-200 mb-0.5 text-[10px]">💡 Conseil</p>
-            <p className="text-blue-700 dark:text-blue-300 text-[9px] leading-tight">
-              Choisissez un thème qui correspond à l'ambiance de votre commerce.
-            </p>
-          </div>
-        </div>
-      </CardContent>
-    </Card>
+    <div className="space-y-1.5">
+      {themes.map((theme) => {
+        const isSelected = currentTheme === theme.id;
+        return (
+          <button
+            key={theme.id}
+            onClick={() => applyTheme(theme)}
+            className={`
+              w-full flex items-center gap-2.5 px-2.5 py-2 rounded-md border text-left transition-colors
+              ${isSelected
+                ? 'border-blue-300 bg-blue-50/60'
+                : 'border-border bg-white hover:bg-accent/60 hover:border-blue-200'
+              }
+            `}
+          >
+            <span
+              className="w-5 h-5 rounded border border-black/5 shadow-sm shrink-0"
+              style={{ backgroundColor: theme.preview }}
+            />
+            <span className="flex-1 min-w-0">
+              <span className={`block text-[13px] leading-tight ${isSelected ? 'text-blue-900 font-medium' : 'font-medium'}`}>
+                {theme.name}
+              </span>
+              <span className="block text-[11px] text-muted-foreground leading-tight truncate">
+                {theme.description}
+              </span>
+            </span>
+            {isSelected && (
+              <span className="flex items-center justify-center w-4 h-4 rounded-full bg-blue-600 shrink-0">
+                <Check className="w-3 h-3 text-white" strokeWidth={3} />
+              </span>
+            )}
+          </button>
+        );
+      })}
+    </div>
   );
 };
 

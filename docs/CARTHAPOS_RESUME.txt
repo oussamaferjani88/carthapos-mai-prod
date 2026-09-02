@@ -1,0 +1,104 @@
+================================================================================
+RESUME — CARTHAPOS & LE RAPPORT (Mémoire PFE)
+================================================================================
+
+1) QU'EST-CE QUE CARTHAPOS ?
+--------------------------------------------------------------------------------
+CarthaPOS est une plateforme qui génère des applications de caisse (POS)
+de bureau, personnalisées et verrouillées par licence, pour des clients :
+restaurants, cafés, boulangeries, commerces de détail (retail), pharmacies,
+salons et instituts de beauté — plus un backend qui gère ces clients /
+licences / modules, et une couche BI/analytics sur les données de vente.
+
+Architecture : 4 projets indépendants dans un même monorepo.
+
+  Répertoire  | Rôle
+  ------------|-----------------------------------------------------------------
+  backend/    | API unique : CRUD clients/licences, génération du POS,
+               | vérification USB des licences, sous-système BI/ETL.
+               | (Node/Express + Prisma + PostgreSQL)
+  admin/      | Panneau interne du staff : création de clients, configuration &
+               | génération des builds POS, gestion licences/utilisateurs/BI.
+               | (React + Vite + shadcn, pnpm)
+  pos-template/| L'app modèle Electron copiée puis personnalisée par client
+               | (thème, modules, licence) pour produire un POS généré.
+               | (Electron + React + SQLite, pnpm)
+  frontend/   | Site marketing public (landing / inscription / connexion).
+               | (React + Vite + TS)
+
+Flux principal :
+  L'admin configure un client (thème + modules)
+  -> POST /api/pos/generate
+  -> les générateurs copient pos-template/ et le personnalisent
+  -> le build .exe Windows se fait sur GitHub Actions
+  -> l'installeur est renvoyé à l'admin.
+  Les licences sont chiffrées (AES + HMAC) et vérifiées via USB à l'exécution.
+
+Deux bases de données :
+  - base principale pos_system (modèles SaaS + runtime)
+  - entrepôt BI séparé pos_system_warehouse (modèles Dim*/Fact*),
+    chargé par l'ETL en 3 phases réparties sur les deux bases.
+
+
+2) CONTENU DU RAPPORT (Mémoire PFE en LaTeX)
+--------------------------------------------------------------------------------
+Mémoire d'ingénierie en français (classe extreport), méthode Agile (Scrum,
+6 sprints). Liste des chapitres et de leur contenu :
+
+  Chapitre 1 — "Project Study" (Étude du projet)
+    Cadrage : organisation hôte, contexte du projet (besoin de systèmes de
+    caisse personnalisés et verrouillés par licence), énoncé du problème,
+    objectifs, solution proposée (la plateforme CarthaPOS), périmètre du projet
+    (secteurs métier supportés) et méthodologie de projet.
+
+  Chapitre 2 — "State of the Art" (État de l'art)
+    Étude de marché : vue d'ensemble du marché POS, analyse comparative des
+    concurrents (10 benchmarkés), modèles de distribution et de licence,
+    leçons / inspiration tirées, et le positionnement / écart de CarthaPOS
+    face au marché.
+
+  Chapitre 3 — "Analysis and Specification" (Analyse et spécification)
+    Le cœur fonctionnel : analyse du contexte système, architecture
+    fonctionnelle, analyse des parties prenantes, analyse des cas d'utilisation,
+    exigences fonctionnelles et non fonctionnelles, piles technologiques,
+    flux métier, cycle de vie des données, méthodologie BI, méthodologie Scrum
+    (~51 user stories en backlogs de sprint), et traçabilité des exigences.
+
+  Chapitre 4 — "Release 1: Foundation and POS Core"
+    Conception des fondations : vue d'ensemble de l'architecture globale,
+    conception de la persistance des données (schéma de la base principale),
+    Sprint 1 (Fondations techniques & Architecture) et Sprint 2
+    (Cœur opérationnel du POS & Modules métier).
+
+  Chapitre 5 — "Release 2: Generation Engine and Administration Platform"
+    Sprint 3 (Moteur de génération configurable du POS) et Sprint 4
+    (Plateforme d'administration centralisée) : le générateur de POS,
+    le modèle pos-template, la personnalisation thème/module,
+    et le backend d'administration.
+
+  Chapitre 6 — "Release 3: Security, RBAC and Business Intelligence"
+    Conception multi-tenant, Sprint 5 (Sécurité, Contrôle d'accès & Intégrité
+    des licences) et Sprint 6 (Intégration/Validation/Déploiement de la
+    plateforme), plus la conception et l'implémentation BI
+    (ETL -> entrepôt -> Metabase) avec la séparation des bases de données
+    mise en œuvre.
+
+  Chapitre 7 — "Build Automation, Containerization and Deployment"
+    Architecture DevOps, gestion du code source (Git/GitHub), pipeline CI
+    (GitHub Actions pour la compilation .exe), conteneurisation (Docker/Render),
+    middleware de sécurité, tests, et déploiement.
+
+  Chapitre 8 — "Conclusion and Perspectives"
+    Synthèse du travail : revue de l'intégration système, résultats & évaluation,
+    réalisations, limites et perspectives d'avenir.
+
+  En outre :
+    - Introduction / Introduction générale
+    - Résumé (abstract)
+    - Annexe — Structure du dépôt (chapitre listant l'organisation du monorepo)
+
+Nota : la copie de travail active du rapport se trouve dans le dossier
+`LaTeX Memoire Template - IT Business School 2026 (1)` (fichiers sources
+des chapitres) ; le dossier `LaTeX Memoire Template - IT Business School 2026`
+ne contient pour l'instant qu'un fichier `nul`.
+================================================================================

@@ -1,0 +1,16 @@
+{
+  "name": "carthapos-pfe-presentation",
+  "version": "1.0.0",
+  "private": true,
+  "description": "CarthaPOS Final Year Engineering Project (PFE) defense presentation generator",
+  "type": "commonjs",
+  "scripts": {
+    "build": "node generate-presentation.js"
+  },
+  "license": "UNLICENSED",
+  "dependencies": {
+    "pdf-lib": "^1.17.1",
+    "pptxgenjs": "^3.12.0",
+    "sharp": "^0.35.4"
+  }
+}

@@ -1,0 +1,151 @@
+\begin{tikzpicture}[
+    every node/.style={font=\small},
+    ll/.style={draw, rectangle, minimum width=2.6cm, minimum height=0.7cm, align=center, fill=white, thick},
+    msg/.style={->, thick, font=\footnotesize},
+    ret/.style={->, dashed, thick, font=\footnotesize},
+    act/.style={thin, dashed, gray},
+    frag/.style={draw, thick, inner sep=5pt},
+    fraglbl/.style={font=\footnotesize\itseries, anchor=south west},
+]
+
+% ========== LIFELINE BOXES (top row) ==========
+\def\d{3.2}
+
+\node[ll] (L1) at (0,       0) {Cashier / POS User};
+\node[ll] (L2) at (\d,      0) {POS UI\\(React)};
+\node[ll] (L3) at (2*\d,    0) {Business Logic\\(sale module)};
+\node[ll] (L4) at (3*\d,    0) {ElectronDBManager\\(SQLite)};
+\node[ll] (L5) at (4*\d,    0) {Kitchen Display};
+
+% ========== ACTOR (stick figure above Cashier) ==========
+\draw[thick] (0,-1.4) circle (0.32cm);
+\draw[thick] (0,-1.72) -- (0,-2.3);
+\draw[thick] (-0.45,-1.95) -- (0.45,-1.95);
+\draw[thick] (0,-2.3) -- (-0.35,-2.9);
+\draw[thick] (0,-2.3) -- ( 0.35,-2.9);
+\node[font=\small\bfseries] at (0,-3.15) {Cashier};
+
+% ========== VERTICAL LIFELINES ==========
+\def\ys{-0.35}
+\def\yb{-29}
+
+\foreach \x in {0,\d,2*\d,3*\d,4*\d} {
+    \draw[act] (\x,\ys) -- (\x,\yb);
+}
+
+% ========== MESSAGE SEQUENCE ==========
+% Coordinates: y1 = -3.8 (first message), spacing alternates 1.5 / 1.2
+
+% 1. Cashier -> POS UI: Scan product / add to cart
+\def\yA{-3.8}
+\draw[msg] (0,\yA) -- node[above,sloped,font=\footnotesize] {Scan product / add to cart} (\d,\yA);
+
+% 2. POS UI -> Business Logic: processSale(cart, paymentMethod)
+\def\yB{-5.3}
+\draw[msg] (\d,\yB) -- node[above,sloped,font=\footnotesize] {processSale(cart, paymentMethod)} (2*\d,\yB);
+
+% 3. Business Logic -> ElectronDBManager: beginTransaction()
+\def\yC{-6.8}
+\draw[msg] (2*\d,\yC) -- node[above,sloped,font=\footnotesize] {beginTransaction()} (3*\d,\yC);
+
+% 4. ElectronDBManager --> Business Logic: transaction started
+\def\yD{-8.0}
+\draw[ret] (3*\d,\yD) -- node[above,sloped,font=\footnotesize] {transaction started} (2*\d,\yD);
+
+% 5. Business Logic -> ElectronDBManager: insertOrder(orderData)
+\def\yE{-9.5}
+\draw[msg] (2*\d,\yE) -- node[above,sloped,font=\footnotesize] {insertOrder(orderData)} (3*\d,\yE);
+
+% 6. ElectronDBManager --> Business Logic: orderId returned
+\def\yF{-10.7}
+\draw[ret] (3*\d,\yF) -- node[above,sloped,font=\footnotesize] {orderId returned} (2*\d,\yF);
+
+% 7. Business Logic -> ElectronDBManager: insertOrderItems(items[])
+\def\yG{-12.2}
+\draw[msg] (2*\d,\yG) -- node[above,sloped,font=\footnotesize] {insertOrderItems(items[])} (3*\d,\yG);
+
+% 8. ElectronDBManager --> Business Logic: items saved
+\def\yH{-13.4}
+\draw[ret] (3*\d,\yH) -- node[above,sloped,font=\footnotesize] {items saved} (2*\d,\yH);
+
+% 9. Business Logic -> ElectronDBManager: updateProductStock(productId, newQty)
+\def\yI{-14.9}
+\draw[msg] (2*\d,\yI) -- node[above,sloped,font=\footnotesize] {updateProductStock(productId, newQty)} (3*\d,\yI);
+
+% 10. ElectronDBManager --> Business Logic: stock updated
+\def\yJ{-16.1}
+\draw[ret] (3*\d,\yJ) -- node[above,sloped,font=\footnotesize] {stock updated} (2*\d,\yJ);
+
+% ---- ALT: [customer identified] ----
+\def\yK{-17.6}
+\def\yL{-18.8}
+\def\yM{-20.0}
+
+% 11. Business Logic -> ElectronDBManager: updateLoyaltyPoints(customerId, points)
+\draw[msg] (2*\d,\yK) -- node[above,sloped,font=\footnotesize] {updateLoyaltyPoints(customerId, points)} (3*\d,\yK);
+% 12. ElectronDBManager --> Business Logic: loyalty updated
+\draw[ret] (3*\d,\yL) -- node[above,sloped,font=\footnotesize] {loyalty updated} (2*\d,\yL);
+
+% Alt frame around messages 11-12
+\draw[frag] (2*\d-0.8,\yK+0.4) rectangle (3*\d+0.8,\yL-0.25);
+\node[fraglbl] at (2*\d-0.7,\yK+0.45) {[customer identified]};
+
+% ---- ALT: [table occupied] ----
+\def\yN{-21.5}
+\def\yO{-22.7}
+
+% 13. Business Logic -> ElectronDBManager: updateTableStatus(tableNumber, 'available')
+\draw[msg] (2*\d,\yN) -- node[above,sloped,font=\footnotesize] {updateTableStatus(tableNumber, 'available')} (3*\d,\yN);
+% 14. ElectronDBManager --> Business Logic: table freed
+\draw[ret] (3*\d,\yO) -- node[above,sloped,font=\footnotesize] {table freed} (2*\d,\yO);
+
+% Alt frame around messages 13-14
+\draw[frag] (2*\d-0.8,\yN+0.4) rectangle (3*\d+0.8,\yO-0.25);
+\node[fraglbl] at (2*\d-0.7,\yN+0.45) {[table occupied]};
+
+% 15. Business Logic -> ElectronDBManager: createKitchenOrders(departments[])
+\def\yP{-24.2}
+\draw[msg] (2*\d,\yP) -- node[above,sloped,font=\footnotesize] {createKitchenOrders(departments[])} (3*\d,\yP);
+
+% 16. ElectronDBManager --> Business Logic: kitchen orders saved
+\def\yQ{-25.4}
+\draw[ret] (3*\d,\yQ) -- node[above,sloped,font=\footnotesize] {kitchen orders saved} (2*\d,\yQ);
+
+% 17. Business Logic -> Kitchen Display: notifyNewOrders(orders[])
+\def\yR{-26.9}
+\draw[msg] (2*\d,\yR) -- node[above,sloped,font=\footnotesize] {notifyNewOrders(orders[])} (4*\d,\yR);
+
+% 18. Kitchen Display --> Business Logic: acknowledged
+\def\yS{-28.1}
+\draw[ret] (4*\d,\yS) -- node[above,sloped,font=\footnotesize] {acknowledged} (2*\d,\yS);
+
+% 19. Business Logic -> ElectronDBManager: updateShiftTotals(paymentMethod, amount)
+\def\yT{-29.6}
+\draw[msg] (2*\d,\yT) -- node[above,sloped,font=\footnotesize] {updateShiftTotals(paymentMethod, amount)} (3*\d,\yT);
+
+% 20. ElectronDBManager --> Business Logic: shift updated
+\def\yU{-30.8}
+\draw[ret] (3*\d,\yU) -- node[above,sloped,font=\footnotesize] {shift updated} (2*\d,\yU);
+
+% 21. Business Logic -> ElectronDBManager: commitTransaction()
+\def\yV{-32.3}
+\draw[msg] (2*\d,\yV) -- node[above,sloped,font=\footnotesize] {commitTransaction()} (3*\d,\yV);
+
+% 22. ElectronDBManager --> Business Logic: committed
+\def\yW{-33.5}
+\draw[ret] (3*\d,\yW) -- node[above,sloped,font=\footnotesize] {committed} (2*\d,\yW);
+
+% 23. Business Logic --> POS UI: saleCompleted(receipt)
+\def\yX{-35.0}
+\draw[ret] (2*\d,\yX) -- node[above,sloped,font=\footnotesize] {saleCompleted(receipt)} (\d,\yX);
+
+% 24. POS UI --> Cashier: display receipt
+\def\yY{-36.2}
+\draw[ret] (\d,\yY) -- node[above,sloped,font=\footnotesize] {display receipt} (0,\yY);
+
+% ========== ADJUST LIFELINE BOTTOMS ==========
+\foreach \x in {0,\d,2*\d,3*\d,4*\d} {
+    \draw[act] (\x,\ys) -- (\x,\yY-0.6);
+}
+
+\end{tikzpicture}

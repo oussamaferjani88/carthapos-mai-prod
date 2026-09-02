@@ -19,7 +19,6 @@ class POSService {
 
     // Get license with full details
     const license = await posRepository.getLicenseForGeneration(licenseId);
-    console.log('[POS DEBUG] [Backend] Loaded license for generation:', JSON.stringify(license, null, 2));
 
     if (!license) {
       throw new NotFoundError('License not found');

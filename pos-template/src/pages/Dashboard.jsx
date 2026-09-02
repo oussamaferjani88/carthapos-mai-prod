@@ -334,7 +334,7 @@ const Dashboard = () => {
           const Icon = kpi.icon;
           return (
             <div key={idx} className="rounded-xl border p-4 transition-shadow hover:shadow-md"
-              style={{ borderColor: config.cardBorderColor, backgroundColor: 'white' }}>
+              >
               <div className="flex items-center justify-between mb-3">
                 <span className="text-xs font-medium" style={{ color: config.textMutedColor }}>{kpi.title}</span>
                 <div className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ backgroundColor: kpi.bg }}>
@@ -354,7 +354,7 @@ const Dashboard = () => {
         <div className="lg:col-span-2 space-y-6">
 
           {/* 5. REVENUE CHART */}
-          <div className="rounded-xl border p-6" style={{ borderColor: config.cardBorderColor, backgroundColor: 'white' }}>
+          <div className="rounded-xl border p-6">
             <div className="flex items-center justify-between mb-4">
               <div>
                 <h3 className="font-semibold" style={{ color: config.textColor }}>Revenus</h3>
@@ -404,7 +404,7 @@ const Dashboard = () => {
           </div>
 
           {/* 6. BEST SELLERS */}
-          <div className="rounded-xl border p-6" style={{ borderColor: config.cardBorderColor, backgroundColor: 'white' }}>
+          <div className="rounded-xl border p-6">
             <h3 className="font-semibold mb-4" style={{ color: config.textColor }}>Meilleures ventes</h3>
             {bestSellers.length === 0 ? (
               <div className="py-8 text-center rounded-lg border-2 border-dashed" style={{ borderColor: config.cardBorderColor }}>
@@ -414,7 +414,7 @@ const Dashboard = () => {
             ) : (
               <div className="space-y-3">
                 {bestSellers.map((item, idx) => (
-                  <div key={idx} className="flex items-center gap-3 p-2 rounded-lg" style={{ backgroundColor: '#f9fafb' }}>
+                  <div key={idx} className="flex items-center gap-3 p-2 rounded-lg">
                     <span className="w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold text-white"
                       style={{ backgroundColor: config.primaryColor }}>
                       {idx + 1}
@@ -437,7 +437,7 @@ const Dashboard = () => {
         <div className="space-y-6">
 
           {/* 3. BUSINESS HEALTH */}
-          <div className="rounded-xl border p-6" style={{ borderColor: config.cardBorderColor, backgroundColor: 'white' }}>
+          <div className="rounded-xl border p-6">
             <h3 className="font-semibold mb-4" style={{ color: config.textColor }}>Santé du business</h3>
             <div className="space-y-3">
               {[
@@ -469,7 +469,7 @@ const Dashboard = () => {
                 const Icon = item.icon;
                 const statusColors = { good: '#22c55e', warn: '#f59e0b', bad: '#ef4444', neutral: '#6b7280' };
                 return (
-                  <div key={idx} className="flex items-center gap-3 p-2 rounded-lg" style={{ backgroundColor: '#f9fafb' }}>
+                  <div key={idx} className="flex items-center gap-3 p-2 rounded-lg">
                     <Icon className="h-4 w-4" style={{ color: statusColors[item.status] }} />
                     <span className="flex-1 text-sm" style={{ color: config.textColor }}>{item.label}</span>
                     <span className="text-sm font-medium tabular-nums" style={{ color: config.textColor }}>{item.value}</span>
@@ -480,24 +480,24 @@ const Dashboard = () => {
           </div>
 
           {/* 7. INVENTORY SUMMARY */}
-          <div className="rounded-xl border p-6" style={{ borderColor: config.cardBorderColor, backgroundColor: 'white' }}>
+          <div className="rounded-xl border p-6">
             <h3 className="font-semibold mb-4" style={{ color: config.textColor }}>Inventaire</h3>
             <div className="space-y-3">
-              <div className="flex items-center justify-between p-2 rounded-lg" style={{ backgroundColor: '#f9fafb' }}>
+              <div className="flex items-center justify-between p-2 rounded-lg">
                 <span className="text-sm" style={{ color: config.textMutedColor }}>Total produits</span>
                 <span className="text-sm font-semibold" style={{ color: config.textColor }}>{inventorySummary.totalProducts}</span>
               </div>
-              <div className="flex items-center justify-between p-2 rounded-lg" style={{ backgroundColor: '#f9fafb' }}>
+              <div className="flex items-center justify-between p-2 rounded-lg">
                 <span className="text-sm" style={{ color: config.textMutedColor }}>Valeur stock</span>
                 <span className="text-sm font-semibold" style={{ color: config.textColor }}>{formatCurrency(inventorySummary.totalStockValue)}</span>
               </div>
-              <div className="flex items-center justify-between p-2 rounded-lg" style={{ backgroundColor: '#f9fafb' }}>
+              <div className="flex items-center justify-between p-2 rounded-lg">
                 <span className="text-sm" style={{ color: config.textMutedColor }}>Stock faible</span>
                 <span className="text-sm font-semibold" style={{ color: inventorySummary.lowStockItems > 0 ? '#f59e0b' : config.textColor }}>
                   {inventorySummary.lowStockItems}
                 </span>
               </div>
-              <div className="flex items-center justify-between p-2 rounded-lg" style={{ backgroundColor: '#f9fafb' }}>
+              <div className="flex items-center justify-between p-2 rounded-lg">
                 <span className="text-sm" style={{ color: config.textMutedColor }}>Rupture</span>
                 <span className="text-sm font-semibold" style={{ color: inventorySummary.outOfStock > 0 ? '#ef4444' : config.textColor }}>
                   {inventorySummary.outOfStock}
@@ -507,7 +507,7 @@ const Dashboard = () => {
           </div>
 
           {/* 8. CASH DRAWER SUMMARY */}
-          <div className="rounded-xl border p-6" style={{ borderColor: config.cardBorderColor, backgroundColor: 'white' }}>
+          <div className="rounded-xl border p-6">
             <h3 className="font-semibold mb-4" style={{ color: config.textColor }}>Caisse</h3>
             {cashDrawer.active ? (
               <div className="space-y-3">
@@ -515,15 +515,15 @@ const Dashboard = () => {
                   <span className="w-2 h-2 bg-green-500 rounded-full animate-pulse" />
                   <span className="text-sm font-medium text-green-700">Caisse ouverte</span>
                 </div>
-                <div className="flex items-center justify-between p-2 rounded-lg" style={{ backgroundColor: '#f9fafb' }}>
+                <div className="flex items-center justify-between p-2 rounded-lg">
                   <span className="text-sm" style={{ color: config.textMutedColor }}>Départ</span>
                   <span className="text-sm font-semibold" style={{ color: config.textColor }}>{formatCurrency(cashDrawer.openingFloat)}</span>
                 </div>
-                <div className="flex items-center justify-between p-2 rounded-lg" style={{ backgroundColor: '#f9fafb' }}>
+                <div className="flex items-center justify-between p-2 rounded-lg">
                   <span className="text-sm" style={{ color: config.textMutedColor }}>Ventes du jour</span>
                   <span className="text-sm font-semibold" style={{ color: config.textColor }}>{formatCurrency(cashDrawer.currentTotal)}</span>
                 </div>
-                <div className="flex items-center justify-between p-2 rounded-lg" style={{ backgroundColor: '#f9fafb' }}>
+                <div className="flex items-center justify-between p-2 rounded-lg">
                   <span className="text-sm" style={{ color: config.textMutedColor }}>Nombre de ventes</span>
                   <span className="text-sm font-semibold" style={{ color: config.textColor }}>{cashDrawer.salesCount}</span>
                 </div>
@@ -542,13 +542,13 @@ const Dashboard = () => {
       </div>
 
       {/* 4. RECENT TRANSACTIONS */}
-      <div className="rounded-xl border p-6" style={{ borderColor: config.cardBorderColor, backgroundColor: 'white' }}>
+      <div className="rounded-xl border p-6">
         <div className="flex items-center justify-between mb-4">
           <div>
             <h3 className="font-semibold" style={{ color: config.textColor }}>Transactions récentes</h3>
             <p className="text-sm" style={{ color: config.textMutedColor }}>Les 5 dernières ventes</p>
           </div>
-          <span className="text-xs px-2 py-1 rounded-full" style={{ backgroundColor: '#f3f4f6', color: config.textMutedColor }}>
+          <span className="text-xs px-2 py-1 rounded-full">
             {recentTransactions.length} vente(s)
           </span>
         </div>

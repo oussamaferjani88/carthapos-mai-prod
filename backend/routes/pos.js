@@ -41,7 +41,6 @@ router.post('/generate', async (req, res) => {
       }
     });
     perfTimings.route_fetchLicense = performance.now() - tFetchLicense;
-    console.log('[POS DEBUG] [Backend] Loaded license for generation:', JSON.stringify(license, null, 2));
 
     if (!license) {
       return res.status(404).json({ error: 'License not found' });
@@ -57,10 +56,16 @@ router.post('/generate', async (req, res) => {
     const localBuild = process.env.LOCAL_BUILD === 'true';
     const fastLocalGeneration = process.env.FAST_LOCAL_GENERATION === 'true' || req.body.fastMode === true;
     const skipBuild = !localBuild || fastLocalGeneration;
+    // Reuse the cached, prebuilt Electron shell (see BuildSystemManager.ensureShellCache)
+    // instead of a full vite build + electron-builder pack for every client - this is
+    // what actually makes local builds fast. Explicitly pass useShellCache:false to force
+    // a fully-fresh build (e.g. to verify pos-template changes landed correctly).
+    const useShellCache = localBuild && !skipBuild && req.body.useShellCache !== false;
     const tGenerate = performance.now();
     const result = await generatePOSApplication(license, outputPath, {
       skipBuild,
-      skipNodeModulesInstall: skipBuild,
+      skipNodeModulesInstall: skipBuild || useShellCache,
+      useShellCache,
       releaseBuild: localBuild ? (req.body.releaseBuild !== false) : (req.body.releaseBuild === true)
     });
     perfTimings.route_generatePOS = performance.now() - tGenerate;
@@ -168,7 +173,7 @@ router.post('/generate', async (req, res) => {
       buildStatus,
       licenseId,
       estimatedTime: localBuild
-        ? (skipBuild ? '10-60 seconds' : '3-8 minutes')
+        ? (skipBuild ? '10-60 seconds' : (useShellCache ? '30-90 seconds' : '3-8 minutes'))
         : '10-60 seconds',
       note: localBuild
         ? (skipBuild

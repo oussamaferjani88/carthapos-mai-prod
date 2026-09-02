@@ -1,0 +1,647 @@
+===========================================================================
+CHAPTER 4 - Release 1: Foundation and POS Core (chapitre4.tex)
+Figures to create: 14
+===========================================================================
+
+
+FIGURE 1: fig:global-architecture-design
+-----------------------------------------------------------
+Type: Architecture Diagram
+Filename: figures/ch4-global-architecture-design.png
+Caption: Global architecture of the CarthaPOS platform
+
+Description:
+Draw the full platform architecture showing all major components as labeled
+boxes with colored borders.
+
+COMPONENTS (arranged top to bottom):
+
+  TOP ROW - Frontends (3 boxes):
+    [Administration Frontend] - React + Vite + Tailwind, static site on Render
+    [Client Portal] - React + TypeScript + Vite, static site on Render
+    [Generated POS App] - Electron desktop app, per-client installation
+
+  MIDDLE ROW - Backend (1 large box):
+    [Backend API] - Node.js + Express
+      Sub-boxes inside:
+        - Routes layer (REST controllers)
+        - Services layer (business logic)
+        - Prisma Client (ORM)
+        - Generation Pipeline (8-stage)
+        - ETL Pipeline (~897 lines)
+        - Metabase Provisioning
+    Connected to:
+      [PostgreSQL] - Managed on Render (platform + warehouse data)
+      [POS Template] - Electron + React + Vite + SQLite (shared template)
+
+  BOTTOM ROW - BI / Analytics (3 boxes):
+    [BI Export] - ZIP archive from POS (BiSchemaContract v2.2.0)
+    [Metabase] - Separate service, per-client dashboard copies
+    [Analytical Warehouse] - PostgreSQL star schema (5 Dim + 6 Fact tables)
+
+CONNECTIONS:
+  Admin Frontend --REST/HTTPS--> Backend API
+  Client Portal --REST/HTTPS--> Backend API
+  Backend API --generates--> Generated POS App
+  Generated POS App --local--> SQLite (operational data)
+  Generated POS App --exports ZIP--> BI Export
+  Backend API --Prisma--> PostgreSQL
+  Backend API --REST--> Metabase (provisioning)
+  Metabase --SQL queries--> Analytical Warehouse
+
+Use blue for frontends, gray for backend, green for BI components.
+Add a dashed border around the Render.com deployment boundary.
+
+
+===========================================================================
+
+
+FIGURE 2: fig:communication-architecture
+-----------------------------------------------------------
+Type: Communication Diagram
+Filename: figures/ch4-communication-architecture.png
+Caption: Communication architecture of CarthaPOS
+
+Description:
+Draw a diagram showing the 5 communication paths between the applications.
+Each path should be a labeled arrow between two component boxes.
+
+PATH 1 - REST/HTTPS:
+  Admin Frontend <---> Backend API
+  - JWT authentication, cookie-based sessions
+  - JSON payloads, standard HTTP methods
+
+PATH 2 - REST/HTTPS:
+  Client Portal <---> Backend API
+  - Same JWT auth, limited routes (BI views, dashboards)
+
+PATH 3 - IPC (Inter-Process Communication):
+  Generated POS (Renderer) <---> Generated POS (Main Process)
+  - electron IPC bridge (preload script)
+  - Channels: sale, product, inventory, customer, kitchen, table, etc.
+
+PATH 4 - SQLite (local file):
+  Generated POS (Main Process) <--> SQLite Database
+  - Direct SQL queries via better-sqlite3
+  - Local operational data, no network dependency
+
+PATH 5 - File Transfer (ZIP):
+  Generated POS --> Backend API
+  - BiSchemaContract ZIP export (20 datasets)
+  - Uploaded via multipart/form-data (Multer)
+
+Use different arrow styles: solid for REST, dashed for IPC,
+dotted for file transfer, double-line for local DB.
+
+
+===========================================================================
+
+
+FIGURE 3: fig:backend-layered-architecture
+-----------------------------------------------------------
+Type: Layered Architecture Diagram
+Filename: figures/ch4-backend-layered-architecture.png
+Caption: Layered architecture of the CarthaPOS backend
+
+Description:
+Draw a classic layered architecture diagram with boxes stacked vertically.
+Each layer calls the one below it.
+
+LAYER 1 (top) - Request Entry:
+  [Express HTTP Server]
+  Receives incoming requests on port 10000
+
+LAYER 2 - Middleware:
+  [Helmet] [CORS] [Morgan] [Body Parser] [Auth Gate]
+  Cross-cutting concerns applied to every request
+  Auth gate: JWT verification when AUTH_REQUIRED=true
+
+LAYER 3 - Routes:
+  [Admin Routes] [BI Routes] [POS Routes] [Auth Routes]
+  Route-level permission checks (17 protected admin routes)
+  URL pattern matching, parameter extraction
+
+LAYER 4 - Controllers:
+  [Client Controller] [License Controller] [Module Controller]
+  [User Controller] [BI Controller] [Generation Controller]
+  Request validation, response formatting
+
+LAYER 5 - Services:
+  [Client Service] [License Service] [Generation Pipeline]
+  [ETL Pipeline] [Warehouse Service] [Metabase Provisioning]
+  Business logic, orchestration, calculations
+
+LAYER 6 - ORM:
+  [Prisma Client]
+  Database queries, migrations, transactions
+
+LAYER 7 (bottom) - Database:
+  [PostgreSQL]
+  Platform data + Analytical warehouse
+
+SIDE BOXES (cross-cutting):
+  [Logger] - Morgan + custom Logger utility
+  [Validator] - Input validation
+  [Error Handler] - Global error handler
+
+Use gradient colors from light (top) to dark (bottom).
+Draw downward arrows between layers.
+
+
+===========================================================================
+
+
+FIGURE 4: fig:pos-erd
+-----------------------------------------------------------
+Type: Entity-Relationship Diagram
+Filename: figures/ch4-pos-erd.png
+Caption: Conceptual structure of the POS operational database
+
+Description:
+Draw an ERD for the local SQLite database of the generated POS.
+Show tables as rectangles with columns, relationships as lines with cardinality.
+
+CORE TABLES:
+
+  products
+    - id (PK), name, price, cost_price, category, family, barcode,
+      stock, min_stock, unit, supplier, requires_kitchen
+
+  sales
+    - id (PK), total, tax, discount, payment_method, status,
+      receipt_number, kitchen_status, shift_id, table_id,
+      customer_id (FK->customers), user_id (FK->users), created_at
+
+  sale_items
+    - id (PK), sale_id (FK->sales), product_id (FK->products),
+      quantity, price, vat_rate, vat_amount
+
+  customers
+    - id (PK), name, email, phone, address, loyalty_points,
+      total_spent, visit_count, is_active
+
+  users
+    - id (PK), username, password_hash, full_name,
+      role (admin/cashier/manager/server), badge_id, is_active
+
+  user_modules
+    - id (PK), user_id (FK->users), module_name,
+      can_read, can_create, can_update, can_delete
+
+  restaurant_tables
+    - id (PK), table_number, capacity, status, zone,
+      current_order_id, customer_count
+
+  kitchen_orders
+    - id (PK), table_number, items, priority, status,
+      started_at, ready_at, served_at
+
+  shifts
+    - id (PK), user_id (FK->users), opening_float, status,
+      closing_expected, closing_actual, cash_sales, card_sales
+
+  stock_movements
+    - id (PK), product_id (FK->products), movement_type,
+      quantity, stock_before, stock_after, reason
+
+  appointments
+    - id (PK), customer_name, service_id (FK->services),
+      appointment_date, status
+
+  suppliers
+    - id (PK), name, contact, phone, email, is_active
+
+  vat_rates
+    - id (PK), name, rate, is_active
+
+  audit_logs
+    - id (PK), user_id (FK->users), action_type, entity_type,
+      old_value, new_value
+
+  settings
+    - key (PK), value
+
+Use crow foot notation for one-to-many relationships.
+
+
+===========================================================================
+
+
+FIGURE 5: fig:usecase-sprint1
+-----------------------------------------------------------
+Type: UML Use-Case Diagram
+Filename: figures/ch4-usecase-sprint1.png
+Caption: Use-case diagram scoped to Sprint 1: project foundation activities
+
+Description:
+Draw a UML use-case diagram for Sprint 1 scope only.
+
+ACTOR:
+  - Developer (left side)
+
+SYSTEM BOUNDARY: Sprint 1 - Project Foundation
+
+USE CASES:
+  - UC1: Initialize Backend (Node.js + Express setup)
+  - UC2: Define Prisma Schema (Client, License, Module, User, Permission)
+  - UC3: Configure Middleware (Helmet, CORS, Morgan, body parser)
+  - UC4: Create Admin Frontend Shell (React + Vite + Tailwind)
+  - UC5: Initialize POS Template (Electron + React + Vite)
+  - UC6: Configure SQLite Database Manager
+  - UC7: Set Up Build Scripts (Makefile targets)
+
+CONNECT: Developer -- UC1 through UC7
+
+
+===========================================================================
+
+
+FIGURE 6: fig:s1-startup-sequence
+-----------------------------------------------------------
+Type: UML Sequence Diagram
+Filename: figures/ch4-s1-startup-sequence.png
+Caption: Sequence of the application startup during Sprint 1
+
+Description:
+Draw a UML sequence diagram for the platform startup flow.
+
+LIFELINES (left to right):
+  Developer -> server.js -> Middleware -> Prisma -> PostgreSQL
+  Admin Frontend (Vite/React)
+  POS Template (Electron Main -> Preload -> Renderer -> SQLite)
+
+SEQUENCE:
+
+  1. Developer runs node server.js
+  2. server.js loads Express app
+  3. server.js applies middleware: Helmet, CORS, Morgan, body parser
+  4. server.js connects Prisma Client to PostgreSQL
+  5. server.js runs prisma migrate deploy
+  6. server.js starts listening on port 10000
+
+  7. Developer runs npm run dev in admin/
+  8. Vite starts dev server
+  9. React app loads, connects to backend API
+
+  10. Developer runs npm start in pos-template/
+  11. Electron main process starts
+  12. Main process creates BrowserWindow
+  13. Preload script exposes IPC bridge
+  14. Renderer (React) loads
+  15. ElectronDatabaseManager initializes SQLite connection
+
+Use activation bars on lifelines. Show messages as horizontal arrows.
+
+
+===========================================================================
+
+
+FIGURE 7: fig:classdiagram-sprint1
+-----------------------------------------------------------
+Type: UML Class Diagram (Prisma Models)
+Filename: figures/ch4-classdiagram-sprint1.png
+Caption: Prisma class diagram for Sprint 1
+
+Description:
+Draw a UML class diagram for the Prisma models introduced in Sprint 1.
+
+CLASSES (with key attributes):
+
+  User
+    - id: String (cuid)
+    - username: String (unique)
+    - email: String (unique)
+    - password: String
+    - role: UserRole (SUPER_ADMIN, ADMIN, MANAGER, CASHIER, KITCHEN, CLIENT)
+    - isActive: Boolean
+
+  Permission
+    - id: String (cuid)
+    - key: String (unique) e.g. "dashboard.view", "clients.create"
+    - module: String
+    - name: String
+
+  UserPermission (join table)
+    - userId: String (FK -> User)
+    - permissionId: String (FK -> Permission)
+
+  Client
+    - id: String (cuid)
+    - name: String
+    - email: String (unique)
+    - phone: String?
+    - userId: String? (unique, FK -> User)
+
+  License
+    - id: String (cuid)
+    - clientId: String (FK -> Client)
+    - licenseKey: String (unique)
+    - sector: String
+    - licenseType: LicenseType (SUBSCRIPTION, LIFETIME)
+    - isActive: Boolean
+    - status: LicenseStatus
+
+  LicenseConfiguration
+    - licenseId: String (unique, FK -> License)
+    - businessName: String
+    - primaryColor, secondaryColor, accentColor: String
+
+  Module
+    - id: String (cuid)
+    - name: String (unique)
+    - displayName: String
+    - category: String
+    - isCore: Boolean
+
+  LicenseModule (join table)
+    - licenseId: String (FK -> License)
+    - moduleId: String (FK -> Module)
+    - isEnabled: Boolean
+
+RELATIONSHIPS:
+  User 1--N UserPermission N--1 Permission
+  Client 1--1 User (optional)
+  Client 1--N License
+  License 1--1 LicenseConfiguration
+  License 1--N LicenseModule N--1 Module
+
+
+===========================================================================
+
+
+FIGURE 8: fig:s1-user-select
+-----------------------------------------------------------
+Type: Screenshot
+Filename: figures/ch4-s1-user-select.png
+Caption: POS User-Selection Screen
+
+Description:
+Take a screenshot of the POS user-selection screen, which is the first
+interface the cashier sees when launching the generated Electron POS application.
+
+Show:
+  - The user selection screen with available cashier/manager accounts
+  - User avatars or initials
+  - The CarthaPOS branding (logo, theme colors)
+  - Clean, minimal design
+
+File: pos-template/src/components/ or similar
+Crop to show the full Electron application window.
+Add a thin border around the screenshot.
+
+
+===========================================================================
+
+
+FIGURE 9: fig:s1-setup-wizard
+-----------------------------------------------------------
+Type: Screenshot
+Filename: figures/ch4-s1-setup-wizard.png
+Caption: First-Run Setup Wizard
+
+Description:
+Take a screenshot of the first-run setup wizard used to create the initial
+administrator account on a fresh POS installation.
+
+Show:
+  - The setup wizard form (username, password, business name fields)
+  - The CarthaPOS branding
+  - Step indicators if multi-step
+  - Clean, welcoming design
+
+File: pos-template/src/components/ or similar
+Crop to show the full setup wizard interface.
+Add a thin border around the screenshot.
+
+
+===========================================================================
+
+
+FIGURE 10: fig:usecase-sprint2
+-----------------------------------------------------------
+Type: UML Use-Case Diagram
+Filename: figures/ch4-usecase-sprint2.png
+Caption: Use-case diagram scoped to Sprint 2: POS core and business modules
+
+Description:
+Draw a UML use-case diagram for Sprint 2 scope.
+
+ACTORS (left side):
+  - Cashier
+  - Manager
+  - Kitchen Staff
+  - Server (waiter)
+
+SYSTEM BOUNDARY: Sprint 2 - POS Core and Business Modules
+
+USE CASES:
+
+  SALES:
+    - Create Sale (atomic transaction)
+    - Process Payment (cash, card)
+    - Apply Discount
+    - Loyalty Points (earn/redeem)
+
+  PRODUCTS AND INVENTORY:
+    - Manage Products (CRUD)
+    - Manage Categories
+    - Manage Stock
+    - Record Stock Movements
+
+  CUSTOMERS:
+    - Manage Customers (CRUD)
+    - Track Loyalty Points
+
+  TABLES:
+    - Manage Tables
+    - Assign Table to Order
+
+  KITCHEN:
+    - View Kitchen Orders
+    - Update Order Status (pending -> preparing -> ready -> served)
+
+  CASH REGISTER:
+    - Open/Close Shift
+    - Cash Count
+    - Z-Report
+
+  REPORTS:
+    - Sales Reports
+    - Shift Reports
+    - Inventory Reports
+
+CONNECT actors to their use cases:
+  Cashier -> Create Sale, Process Payment, Manage Customers
+  Manager -> All use cases + Reports
+  Kitchen Staff -> View Kitchen Orders, Update Order Status
+  Server -> Create Sale, Manage Tables
+
+
+===========================================================================
+
+
+FIGURE 11: fig:sale-transaction-sequence
+-----------------------------------------------------------
+Type: UML Sequence Diagram
+Filename: figures/ch4-sale-transaction-sequence.png
+Caption: Sequence of the atomic sale transaction
+
+Description:
+Draw a UML sequence diagram for the atomic sale transaction.
+All database writes happen inside a single SQLite transaction.
+
+LIFELINES:
+  Cashier -> POS UI -> Sale Module -> ElectronDB (SQLite) -> Kitchen Display
+
+SEQUENCE:
+
+  1. Cashier selects products and quantities in POS UI
+  2. POS UI calculates subtotal, tax, discount
+  3. Cashier clicks Complete Sale
+  4. POS UI sends sale data to Sale Module
+  5. Sale Module opens SQLite transaction (BEGIN)
+  6. INSERT into sales table
+  7. INSERT into sale_items table -- loop for each item
+  8. UPDATE products SET stock = stock - quantity -- loop
+  9. INSERT into stock_movements -- loop
+
+  OPTIONAL BRANCH (if customer assigned):
+    10. UPDATE customers SET loyalty_points + earned
+    11. INSERT into loyalty_transactions
+
+  OPTIONAL BRANCH (if table assigned):
+    12. UPDATE restaurant_tables SET status = available
+
+  OPTIONAL BRANCH (if kitchen module enabled):
+    13. INSERT into kitchen_orders
+    14. Send IPC notification to Kitchen Display
+
+  15. COMMIT transaction
+  16. Return success to POS UI
+  17. Clear cart, show confirmation
+
+Use alt/opt fragments for optional branches.
+Use loop fragment for item iteration.
+Mark the transaction boundary with a note (BEGIN/COMMIT).
+
+
+===========================================================================
+
+
+FIGURE 12: fig:kitchen-order-sequence
+-----------------------------------------------------------
+Type: UML Sequence Diagram
+Filename: figures/ch4-kitchen-order-sequence.png
+Caption: Sequence of kitchen order processing with status machine
+
+Description:
+Draw a UML sequence diagram for kitchen order processing.
+
+LIFELINES:
+  POS Sale -> IPC Handler -> Kitchen Display -> ElectronDB (SQLite)
+
+SEQUENCE:
+
+  1. Sale completes and inserts kitchen_order
+  2. IPC Handler notifies Kitchen Display
+  3. Kitchen Display shows new order (status: pending)
+  4. Kitchen Staff clicks Start Preparing
+  5. Status: pending -> preparing
+  6. Kitchen Staff clicks Ready
+  7. Status: preparing -> ready, sets ready_at
+  8. Server clicks Served
+  9. Status: ready -> served, sets served_at
+
+  STATUS MACHINE (as state diagram note):
+    pending -> preparing -> ready -> served -> completed
+    pending -> cancelled
+
+  PRIORITY PROMOTION:
+    normal -> high -> urgent (auto-promote if waiting too long)
+
+
+===========================================================================
+
+
+FIGURE 13: fig:classdiagram-sprint2
+-----------------------------------------------------------
+Type: UML Class Diagram
+Filename: figures/ch4-classdiagram-sprint2.png
+Caption: POS operational class diagram for Sprint 2
+
+Description:
+Draw a UML class diagram for the POS operational models.
+
+CLASSES:
+
+  Product
+    - id, name, price, costPrice, category, family, barcode,
+      stock, minStock, unit, requiresKitchen
+
+  Order
+    - id, orderType (DINE_IN, TAKEAWAY, DELIVERY), status,
+      total, tax, discount, paymentMethod, tableNumber
+
+  OrderItem
+    - id, quantity, unitPrice, lineTotal, vatRate, vatAmount
+
+  Customer
+    - id, name, email, phone, loyaltyPoints, totalSpent, visitCount
+
+  LoyaltyTransaction
+    - id, points, type (EARNED, REDEEMED), reason
+
+  Table
+    - id, number, capacity, status, zone
+
+  KitchenOrder
+    - id, tableNumber, items, priority, status
+
+  Appointment
+    - id, customerName, serviceType, appointmentDate, duration, status
+
+  GiftCard
+    - id, code, originalValue, currentValue, isActive
+
+  Shift
+    - id, openingFloat, status, closingExpected, cashSales, cardSales
+
+  StockMovement
+    - id, movementType, quantity, stockBefore, stockAfter, reason
+
+RELATIONSHIPS:
+  Order 1--N OrderItem N--1 Product
+  Order N--1 Customer (optional)
+  LoyaltyTransaction N--1 Customer
+
+
+===========================================================================
+
+
+FIGURE 14: fig:pos-operational-screenshot
+-----------------------------------------------------------
+Type: Screenshot
+Filename: figures/ch4-pos-operational-screenshot.png
+Caption: Operational screen of the generated CarthaPOS application
+
+Description:
+Take a screenshot of the running CarthaPOS Electron application showing
+one of the main operational modules. Recommended options:
+
+  Option A: Sales Screen
+    - Cart/product grid on the left
+    - Product list on the right
+    - Total, payment method buttons at bottom
+    - Sidebar navigation with module icons
+
+  Option B: Kitchen Display
+    - Order cards with status colors
+    - Priority badges
+    - Status transition buttons
+
+  Option C: Table Management
+    - Table layout with color-coded status
+    - Occupied/available/reserved states
+
+Crop to show the full application window.
+Add a thin border around the screenshot.

@@ -5,7 +5,7 @@ import { Input } from '../ui/input';
 const colorFields = [
   { key: 'primaryColor', label: 'Couleur principale', desc: 'Boutons et éléments principaux' },
   { key: 'secondaryColor', label: 'Couleur secondaire', desc: 'Éléments de support' },
-  { key: 'accentColor', label: "Couleur d'accent", desc: 'Notifications et alertes' },
+  { key: 'accentColor', label: "Couleur d'accent", desc: "Survol et éléments d'accentuation" },
   { key: 'backgroundColor', label: 'Arrière-plan principal', desc: "Fond de l'application" },
   { key: 'cardBackgroundColor', label: 'Arrière-plan cartes', desc: 'Fond des cartes et panneaux' },
   { key: 'textColor', label: 'Texte principal', desc: 'Couleur du texte principal' },

@@ -1,5 +1,6 @@
 import { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { useLocation } from 'react-router-dom';
+import { getAuthUser, getAuthClient } from '../lib/auth';
 
 interface UserProfile {
   id: string;
@@ -57,8 +58,26 @@ export const AccessModeProvider = ({ children }: { children: ReactNode }) => {
       };
     }
 
-    // No URL identity params: AccessMode is inactive (admin), regardless of any
-    // leftover keys.
+    // No URL identity params: run the portal in user mode for the current
+    // authenticated session (a client sees only their own account/client).
+    const authUser = getAuthUser();
+    const authClient = getAuthClient();
+    const session = authClient || authUser;
+    if (session) {
+      const id = authClient?.id || authUser?.id || '';
+      const name = authClient?.name || authUser?.username || '';
+      const email = authClient?.email || authUser?.email || '';
+      setMode('user');
+      setCurrentUserId(id);
+      setCurrentUserProfile({ id, name, email });
+      // Mirror into localStorage so lib/api.ts scopes requests via X-User-Id.
+      localStorage.setItem('accessMode', 'user');
+      localStorage.setItem('currentUserId', id);
+      localStorage.setItem('currentUserName', name);
+      localStorage.setItem('currentUserEmail', email);
+      return;
+    }
+
     setMode('admin');
     setCurrentUserId(null);
     setCurrentUserProfile(null);

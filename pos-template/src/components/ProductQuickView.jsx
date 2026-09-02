@@ -16,7 +16,10 @@ const ProductQuickView = memo(function ProductQuickView({
   onDuplicate,
   onPrintBarcode,
   formatPrice,
-  config
+  config,
+  canCreate = true,
+  canUpdate = true,
+  canDelete = true
 }) {
   if (!product) return null;
 
@@ -25,6 +28,7 @@ const ProductQuickView = memo(function ProductQuickView({
     : null;
 
   const getStockStatus = () => {
+    if (product.manage_stock === 0 || product.manage_stock === false) return { label: 'Stock non géré', variant: 'outline', color: '#6b7280' };
     if (product.stock === 0) return { label: 'Rupture', variant: 'destructive', color: '#ef4444' };
     if (product.min_stock > 0 && product.stock <= product.min_stock) return { label: 'Stock faible', variant: 'outline', color: '#f59e0b' };
     return { label: 'En stock', variant: 'default', color: '#22c55e' };
@@ -141,7 +145,11 @@ const ProductQuickView = memo(function ProductQuickView({
                 <Box className="h-4 w-4 text-muted-foreground" />
                 <div>
                   <p className="text-xs text-muted-foreground">Stock</p>
-                  <p className="font-medium">{product.stock ?? 0} unités</p>
+                  {product.manage_stock === 0 || product.manage_stock === false ? (
+                    <p className="font-medium">—</p>
+                  ) : (
+                    <p className="font-medium">{product.stock ?? 0} unités</p>
+                  )}
                 </div>
               </div>
               {product.created_at && (
@@ -161,20 +169,26 @@ const ProductQuickView = memo(function ProductQuickView({
 
         {/* Action Buttons */}
         <div className="flex items-center gap-2 p-4 border-t bg-background flex-shrink-0">
-          <Button variant="default" size="sm" className="flex-1" onClick={() => { onEdit(product); onOpenChange(false); }}>
-            <Edit className="h-4 w-4 mr-1" /> Modifier
-          </Button>
-          <Button variant="outline" size="sm" onClick={() => onDuplicate(product)}>
-            <Copy className="h-4 w-4" />
-          </Button>
+          {canUpdate && (
+            <Button variant="default" size="sm" className="flex-1" onClick={() => { onEdit(product); onOpenChange(false); }}>
+              <Edit className="h-4 w-4 mr-1" /> Modifier
+            </Button>
+          )}
+          {canCreate && (
+            <Button variant="outline" size="sm" onClick={() => onDuplicate(product)}>
+              <Copy className="h-4 w-4" />
+            </Button>
+          )}
           {product.barcode && (
             <Button variant="outline" size="sm" onClick={() => onPrintBarcode(product)}>
               <Barcode className="h-4 w-4" />
             </Button>
           )}
-          <Button variant="outline" size="sm" className="text-destructive hover:text-destructive" onClick={() => { onDelete(product); onOpenChange(false); }}>
-            <Trash2 className="h-4 w-4" />
-          </Button>
+          {canDelete && (
+            <Button variant="outline" size="sm" className="text-destructive hover:text-destructive" onClick={() => { onDelete(product); onOpenChange(false); }}>
+              <Trash2 className="h-4 w-4" />
+            </Button>
+          )}
         </div>
       </SheetContent>
     </Sheet>

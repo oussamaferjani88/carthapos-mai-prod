@@ -1,5 +1,5 @@
 import React from 'react';
-import { Palette, Paintbrush, Type, Sparkles, Store, LayoutGrid, Settings } from 'lucide-react';
+import { Palette, Paintbrush, Type, Sparkles, Store, LayoutGrid, LayoutTemplate, Settings } from 'lucide-react';
 
 const SECTIONS = [
   { id: 'brand', label: 'Marque', icon: Store, tab: 'design', subTab: 'brand' },
@@ -8,6 +8,7 @@ const SECTIONS = [
   { id: 'typography', label: 'Typo', icon: Type, tab: 'design', subTab: 'typography' },
   { id: 'effects', label: 'Effets', icon: Sparkles, tab: 'design', subTab: 'effects' },
   { id: 'layout', label: 'Layout', icon: LayoutGrid, tab: 'layout', subTab: 'components' },
+  { id: 'pages', label: 'Pages', icon: LayoutTemplate, tab: 'pages', subTab: null },
   { id: 'advanced', label: 'Avancé', icon: Settings, tab: 'advanced', subTab: null },
 ];
 
@@ -20,9 +21,11 @@ const CustomizerNavigation = ({
 }) => {
   const activeSection = selectedTab === 'advanced'
     ? 'advanced'
-    : selectedTab === 'layout'
-      ? 'layout'
-      : selectedSubTab;
+    : selectedTab === 'pages'
+      ? 'pages'
+      : selectedTab === 'layout'
+        ? 'layout'
+        : selectedSubTab;
 
   const handleSectionClick = (section) => {
     setSelectedTab(section.tab);

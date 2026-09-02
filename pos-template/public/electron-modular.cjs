@@ -10,7 +10,6 @@ const fs = require('fs');
 // Import managers and handlers
 const ElectronAuthManager = require('../src/electron/ElectronAuthManager.cjs');
 const ElectronDatabaseManager = require('../src/electron/ElectronDatabaseManager.cjs');
-const ElectronLicenseManager = require('../src/electron/ElectronLicenseManager.cjs');
 const ElectronWindowManager = require('../src/electron/ElectronWindowManager.cjs');
 
 // Import IPC handlers
@@ -33,7 +32,6 @@ const { registerHardwareHandlers } = require('../src/electron/handlers/ipc-hardw
 let mainWindow = null;
 let authManager = null;
 let databaseManager = null;
-let licenseManager = null;
 let windowManager = null;
 
 // Determine if running in development or production
@@ -125,7 +123,6 @@ async function initializeManagers() {
     
     // Initialize other managers
     authManager = new ElectronAuthManager(databaseManager);
-    licenseManager = new ElectronLicenseManager();
     windowManager = new ElectronWindowManager();
     
     console.log('All managers initialized successfully');
@@ -142,14 +139,11 @@ function registerAllHandlers() {
   console.log('Registering IPC handlers...');
   
   try {
-    // Helper passed to license handlers for USB detection
-    const detectUSBDrives = () => licenseManager.detectUSBDrives();
-
     // Register handlers with their respective managers
     registerAuthHandlers(ipcMain, authManager, databaseManager);
     // Functional export expects a getter function returning the raw sqlite3 db instance
     registerDatabaseHandlers(() => databaseManager.getDatabase());
-    registerLicenseHandlers(detectUSBDrives, loadAppConfig);
+    registerLicenseHandlers({ app, loadAppConfig });
     registerAppHandlers(loadAppConfig, databaseManager);
     registerSalesHandlers(ipcMain, databaseManager);
     registerCustomerHandlers(ipcMain, databaseManager);

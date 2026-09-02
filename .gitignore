@@ -8,6 +8,9 @@ build/
 admin/dist/
 frontend/dist/
 backend/dist/
+release/
+release-src/
+pos-template/.shell-cache/
 # Don't ignore pos-template source files - needed for POS generation
 # pos-template/dist/ will be built during generation
 !pos-template/src/
@@ -145,5 +148,16 @@ POS System/
 generated-pos/ 
 *.exe 
 
-# Metabase JAR (405MB binary, not for git)
+# Metabase JAR (405MB binary, not for git — downloaded at Docker build time)
 metabase/metabase.jar
+
+# Sensitive license key (filled via Render dashboard, never commit)
+backend/config/license-private.pem
+
+# Backend runtime logs (generated at runtime, never commit)
+backend/server.log
+backend/generation-metrics.json
+backend/generation-performance.log
+
+# Generated Prisma warehouse client (built at deploy time by Dockerfile)
+backend/prisma-warehouse-generated/

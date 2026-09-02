@@ -3,6 +3,7 @@ import { useSearchParams } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import { cn } from '@/lib/utils';
 import POSCustomizer from '@/components/pos/customizer/POSCustomizer';
 import POSRealtimePreview from '@/components/pos/preview/POSRealtimePreview';
 import POSGenerationProgress from '@/components/pos/generation/POSGenerationProgress';
@@ -11,10 +12,18 @@ import Step2ModuleSelection from '@/components/pos/generator/Step2ModuleSelectio
 import Step4License from '@/components/pos/generator/Step4License';
 import Step5Results from '@/components/pos/generator/Step5Results';
 import { Zap, Palette, Plus, Minus, Monitor, Smartphone, Tablet } from 'lucide-react';
+import PageHeader from '@/components/shared/PageHeader';
 
 import { useClients, useSectors, usePOSModules, usePOSConfiguration, usePOSGenerator, useUSBDrives } from '@/hooks';
 import toast from 'react-hot-toast';
 import { useAccessMode } from '@/contexts/AccessModeContext';
+import './pos-generator-admin-theme.css';
+
+// Applied to every root wrapper below so this page's shadcn components pick
+// up the admin panel's design tokens (see pos-generator-admin-theme.css)
+// without touching the client app's global theme (used by the public
+// marketing pages, out of scope for this sync).
+const THEME_CLASS = 'pos-gen-admin-theme';
 
 export default function POSGeneratorPage() {
   const clientsHook = useClients();
@@ -151,7 +160,7 @@ export default function POSGeneratorPage() {
 
   if (generatorHook.showCustomizer) {
     return (
-      <div className="pb-24">
+      <div className={cn(THEME_CLASS, 'pb-24')}>
         <POSCustomizer
           formData={{ configuration: configHook.configuration, selectedModules: modulesHook.selectedModules }}
           setFormData={(data) => {
@@ -181,27 +190,27 @@ export default function POSGeneratorPage() {
 
   if (generatorHook.step === 2.5) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 p-6 pb-24">
-        <div className="max-w-6xl mx-auto">
+      <div className={cn(THEME_CLASS, 'mx-auto max-w-6xl p-6 pb-24')}>
+        <div>
           <div className="text-center mb-8">
             <Button variant="outline" onClick={() => generatorHook.goToStep(2)} className="mb-4">
               ← Retour aux modules
             </Button>
-            <h1 className="text-4xl font-bold text-gray-900 mb-4">
+            <h1 className="text-2xl font-semibold tracking-tight text-foreground mb-2">
               Créez votre POS personnalisé
             </h1>
-            <p className="text-xl text-gray-600 mb-8">
+            <p className="text-muted-foreground mb-8">
               Choisissez entre un template prêt à l'emploi ou une personnalisation complète
             </p>
           </div>
 
-          <div className="grid md:grid-cols-2 gap-8 max-w-4xl mx-auto">
-            <Card className="cursor-pointer hover:shadow-lg transition-all duration-300 border-2 hover:border-blue-500">
+          <div className="grid md:grid-cols-2 gap-6 max-w-4xl mx-auto">
+            <Card className="cursor-pointer transition-colors hover:border-foreground/30">
               <CardHeader className="text-center">
-                <div className="w-16 h-16 bg-blue-100 rounded-full flex items-center justify-center mx-auto mb-4">
-                  <Zap className="w-8 h-8 text-blue-600" />
+                <div className="w-14 h-14 bg-muted rounded-full flex items-center justify-center mx-auto mb-4">
+                  <Zap className="w-7 h-7 text-muted-foreground" />
                 </div>
-                <CardTitle className="text-2xl">Templates prêts</CardTitle>
+                <CardTitle className="text-xl">Templates prêts</CardTitle>
                 <CardDescription className="text-base">
                   Démarrez rapidement avec des designs professionnels pré-configurés
                 </CardDescription>
@@ -213,10 +222,10 @@ export default function POSGeneratorPage() {
               </CardContent>
             </Card>
 
-            <Card className="cursor-pointer hover:shadow-lg transition-all duration-300 border-2 hover:border-purple-500">
+            <Card className="cursor-pointer transition-colors hover:border-foreground/30">
               <CardHeader className="text-center">
-                <div className="w-16 h-16 bg-purple-100 rounded-full flex items-center justify-center mx-auto mb-4">
-                  <Palette className="w-8 h-8 text-purple-600" />
+                <div className="w-14 h-14 bg-muted rounded-full flex items-center justify-center mx-auto mb-4">
+                  <Palette className="w-7 h-7 text-muted-foreground" />
                 </div>
                 <CardTitle className="text-2xl">Personnalisation complète</CardTitle>
                 <CardDescription className="text-base">
@@ -276,12 +285,12 @@ export default function POSGeneratorPage() {
     ];
 
     return (
-      <div className="space-y-6 pb-24">
+      <div className={cn(THEME_CLASS, 'mx-auto max-w-6xl space-y-6 p-6 pb-24')}>
         <div>
           <Button variant="outline" onClick={() => generatorHook.goToStep(2.5)} className="mb-4">
             ← Retour au choix
           </Button>
-          <h1 className="text-3xl font-bold">Choisissez un template</h1>
+          <h1 className="text-2xl font-semibold tracking-tight">Choisissez un template</h1>
           <p className="text-muted-foreground">
             Sélectionnez un template pré-configuré adapté à votre secteur
           </p>
@@ -291,7 +300,7 @@ export default function POSGeneratorPage() {
           {templates.map((template) => (
             <Card
               key={template.id}
-              className="hover:shadow-lg transition-all duration-300 border-2 hover:border-blue-500"
+              className="transition-colors hover:border-foreground/30"
             >
               <CardHeader>
                 <div className="flex items-start justify-between">
@@ -309,7 +318,7 @@ export default function POSGeneratorPage() {
                   </div>
                   <div className="flex items-center gap-2">
                     <div
-                      className="w-10 h-10 rounded-lg border-2 border-white shadow-md"
+                      className="w-10 h-10 rounded-lg border border-border shadow-sm"
                       style={{ backgroundColor: template.color }}
                       title={`Couleur: ${template.color}`}
                     />
@@ -322,7 +331,7 @@ export default function POSGeneratorPage() {
               <CardContent>
                 <div className="space-y-3">
                   <div>
-                    <p className="text-sm font-medium text-gray-700">Fonctionnalités incluses:</p>
+                    <p className="text-sm font-medium text-foreground">Fonctionnalités incluses:</p>
                     <div className="flex flex-wrap gap-2 mt-2">
                       {template.features.map((feature, idx) => (
                         <Badge key={idx} variant="outline" className="text-xs">
@@ -367,20 +376,18 @@ export default function POSGeneratorPage() {
 
   if (generatorHook.step === 3) {
     return (
-      <div className="space-y-6 pb-24">
-        <div>
-          <h1 className="text-2xl font-bold mb-2">Personnalisation Avancée</h1>
-          <p className="text-muted-foreground">
-            Personnalisez entièrement l'apparence et le comportement de votre POS
-          </p>
-        </div>
+      <div className={cn(THEME_CLASS, 'mx-auto max-w-6xl space-y-6 p-6 pb-24')}>
+        <PageHeader
+          title="Personnalisation Avancée"
+          description="Personnalisez entièrement l'apparence et le comportement de votre POS"
+        />
 
         <div className="flex h-[calc(100vh-16rem)] gap-4 border rounded-lg bg-background">
           {generatorHook.isFormVisible && (
             <div className="w-[28%] border-r border-border flex flex-col overflow-hidden">
-              <div className="border-b border-border p-2.5 bg-gradient-to-r from-blue-600 to-purple-600 text-white">
+              <div className="border-b border-border p-2.5 bg-muted text-foreground">
                 <div className="flex items-center justify-between">
-                  <h3 className="text-sm font-semibold">🎨 Design Studio</h3>
+                  <h3 className="text-sm font-semibold">Design Studio</h3>
                   <Button
                     variant="secondary"
                     size="sm"
@@ -411,7 +418,7 @@ export default function POSGeneratorPage() {
 
           {!generatorHook.isFormVisible && (
             <div className="absolute left-4 top-4 z-10">
-              <Button onClick={() => generatorHook.setIsFormVisible(true)} className="bg-gradient-to-r from-blue-600 to-purple-600">
+              <Button onClick={() => generatorHook.setIsFormVisible(true)}>
                 <Plus className="w-4 h-4 mr-2" />
                 Ouvrir le Design Studio
               </Button>
@@ -468,7 +475,7 @@ export default function POSGeneratorPage() {
           </div>
         </div>
 
-        <div className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 shadow-lg z-50">
+        <div className="fixed bottom-0 left-0 right-0 bg-card border-t border-border shadow-lg z-50">
           <div className="max-w-7xl mx-auto px-6 py-4 flex justify-between">
             <Button variant="outline" onClick={() => generatorHook.previousStep()}>
               Précédent
@@ -483,13 +490,11 @@ export default function POSGeneratorPage() {
   }
 
   return (
-    <div className="space-y-6 pb-24">
-      <div>
-        <h1 className="text-3xl font-bold">Générateur POS Personnalisé</h1>
-        <p className="text-muted-foreground">
-          Créez un système de caisse entièrement personnalisé
-        </p>
-      </div>
+    <div className={cn(THEME_CLASS, 'mx-auto max-w-6xl space-y-6 p-6 pb-24')}>
+      <PageHeader
+        title="Générateur POS Personnalisé"
+        description="Créez un système de caisse entièrement personnalisé"
+      />
 
       <div className="flex items-center space-x-4 mb-6">
         {[1, 2, 3, 4, 5].map((stepNumber) => (
@@ -559,13 +564,14 @@ export default function POSGeneratorPage() {
           <Step5Results
             generationResult={generatorHook.generationResult}
             selectedUSB={formData.selectedUSB}
+            bindingType={formData.bindingType}
             onNewPOS={generatorHook.resetGenerator}
           />
         )}
       </div>
 
       {generatorHook.step < 5 && (
-        <div className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 shadow-lg z-50">
+        <div className="fixed bottom-0 left-0 right-0 bg-card border-t border-border shadow-lg z-50">
           <div className="max-w-7xl mx-auto px-6 py-4 flex justify-between">
             <Button
               variant="outline"
@@ -608,11 +614,11 @@ export default function POSGeneratorPage() {
 
       <POSGenerationProgress
         isVisible={generatorHook.showProgress}
-        currentStep={generatorHook.progressStep}
+        steps={generatorHook.progressSteps}
+        activeStepId={generatorHook.progressStepId}
         progress={generatorHook.progressPercentage}
         currentAction={generatorHook.currentAction}
         error={generatorHook.progressError}
-        variant="modern"
         onComplete={() => {}}
       />
     </div>

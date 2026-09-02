@@ -1,0 +1,167 @@
+================================================================================
+  POS-Level vs Admin-Level Permission System Investigation
+  Date: 2026-08-18
+  Question: Are the two systems the same or separate?
+================================================================================
+
+ANSWER: Two separate systems.
+
+They share a conceptual overlap (module-level access control) but are
+architecturally independent — different database, different schema,
+different permission granularity, different enforcement points, and no
+code-level coupling.
+
+================================================================================
+1. backend/utils/permissionCatalog.js — Admin-panel-only
+================================================================================
+
+The 35 keys are exclusively CarthaPOS-operator actions:
+
+  Module          Keys                                        Scope
+  --------------  ------------------------------------------  ----------------
+  clients.*       view, create, update, delete                Managing clients
+  licenses.*      view, create, update, suspend, revoke, del  License lifecycle
+  modules.*       view, manage                                POS module catalog
+  pos.*           view, generate, build                       POS generation
+  usb.*           view, write                                 USB license write
+  users.*         view, create, update, delete, permissions   Staff user mgmt
+  reports.*       view, export                                Admin reports
+  products.*      view, edit                                  Product catalog
+  inventory.*     view, edit                                  Stock management
+  bi.*            view, requests, assignments, notifications,
+                  import, history                             BI request processing
+
+The file header says it explicitly:
+  "Single source of truth for the admin-dashboard permission catalog."
+
+None of these keys correspond to POS operational actions (no
+pos.export_bi, pos.edit_stock, etc.).
+
+================================================================================
+2. POS uses a completely different permission model
+================================================================================
+
+DATABASE: SQLite users table with a role TEXT column.
+
+  -- ElectronDatabaseManager.cjs:785
+  role TEXT NOT NULL CHECK(role IN ('admin', 'cashier', 'manager', 'server'))
+  DEFAULT 'cashier'
+
+FOUR HARDCODED ROLES (validated at ElectronAuthManager.cjs:276):
+
+  ['admin', 'cashier', 'manager', 'server']
+
+GRANULAR PERMISSIONS stored in a separate user_modules SQLite table
+(ElectronDatabaseManager.cjs:800-814):
+
+  CREATE TABLE user_modules (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL,
+    module_name TEXT NOT NULL,
+    can_read BOOLEAN DEFAULT 1,
+    can_create BOOLEAN DEFAULT 0,
+    can_update BOOLEAN DEFAULT 0,
+    can_delete BOOLEAN DEFAULT 0,
+    granted_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    granted_by INTEGER,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+    FOREIGN KEY (granted_by) REFERENCES users(id),
+    UNIQUE(user_id, module_name)
+  )
+
+ADMIN ALWAYS BYPASSES (ElectronAuthManager.cjs:488):
+
+  if (role === 'admin') { return ['all']; }
+
+================================================================================
+3. POS module names are completely different from permissionCatalog keys
+================================================================================
+
+The POS UI (UserManagementAdvanced.jsx:19-42) offers these modules:
+
+  POS Module ID    Label
+  ---------------  ----------------------
+  pos              Point de vente
+  dashboard        Tableau de bord
+  sales            Ventes
+  products         Produits
+  customers        Clients
+  reports          Rapports
+  inventory        Gestion de stock
+  settings         Paramètres
+  caisse           Caisse
+  kitchen          Cuisine (optional)
+  tables           Tables (optional)
+  gift_cards       Cartes cadeaux (optional)
+  suppliers        Fournisseurs (optional)
+  services         Services (optional)
+  loyalty          Fidélité (optional)
+  barcode          Code-barres (optional)
+  production       Production (optional)
+  appointments     Rendez-vous (optional)
+  prescription     Ordonnances (optional)
+
+These are POS operational module names, NOT the module.action
+dot-notation keys from permissionCatalog.js. There is no "bi" module
+in the POS permission system, no "licenses" module, no
+"users.permissions" — and vice versa.
+
+================================================================================
+4. No code-level coupling
+================================================================================
+
+  - permissionCatalog.js is NEVER imported by any file in pos-template/
+    (confirmed: grep -r 'permissionCatalog' pos-template/ returns zero hits).
+
+  - ElectronAuthManager.cjs never references Permission, UserPermission,
+    or any Prisma model — it uses raw SQLite queries against users and
+    user_modules.
+
+  - The POS runs offline with a local SQLite database; it has no
+    connection to the PostgreSQL-backed admin platform.
+
+================================================================================
+5. BI export: no gating at all
+================================================================================
+
+The bi:export IPC handler (ipc-bi-export-handler.cjs:41) registers
+directly with ipcMain.handle and performs NO role check, NO permission
+check, and NO session validation:
+
+  ipcMain.handle('bi:export', async (_event, options = {}) => {
+    // No requireAdmin(), no checkUserPermission(), no role check
+    const result = await this.runExport(options);
+    return result;
+  });
+
+The frontend button in Reports.jsx:1820 is also UNGATED — no
+role/permission conditional rendering:
+
+  <Button variant="outline" size="sm" onClick={() => setShowBiExport(true)}>
+    Export BI
+  </Button>
+
+Any logged-in POS user can trigger a BI export, regardless of role or
+module permissions. This is a gap in the current implementation — the
+"reports" module exists in the POS permission system, but the BI export
+handler doesn't check it.
+
+================================================================================
+6. Comparison table
+================================================================================
+
+  Aspect              Admin (permissionCatalog)     POS (ElectronAuthManager)
+  ------------------  ----------------------------  -------------------------
+  Database            PostgreSQL (Prisma)           SQLite (raw SQL)
+  Schema              Permission + UserPermission   users.role + user_modules
+  Granularity         35 dot-notation keys          4 roles + per-module CRUD
+                      (module.action)               booleans
+  Admin bypass        SUPER_ADMIN always bypasses   admin role returns ['all']
+  Module names        clients, licenses, bi, users  pos, sales, products,
+                      etc.                          inventory, etc.
+  Code coupling       None                          None
+  BI export gating    N/A (admin side)              None (any user can export)
+
+================================================================================
+END OF INVESTIGATION
+================================================================================

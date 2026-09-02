@@ -3,7 +3,6 @@ const ThemeCustomizer = require('./ThemeCustomizer');
 const DependencyManager = require('./DependencyManager');
 const AssetManager = require('./AssetManager');
 const FilePatcher = require('./FilePatcher');
-const ModuleFilter = require('./ModuleFilter');
 const BuildSystemManager = require('./BuildSystemManager');
 const { validateLicense } = require('../config/license-validator');
 const { createLogger } = require('../common/logger');
@@ -78,8 +77,11 @@ async function generatePOSApplication(license, outputPath = null, options = {}) 
       )
     );
 
-    // 4. Filter modules
-    const moduleFilter = new ModuleFilter(projectPath);
+    // 4. Merge feature-flag-derived modules into the license's module list.
+    // Module gating itself is fully runtime (app-config.json -> POSNavbar/App.jsx),
+    // so nothing here needs to touch generated source files anymore — this just
+    // ensures features-derived modules are present for ThemeCustomizer.updateAppConfig()
+    // to write into app-config.json.
     let modulesToFilter = validatedLicense.modules || [];
 
     if (validatedLicense.configuration?.features) {
@@ -96,20 +98,7 @@ async function generatePOSApplication(license, outputPath = null, options = {}) 
         });
     }
 
-    logger.info(`Final modules to filter (${modulesToFilter.length})`);
-
-    await perfLogger.measure(
-      'Module Filter - Filter Modules',
-      () => moduleFilter.filterModules(modulesToFilter)
-    );
-    await perfLogger.measure(
-      'Module Filter - Navbar',
-      () => moduleFilter.filterNavbarModules(modulesToFilter)
-    );
-    await perfLogger.measure(
-      'Module Filter - Cleanup Routes',
-      () => moduleFilter.cleanupRoutes(modulesToFilter)
-    );
+    logger.info(`Final modules (${modulesToFilter.length})`);
 
     // 5. Install dependencies
     const dependencyManager = new DependencyManager(projectPath, validatedLicense);
@@ -135,24 +124,8 @@ async function generatePOSApplication(license, outputPath = null, options = {}) 
       );
     }
 
-    // 6. Theme customization
+    // 6. Theme customization (fully runtime-driven now; this just writes app-config.json)
     const themeCustomizer = new ThemeCustomizer(projectPath, validatedLicense);
-    await perfLogger.measure(
-      'Theme Customizer - CSS Files',
-      () => themeCustomizer.ensureCSSFiles()
-    );
-    await perfLogger.measure(
-      'Theme Customizer - Tailwind Config',
-      () => themeCustomizer.updateTailwindConfig()
-    );
-    await perfLogger.measure(
-      'Theme Customizer - Global Styles',
-      () => themeCustomizer.updateGlobalStyles()
-    );
-    await perfLogger.measure(
-      'Theme Customizer - Component Styles',
-      () => themeCustomizer.updateComponentStyles()
-    );
     await perfLogger.measure(
       'Theme Customizer - App Config',
       () => themeCustomizer.updateAppConfig()
@@ -190,10 +163,6 @@ async function generatePOSApplication(license, outputPath = null, options = {}) 
       () => filePatcher.ensureUIComponents()
     );
     await perfLogger.measure(
-      'File Patcher - Dashboard Patch',
-      () => filePatcher.patchDashboardComponent()
-    );
-    await perfLogger.measure(
       'File Patcher - Package JSON',
       () => filePatcher.patchPackageJSON(businessName)
     );
@@ -210,6 +179,13 @@ async function generatePOSApplication(license, outputPath = null, options = {}) 
     } else if (options.skipBuild) {
       logger.info('Skipping local build step');
       buildStats = { skipped: true, reason: 'Build skipped' };
+    } else if (options.useShellCache) {
+      await perfLogger.measure(
+        'Build Electron (cached shell)',
+        async () => {
+          buildStats = await buildManager.executeFastBuild();
+        }
+      );
     } else {
       const buildTimings = {};
       await perfLogger.measure(

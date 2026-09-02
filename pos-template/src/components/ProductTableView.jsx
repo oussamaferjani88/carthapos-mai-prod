@@ -18,12 +18,18 @@ const ProductTableView = memo(function ProductTableView({
   onGenerateBarcode,
   formatPrice,
   config,
-  showBarcode
+  showBarcode,
+  canCreate = true,
+  canUpdate = true,
+  canDelete = true
 }) {
   const allSelected = products.length > 0 && products.every(p => selectedIds.has(p.id));
   const someSelected = selectedIds.size > 0;
 
   const getStockBadge = (product) => {
+    if (product.manage_stock === 0 || product.manage_stock === false) {
+      return <Badge variant="outline" className="text-xs text-muted-foreground">Stock non géré</Badge>;
+    }
     const stock = product.stock ?? 0;
     const minStock = product.min_stock ?? 0;
     if (stock === 0) return <Badge variant="destructive" className="text-xs">Rupture</Badge>;
@@ -114,11 +120,11 @@ const ProductTableView = memo(function ProductTableView({
                   <TableCell>
                     {product.barcode ? (
                       <span className="font-mono text-xs text-muted-foreground">{product.barcode}</span>
-                    ) : (
+                    ) : canUpdate ? (
                       <Button variant="ghost" size="sm" className="h-6 px-2 text-xs" onClick={(e) => { e.stopPropagation(); onGenerateBarcode(product); }}>
                         <Barcode className="h-3 w-3 mr-1" /> Générer
                       </Button>
-                    )}
+                    ) : <span className="text-xs text-muted-foreground">—</span>}
                   </TableCell>
                 )}
                 <TableCell className="text-sm text-muted-foreground">{product.supplier || '—'}</TableCell>
@@ -127,15 +133,21 @@ const ProductTableView = memo(function ProductTableView({
                     <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => onView(product)}>
                       <Eye className="h-3.5 w-3.5" />
                     </Button>
-                    <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => onEdit(product)}>
-                      <Edit className="h-3.5 w-3.5" />
-                    </Button>
-                    <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => onDuplicate(product)}>
-                      <Copy className="h-3.5 w-3.5" />
-                    </Button>
-                    <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive hover:text-destructive" onClick={() => onDelete(product)}>
-                      <Trash2 className="h-3.5 w-3.5" />
-                    </Button>
+                    {canUpdate && (
+                      <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => onEdit(product)}>
+                        <Edit className="h-3.5 w-3.5" />
+                      </Button>
+                    )}
+                    {canCreate && (
+                      <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => onDuplicate(product)}>
+                        <Copy className="h-3.5 w-3.5" />
+                      </Button>
+                    )}
+                    {canDelete && (
+                      <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive hover:text-destructive" onClick={() => onDelete(product)}>
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </Button>
+                    )}
                   </div>
                 </TableCell>
               </TableRow>

@@ -1,0 +1,48 @@
+===========================================================================
+CHAPTER 2 - State of the Art (chapitre2.tex)
+Figures to create: 1
+===========================================================================
+
+
+FIGURE 1: fig:market-solution-landscape
+-----------------------------------------------------------
+Type: Conceptual Landscape Diagram
+Filename: figures/ch2-market-solution-landscape.png
+Caption: Conceptual landscape of solution categories relevant to CarthaPOS.
+
+Description:
+Draw a conceptual landscape/positioning diagram showing the relationship
+between different solution categories in the POS and business software
+market, and where CarthaPOS fits.
+
+The diagram should show THREE main zones or regions, arranged as overlapping
+circles or grouped boxes:
+
+ZONE 1 - Traditional POS Systems:
+  - Off-the-shelf POS applications (e.g. Square, Lightspeed, Toast)
+  - Characteristics: fixed features, per-terminal licensing, no generation
+  - Limitation: not customizable per sector, no centralized management
+
+ZONE 2 - Centralized Administration Platforms:
+  - Multi-tenant SaaS admin panels
+  - Characteristics: client/license management, module control, role-based access
+  - Limitation: no POS generation, no BI integration
+
+ZONE 3 - CarthaPOS (the intersection / highlighted center):
+  - Combines both: centralized administration + automatic POS generation + BI
+  - Unique value: generates customized Electron POS per client sector,
+    manages licenses with Ed25519 signatures, integrates a full BI pipeline
+    (ETL, warehouse, Metabase dashboards)
+
+OPTIONAL ZONE 4 - Standalone BI Tools:
+  - Metabase, Power BI, Tableau as standalone solutions
+  - Characteristics: visualization only, no POS generation, no tenant isolation
+  - CarthaPOS differentiator: embeds Metabase with per-tenant filtering
+
+Use arrows or a Venn-style layout to show that CarthaPOS sits at the
+intersection of POS generation, centralized administration, and business
+intelligence - a position not occupied by any single existing solution.
+
+Color coding:
+  - Gray/light for existing solution categories
+  - Green or highlighted for CarthaPOS

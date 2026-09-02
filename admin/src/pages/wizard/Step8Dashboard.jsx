@@ -11,6 +11,7 @@ import api from '../../lib/api';
 export default function Step8Dashboard({ uploadId, onNext, onBack, updateWizardData }) {
   const [dashboardId, setDashboardId] = useState(null);
   const [, setDashboard] = useState(null);
+  const [businessType, setBusinessType] = useState(null);
   const [collections, setCollections] = useState([]);
   const [dashboards, setDashboards] = useState([]);
   const [selectedCollection, setSelectedCollection] = useState('');
@@ -28,6 +29,7 @@ export default function Step8Dashboard({ uploadId, onNext, onBack, updateWizardD
     try {
       const res = await api.get(`/bi-uploads/${uploadId}`);
       const upload = res.data?.data || res.data;
+      setBusinessType(upload?.businessType || upload?.biRequest?.businessType || null);
       const existing = upload?.dashboards?.[0];
       if (existing) {
         setDashboardId(existing.id);
@@ -44,6 +46,7 @@ export default function Step8Dashboard({ uploadId, onNext, onBack, updateWizardD
       }
       const res2 = await api.get(`/bi-uploads/${uploadId}`);
       const dash = res2.data?.data?.dashboards?.[0];
+      setBusinessType(res2.data?.data?.businessType || res2.data?.data?.biRequest?.businessType || null);
       if (dash) {
         setDashboardId(dash.id);
         setDashboard(dash);
@@ -56,15 +59,16 @@ export default function Step8Dashboard({ uploadId, onNext, onBack, updateWizardD
     }
   }, [uploadId]);
 
-  // 2. Load Metabase collections (Metabase is the source of truth). Only the
-  //    CarthaPOS Templates collection is exposed as a dashboard model — all
-  //    other collections are hidden from the picker.
+  // 2. Load the business-type Metabase collections that hold a registered master
+  //    template. Only collections with a master (hasMaster) are presented — the
+  //    per-client copies (in nested "client's dashboard" sub-collections) never
+  //    appear here.
   const loadCollections = useCallback(async () => {
     try {
-      const res = await api.get('/bi/metabase/collections');
+      const res = await api.get('/bi/metabase/business-collections');
       const all = res.data?.data || [];
-      const templates = all.filter((c) => c && c.name && /templates/i.test(c.name));
-      setCollections(templates);
+      const withMaster = all.filter((c) => c && c.hasMaster && c.collectionId != null);
+      setCollections(withMaster);
     } catch (err) {
       setError(err.response?.data?.error || err.message);
     }
@@ -83,7 +87,11 @@ export default function Step8Dashboard({ uploadId, onNext, onBack, updateWizardD
     setSelectedMetabaseId('');
     setPreview(null);
     try {
-      const res = await api.get(`/bi/metabase/collections/${collectionId}/dashboards`);
+      // directOnly=true → only dashboards directly inside this business-type
+      // collection (the templates), never the per-client copies deeper down.
+      const res = await api.get(
+        `/bi/metabase/collections/${collectionId}/dashboards?directOnly=true`,
+      );
       setDashboards(res.data?.data || []);
     } catch (err) {
       setError(err.response?.data?.error || err.message);
@@ -98,33 +106,45 @@ export default function Step8Dashboard({ uploadId, onNext, onBack, updateWizardD
     loadDashboardsForCollection(value);
   };
 
-  // Auto-select the single templates collection so dashboards load directly.
+  // Auto-select the business collection matching the client's business type, or
+  // the single business collection, so the templates load directly.
   useEffect(() => {
-    if (collections.length === 1 && !selectedCollection) {
-      const id = String(collections[0].id);
+    if (collections.length === 0 || selectedCollection) return;
+    let match = null;
+    if (businessType) {
+      match = collections.find((c) => c.businessType === businessType);
+    }
+    const target = match || (collections.length === 1 ? collections[0] : null);
+    if (target && target.collectionId != null) {
+      const id = String(target.collectionId);
       setSelectedCollection(id);
       loadDashboardsForCollection(id);
     }
-  }, [collections, selectedCollection, loadDashboardsForCollection]);
+  }, [collections, selectedCollection, loadDashboardsForCollection, businessType]);
 
-  // 3. Persist the chosen Metabase dashboard against the BiDashboard, then
-  //    preview it live (embedded, admin-only).
+  // 3. Provision a per-client COPY of the chosen template, then preview it live
+  //    (embedded, admin-only). The client dashboard is linked to the copy — never
+  //    to the shared template — so each client sees only their own dashboard.
   const handleDashboardSelect = async (metabaseId) => {
     const id = Number(metabaseId);
     setSelectedMetabaseId(metabaseId);
     setPreview(null);
     if (!dashboardId) return;
+    setError(null);
     try {
-      await api.patch(`/bi/dashboards/${dashboardId}`, { metabaseDashboardId: id });
-      updateWizardData({ metabaseDashboardId: id });
-      const res = await api.get(`/bi/dashboards/${dashboardId}/embed`);
-      const emb = res.data?.data?.embedding;
-      if (emb?.iframeUrl) {
-        setPreview(emb.iframeUrl);
+      await api.post(`/bi/dashboards/${dashboardId}/provision`, {
+        metabaseDashboardId: id,
+      });
+      const emb = await api.get(`/bi/dashboards/${dashboardId}/embed`);
+      const embedding = emb.data?.data?.embedding;
+      updateWizardData({ metabaseDashboardId: embedding?.metabaseDashboardId ?? id });
+      if (embedding?.iframeUrl) {
+        setPreview(embedding.iframeUrl);
       } else {
         setError("Aperçu indisponible — activez le partage public ou l'embedding dans Metabase.");
       }
     } catch (err) {
+      setSelectedMetabaseId('');
       setError(err.response?.data?.error || err.message);
     }
   };
@@ -191,17 +211,17 @@ export default function Step8Dashboard({ uploadId, onNext, onBack, updateWizardD
             <div className="flex flex-wrap gap-2">
               {collections.map((c) => (
                 <button
-                  key={c.id}
+                  key={`${c.businessType}-${c.collectionId}`}
                   type="button"
-                  onClick={() => handleCollectionChange(String(c.id))}
+                  onClick={() => handleCollectionChange(String(c.collectionId))}
                   className={cn(
                     'px-3 py-1.5 rounded-lg text-sm border transition-colors',
-                    selectedCollection === String(c.id)
+                    selectedCollection === String(c.collectionId)
                       ? 'bg-primary text-primary-foreground border-primary'
                       : 'bg-background border-border hover:bg-muted/50'
                   )}
                 >
-                  {c.name}
+                  {c.businessType ? c.businessType.charAt(0).toUpperCase() + c.businessType.slice(1) : c.templateName || c.collectionName}
                 </button>
               ))}
             </div>

@@ -37,12 +37,12 @@ function registerServiceHandlers(ipcMainInstance, databaseManager) {
 
   ipcMainInstance.handle('add-appointment', (event, appointment) => {
     return new Promise((resolve, reject) => {
-      const { customerName, customerPhone, serviceId, appointmentDate, notes, status } = appointment;
-      
+      const { customerId, customerName, customerPhone, serviceId, appointmentDate, notes, status } = appointment;
+
       db.run(
-        `INSERT INTO appointments (customer_name, customer_phone, service_id, appointment_date, notes, status)
-         VALUES (?, ?, ?, ?, ?, ?)`,
-        [customerName, customerPhone, serviceId, appointmentDate, notes || '', status || 'scheduled'],
+        `INSERT INTO appointments (customer_id, customer_name, customer_phone, service_id, appointment_date, notes, status)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        [customerId || null, customerName || '', customerPhone || '', serviceId || null, appointmentDate, notes || '', status || 'scheduled'],
         function(err) {
           if (err) {
             console.error('Error adding appointment:', err);

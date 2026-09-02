@@ -36,6 +36,7 @@ import { POSConfiguration } from '../lib/POSConfiguration';
 import { useAppConfig } from '../hooks/useAppConfig';
 import { getCurrencySymbol } from '../utils/currency';
 import { useAuth } from '../contexts/AuthContext';
+import { usePermissions } from '../contexts/PermissionsContext';
 import { getIconComponent } from '../components/CategoryIconPicker';
 import NumericKeypad from '../components/NumericKeypad';
 import { activityLog } from '../utils/activityLog';
@@ -127,6 +128,7 @@ const Sales = () => {
 
   const { config: electronConfig, loading: configLoading } = useAppConfig();
   const { user } = useAuth();
+  const salesPerms = usePermissions('sales');
 
   const getConfig = () => {
     if (electronConfig && electronConfig.theme) {
@@ -158,6 +160,10 @@ const Sales = () => {
 
   const isTablesEnabled = electronConfig?.modules
     ? electronConfig.modules.some(m => (m.name || m) === 'tables' && m.isEnabled !== false)
+    : false;
+
+  const isCustomersEnabled = electronConfig?.modules
+    ? electronConfig.modules.some(m => (m.name || m) === 'customer-management' && m.isEnabled !== false)
     : false;
 
   useEffect(() => {
@@ -663,6 +669,12 @@ const Sales = () => {
 
   const confirmPayment = async (method) => {
     if (isProcessingPayment) return;
+    if (!salesPerms.canCreate) {
+      setLocalNotification("Action non autorisée : accès en lecture seule sur le point de vente.");
+      setShowPaymentMethods(false);
+      setTimeout(() => setLocalNotification(null), 4000);
+      return;
+    }
     const isPending = method === 'À payer';
     try {
       if (!activeShift && !isPending) {
@@ -1925,18 +1937,20 @@ const Sales = () => {
                   <span>Table</span>
                 </button>
               )}
-              <button
-                onClick={() => { loadCustomersList(); setShowCustomerSelector(true); }}
-                className={`rounded-xl font-medium text-xs h-11 flex flex-col items-center justify-center gap-0.5 transition-all ${
-                  selectedCustomer
-                    ? 'bg-purple-100 hover:bg-purple-200 text-purple-800 ring-2 ring-purple-300'
-                    : 'bg-purple-50 hover:bg-purple-100 text-purple-700'
-                }`}
-                title="Sélectionner Client"
-              >
-                <User className="w-4 h-4" />
-                <span>{selectedCustomer ? selectedCustomer.name.split(' ')[0] : 'Client'}</span>
-              </button>
+              {isCustomersEnabled && (
+                <button
+                  onClick={() => { loadCustomersList(); setShowCustomerSelector(true); }}
+                  className={`rounded-xl font-medium text-xs h-11 flex flex-col items-center justify-center gap-0.5 transition-all ${
+                    selectedCustomer
+                      ? 'bg-purple-100 hover:bg-purple-200 text-purple-800 ring-2 ring-purple-300'
+                      : 'bg-purple-50 hover:bg-purple-100 text-purple-700'
+                  }`}
+                  title="Sélectionner Client"
+                >
+                  <User className="w-4 h-4" />
+                  <span>{selectedCustomer ? selectedCustomer.name.split(' ')[0] : 'Client'}</span>
+                </button>
+              )}
               <button
                 onClick={() => { loadSalesHistory(0); setShowTicketHistory(true); }}
                 className="bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded-xl font-medium text-xs h-11 flex flex-col items-center justify-center gap-0.5 transition-all"

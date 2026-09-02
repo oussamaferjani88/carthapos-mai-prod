@@ -1,4 +1,5 @@
 const BaseRepository = require('./BaseRepository');
+const prisma = require('../config/database');
 const fs = require('fs');
 const path = require('path');
 
@@ -11,7 +12,7 @@ class POSRepository extends BaseRepository {
    * Get license with full details for POS generation
    */
   async getLicenseForGeneration(licenseId) {
-    return await this.prisma.license.findUnique({
+    const license = await prisma.license.findUnique({
       where: { id: licenseId },
       include: {
         client: true,
@@ -23,6 +24,16 @@ class POSRepository extends BaseRepository {
         configuration: true
       }
     });
+    if (license && license.configuration && license.configuration.rawConfig) {
+      // Surface the full wizard configuration to the build pipeline: flat model
+      // fields (type-coerced) take precedence, rich fields such as
+      // forcePortableMode / footerText / currencyPosition come from rawConfig.
+      license.configuration = {
+        ...license.configuration.rawConfig,
+        ...license.configuration
+      };
+    }
+    return license;
   }
 
   /**

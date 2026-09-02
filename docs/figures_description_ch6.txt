@@ -1,0 +1,554 @@
+===========================================================================
+CHAPTER 6 - Release 3: Security, RBAC and Business Intelligence (chapitre6.tex)
+Figures to create: 15
+===========================================================================
+
+
+FIGURE 1: fig:usecase-sprint5
+-----------------------------------------------------------
+Type: UML Use-Case Diagram
+Filename: figures/ch6-usecase-sprint5.png
+Caption: Use-case diagram scoped to Sprint 5: authentication, security and RBAC
+
+Description:
+Draw a UML use-case diagram for Sprint 5 scope.
+
+ACTORS:
+  - User (any authenticated user)
+  - Super-Administrator (full access, only canonical account)
+  - Generated POS (machine, verifies license)
+
+SYSTEM BOUNDARY: Sprint 5 - Authentication, Security and RBAC
+
+USE CASES:
+  AUTHENTICATION:
+    - Login (username/password -> JWT token)
+    - Logout (invalidate session)
+    - Verify Token (JWT validation on each request)
+
+  USER MANAGEMENT (Super-Admin only):
+    - Create User
+    - Edit User
+    - Assign Role (SUPER_ADMIN, ADMIN, MANAGER, BI_SPECIALIST)
+    - Assign Granular Permissions (35-key catalog)
+    - Deactivate User
+
+  LICENSE SECURITY:
+    - Generate License Key (Ed25519 signing)
+    - Verify License (signature + machine fingerprint)
+    - Activate License (bind to machine)
+    - Transfer License (unbind + rebind)
+
+  RBAC ENFORCEMENT:
+    - Check Permission (route-level middleware)
+    - Super-Admin Bypass (skip all permission checks)
+
+CONNECT:
+  User -> Login, Logout, Verify Token
+  Super-Administrator -> all User Management + RBAC UCs
+  Generated POS -> Verify License, Activate License, Transfer License
+
+
+===========================================================================
+
+
+FIGURE 2: fig:auth-sequence
+-----------------------------------------------------------
+Type: UML Sequence Diagram
+Filename: figures/ch6-auth-sequence.png
+Caption: Sequence of authentication and route authorization
+
+Description:
+Draw a UML sequence diagram showing the full auth flow: login + subsequent request.
+
+LIFELINES:
+  User -> Login Endpoint -> Password Validation -> JWT Generation ->
+  HttpOnly Cookie -> Response
+
+  Then for subsequent requests:
+  Browser -> Middleware -> Token Verification -> Permission Check -> Controller
+
+SEQUENCE - LOGIN:
+  1. User sends POST /api/auth/login with username + password
+  2. Login endpoint queries User by username
+  3. bcrypt.compare(password, user.password)
+  4. If match: generate JWT with { userId, username, role }
+  5. Set HttpOnly cookie with JWT token
+  6. Return response: { user: { id, username, email, role }, permissions: [...] }
+
+SEQUENCE - SUBSEQUENT REQUEST:
+  7. Browser sends request with cookie header
+  8. Auth middleware extracts JWT from cookie
+  9. jwt.verify(token, JWT_SECRET)
+  10. If SUPER_ADMIN role: bypass all permission checks
+  11. If other role: query UserPermission table for user permissions
+  12. Check if required permission key is in user permissions
+  13. If authorized: pass to controller
+  14. If unauthorized: return 403 Forbidden
+
+Use two fragments: LOGIN flow and SUBSEQUENT REQUEST flow.
+Show the cookie being set and sent back.
+
+
+===========================================================================
+
+
+FIGURE 3: fig:rbac-model
+-----------------------------------------------------------
+Type: RBAC Diagram
+Filename: figures/ch6-rbac-model.png
+Caption: Role-based access-control design
+
+Description:
+Draw an RBAC model diagram showing the relationships between
+Users, Roles, Permissions, and Protected Operations.
+
+LEFT COLUMN - Users:
+  User1 (Super Admin)
+  User2 (Admin)
+  User3 (Manager)
+  User4 (BI Specialist)
+
+MIDDLE COLUMN - Roles:
+  SUPER_ADMIN (bypasses all checks)
+  ADMIN (receives granular permissions)
+  MANAGER (subset of permissions)
+  BI_SPECIALIST (BI operations only)
+
+RIGHT COLUMN - Permission Groups (35 keys):
+  Dashboard: dashboard.view
+  Clients: clients.view, clients.create, clients.update, clients.delete
+  Licenses: licenses.view, licenses.create, licenses.update, licenses.suspend, licenses.revoke, licenses.delete
+  Modules: modules.view, modules.manage
+  POS: pos.view, pos.generate, pos.build
+  USB: usb.view, usb.write
+  Users: users.view, users.create, users.update, users.delete, users.permissions
+  Reports: reports.view, reports.export
+  Products: products.view, products.edit
+  Inventory: inventory.view, inventory.edit
+  BI: bi.view, bi.requests, bi.assignments, bi.notifications, bi.import, bi.history
+
+BOTTOM - Protected Admin Routes (17 paths):
+  /, /clients, /licenses, /modules, /reports, /pos-generator,
+  /bi-requests, /bi-assignments, /bi-notifications, /bi-wizard,
+  /bi-upload-portal, /user-management, /usb-manager
+
+Use arrows: User -> Role -> Permissions -> Routes.
+Show SUPER_ADMIN with a bypass arrow that skips permission checks.
+
+
+===========================================================================
+
+
+FIGURE 4: fig:classdiagram-sprint5
+-----------------------------------------------------------
+Type: UML Class Diagram
+Filename: figures/ch6-classdiagram-sprint5.png
+Caption: Access-control and license-security class diagram for Sprint 5
+
+Description:
+Draw a UML class diagram for the Sprint 5 models.
+
+CLASSES:
+
+  User
+    - id, username (unique), email (unique), password, role (UserRole),
+      isActive, lastLogin
+
+  Permission
+    - id, key (unique), module, name, description
+
+  UserPermission (join table)
+    - userId (FK), permissionId (FK)
+    - Unique: [userId, permissionId]
+
+  UserRole (enum displayed as note):
+    SUPER_ADMIN | ADMIN | MANAGER | BI_SPECIALIST
+
+  LicenseActivationHistory
+    - id, licenseId (FK), action, fromStatus, toStatus,
+      details (Json), performedBy, performedAt
+
+  LicenseValidationLog
+    - id, licenseId (FK), isValid, reason, status,
+      details (Json), validatedAt
+
+  LicenseFailureReason (enum displayed as note):
+    NO_LICENSE | INVALID_SIGNATURE | EXPIRED | REVOKED | SUSPENDED |
+    MACHINE_MISMATCH | USB_NOT_FOUND | USB_MISMATCH |
+    HYBRID_BINDING_FAILED | CLOCK_ROLLBACK | OFFLINE_GRACE_EXPIRED |
+    LICENSE_CORRUPTED | UNSUPPORTED_LICENSE_VERSION
+
+  LicenseTransferHistory
+    - id, licenseId (FK), transferType, fromMachineFingerprint,
+      toMachineFingerprint, fromUsbDeviceId, toUsbDeviceId,
+      authorizedBy, authorizedAt, details (Json)
+
+RELATIONSHIPS:
+  User 1--N UserPermission N--1 Permission
+  License 1--N LicenseActivationHistory
+  License 1--N LicenseValidationLog
+  License 1--N LicenseTransferHistory
+
+
+===========================================================================
+
+
+FIGURE 5: fig:s5-admin-login
+-----------------------------------------------------------
+Type: Screenshot
+Filename: figures/ch6-s5-admin-login.png
+Caption: Administration Login Page
+
+Description:
+Take a screenshot of the admin login page.
+Show:
+  - Centered login form with CarthaPOS logo
+  - Username field
+  - Password field
+  - Login button
+  - Clean, minimal design
+File: admin/src/pages/Login.jsx
+Crop to show the full login form centered on the page.
+
+
+===========================================================================
+
+
+FIGURE 6: fig:s5-user-management
+-----------------------------------------------------------
+Type: Screenshot
+Filename: figures/ch6-s5-user-management.png
+Caption: User Management with Permission Picker
+
+Description:
+Take a screenshot of the user management page.
+Show:
+  - User listing table with role badges
+  - Grouped permission picker (35 keys organized by module)
+  - Create/edit user form
+  - Role selector dropdown
+File: admin/src/components/management/UserManagementAdvanced.jsx
+Crop to show the user list and permission picker.
+
+
+===========================================================================
+
+
+FIGURE 7: fig:usecase-sprint6
+-----------------------------------------------------------
+Type: UML Use-Case Diagram
+Filename: figures/ch6-usecase-sprint6.png
+Caption: Use-case diagram scoped to Sprint 6: integration, testing and deployment
+
+Description:
+Draw a UML use-case diagram for Sprint 6 scope.
+
+ACTORS:
+  - Developer
+  - Operations (DevOps)
+
+SYSTEM BOUNDARY: Sprint 6 - Integration, Testing and Deployment
+
+USE CASES:
+  INTEGRATION:
+    - Validate Preview Matching (admin preview vs real POS)
+    - Validate Module Filtering (disabled modules removed)
+    - Integrate BI Export (ZIP from POS to platform)
+    - Connect Metabase (dashboard provisioning)
+
+  TESTING:
+    - Run RBAC Integration Suite (35 assertions)
+    - Run BI Quality Assurance Suite (40 assertions)
+    - Run BI Workflow Suite (27 assertions)
+    - Run Frontend Builds
+    - Run Lint Checks
+    - Run POS Generation Smoke Tests
+
+  DEPLOYMENT:
+    - Build Docker Image
+    - Configure Render Blueprint (render.yaml)
+    - Set Up Managed PostgreSQL
+    - Configure GitHub Actions (POS installer builds)
+    - Deploy to Production
+
+CONNECT:
+  Developer -> Integration UCs, Testing UCs
+  Operations -> Deployment UCs
+
+
+===========================================================================
+
+
+FIGURE 8: fig:classdiagram-sprint6
+-----------------------------------------------------------
+Type: UML Class Diagram
+Filename: figures/ch6-classdiagram-sprint6.png
+Caption: Integration context class diagram for Sprint 6
+
+Description:
+Draw a UML class diagram showing the integrated relationships between
+the major model groups across all releases.
+
+LICENSE -> GENERATION:
+  License -> UserPosConfiguration (generation output)
+  License -> LicenseConfiguration (theme/config)
+  License -> LicenseModule -> Module (enabled modules)
+
+BI PIPELINE:
+  BiRequest -> BiUpload (uploaded data)
+  BiUpload -> BiProcessingJob (ETL processing)
+  BiProcessingJob -> BiProcessingLog (processing steps)
+  BiUpload -> BiUploadFile (individual files)
+
+BI VISUALIZATION:
+  BiDashboardTemplate -> BiDashboard (deep-copy provisioning)
+  BiDashboard -> BiDashboardAssignment (client assignment)
+  BiDashboard -> BiNotification (client notification)
+
+ANALYTICAL WAREHOUSE:
+  DimClient, DimProduct, DimSupplier, DimCustomer, DimTime
+  FactSale, FactSaleItem, FactInventory, FactAppointment,
+  FactKitchenOrder, FactKitchenOrderItem
+
+Show the three groups (License, BI Pipeline, BI Viz) with
+dashed arrows between groups to show integration points.
+Warehouse tables shown as a cluster in the bottom-right.
+
+
+===========================================================================
+
+
+FIGURE 9: fig:s6-system-diagnostics
+-----------------------------------------------------------
+Type: Screenshot
+Filename: figures/ch6-s6-system-diagnostics.png
+Caption: System Diagnostics Dashboard
+
+Description:
+Take a screenshot of the system diagnostics page.
+Show:
+  - CPU/Memory/Disk progress bars
+  - Network status
+  - Hardware badges
+  - System information
+File: admin/src/pages/settings/SystemDiagnostics.jsx
+Crop to show the full diagnostics dashboard.
+
+
+===========================================================================
+
+
+FIGURE 10: fig:bi-validation-flow
+-----------------------------------------------------------
+Type: Flow Diagram
+Filename: figures/ch6-bi-validation-flow.png
+Caption: BI data validation and preparation flow
+
+Description:
+Draw a flow diagram for the BI data validation process.
+
+INPUT: Uploaded ZIP archive
+
+STEP 1: Archive Reception
+  - Receive file via Multer upload
+  - Store on server filesystem
+
+STEP 2: ZIP Extraction
+  - Unzip archive
+  - List contained files
+
+STEP 3: Metadata Validation
+  - Check export version (2.0.0)
+  - Check schema version (2.2.0)
+  - Verify required datasets present
+
+STEP 4: Schema Validation
+  - Validate each dataset against BiSchemaContract
+  - Check column names, types, required fields
+
+STEP 5: Data Quality Checks
+  - Check for missing values
+  - Check for type mismatches
+  - Check for duplicates
+
+STEP 6: Normalization
+  - Coerce data types
+  - Normalize text fields
+  - Deduplicate records
+
+STEP 7: Warning/Error Recording
+  - Log warnings (non-blocking)
+  - Log errors (blocking)
+  - Record in BiProcessingLog
+
+OUTPUT: Prepared data ready for ETL load
+
+Use decision diamonds: "Schema valid?" (yes -> continue, no -> abort)
+Use red for error paths, yellow for warnings, green for success.
+
+
+===========================================================================
+
+
+FIGURE 11: fig:etl-pipeline
+-----------------------------------------------------------
+Type: Pipeline Diagram
+Filename: figures/ch6-etl-pipeline.png
+Caption: Steps of the BI ETL pipeline
+
+Description:
+Draw the 5-step ETL pipeline as a horizontal or vertical flow.
+
+STEP 1: EXTRACT
+  - Unzip uploaded archive
+  - Parse each dataset file (CSV/JSON)
+  - Validate against BiSchemaContract
+
+STEP 2: VALIDATE
+  - Schema check per dataset
+  - Data quality checks
+  - Cross-dataset reconciliation
+  - Record warnings/errors
+
+STEP 3: TRANSFORM
+  - Map POS fields to warehouse fields
+  - Denormalize for analytical queries
+  - Coerce data types
+  - Normalize text, deduplicate
+
+STEP 4: LOAD
+  - Insert into dimension tables (Dim*)
+  - Insert into fact tables (Fact*)
+  - All inside a single Prisma $transaction (120s timeout)
+  - All rows carry tenantId
+
+STEP 5: PUBLISH
+  - Auto-create BiAnalysisRequest
+  - Update BiProcessingJob status to COMPLETED
+  - Record recordsLoaded count
+
+Use numbered boxes connected by arrows.
+Show the ~897 lines of etl-pipeline.js as a note.
+Show the synchronous fire-and-forget pattern as a note.
+
+
+===========================================================================
+
+
+FIGURE 12: fig:bi-schema
+-----------------------------------------------------------
+Type: Data Model Diagram
+Filename: figures/ch6-bi-schema.png
+Caption: BI workflow and warehouse schema
+
+Description:
+Draw a comprehensive diagram showing all 22 BI-related Prisma models.
+Split into two groups:
+
+GROUP 1 - Workflow Tables:
+  BiRequest -> BiRequestEvent (event log)
+  BiRequest -> BiUpload (uploaded data)
+  BiUpload -> BiUploadFile (individual files)
+  BiUpload -> BiProcessingJob (ETL job)
+  BiProcessingJob -> BiProcessingLog (step logs)
+  BiUpload -> BiAnalysisRequest (analysis)
+
+GROUP 2 - Visualization Tables:
+  BiDashboardTemplate (per business type)
+  BiDashboard (per client, deep-copy of template)
+  BiDashboard -> BiDashboardAssignment (client assignment)
+  BiDashboard -> BiNotification (notifications)
+
+GROUP 3 - Warehouse Star Schema:
+  DimClient, DimProduct, DimSupplier, DimCustomer, DimTime
+  FactSale, FactSaleItem, FactInventory, FactAppointment,
+  FactKitchenOrder, FactKitchenOrderItem
+
+Show groups as colored regions (blue=workflow, green=visualization,
+orange=warehouse). Draw arrows for relationships.
+
+
+===========================================================================
+
+
+FIGURE 13: fig:dashboard-provisioning
+-----------------------------------------------------------
+Type: Flow Diagram
+Filename: figures/ch6-dashboard-provisioning.png
+Caption: BI dashboard provisioning workflow
+
+Description:
+Draw the Metabase dashboard provisioning flow.
+
+STEP 1: Template Selection
+  - Select business-type template (BiDashboardTemplate)
+  - Template has metabaseDashboardId, KPIs, dimensions, facts
+
+STEP 2: Collection Creation
+  - Create per-client Metabase collection
+  - Name: "{clientName} Dashboards"
+
+STEP 3: Dashboard Deep-Copy
+  - Call Metabase API: POST /api/dashboard/:id/copy
+  - is_deep_copy: true
+  - Copies all cards, filters, layout
+
+STEP 4: Tenant Filter Baking
+  - For each card in the copied dashboard:
+    - Find tenantFieldId for the tenantId column
+    - Inject MBQL filter: ["=", [field tenantFieldId], tenantId]
+    - For native SQL cards: inject WHERE "tenantId" = '<value>'
+
+STEP 5: Collection Assignment
+  - Move copied dashboard into client collection
+  - Set permissions (client can view only)
+
+STEP 6: Client Consumption
+  - Client accesses dashboard via embedded/public link
+  - tenantId filter ensures only client data visible
+
+Show as a vertical flow with Metabase API calls as dashed arrows.
+Highlight the tenant filter baking step.
+
+
+===========================================================================
+
+
+FIGURE 14: fig:metabase-template-screenshot
+-----------------------------------------------------------
+Type: Screenshot
+Filename: figures/ch6-metabase-template-screenshot.png
+Caption: Master Metabase dashboard template for a business type
+
+Description:
+Take a screenshot of the master Metabase dashboard template.
+Show:
+  - The dashboard with multiple cards/charts
+  - KPI indicators (revenue, orders, customers)
+  - Charts (bar, line, pie)
+  - Filters at the top
+  - The Metabase UI chrome
+This is the template that gets deep-copied per client.
+Use the restaurant sector template as the example.
+Crop to show the full dashboard with charts visible.
+
+
+===========================================================================
+
+
+FIGURE 15: fig:metabase-client-dashboard-screenshot
+-----------------------------------------------------------
+Type: Screenshot
+Filename: figures/ch6-metabase-client-dashboard-screenshot.png
+Caption: Metabase dashboard provisioned for a specific client
+
+Description:
+Take a screenshot of a client-specific Metabase dashboard.
+Show:
+  - The same dashboard layout as the template
+  - But filtered to show only one client data
+  - The tenant filter applied (visible or noted)
+  - Client-specific data values
+This demonstrates the per-tenant isolation.
+Crop to show the full dashboard.

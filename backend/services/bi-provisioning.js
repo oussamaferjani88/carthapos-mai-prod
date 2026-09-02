@@ -5,15 +5,20 @@
  * dashboard bound to one tenant, organized under the business-type collection:
  *   1. Resolves the business-type collection (admin-selected, or the collection
  *      that contains the master dashboard, or the registry name mapping).
- *   2. Ensures a per-client collection named after the canonical business name
- *      INSIDE the business-type collection (no global "CarthaPOS Clients" parent).
- *   3. Deep-copies the master dashboard into that collection (independent cards).
+ *   2. Ensures the fixed "client's dashboard" collection INSIDE the
+ *      business-type collection (no global "CarthaPOS Clients" parent), then a
+ *      per-client sub-collection named after the client/business where that
+ *      client's copy — dashboard plus its charts/cards — all live together.
+ *   3. Deep-copies the master dashboard into the per-client collection
+ *      (independent cards), naming each copy "{clientName}_{businessType}_{businessName}"
+ *      and versioning it (_v2/_v3/...) so the same client can hold several
+ *      dashboards for the same business.
  *   4. Bakes the tenant filter `["=", [field tenantId], <tenantId>]` into every
  *      copied card so each client only ever sees their own warehouse rows.
  *
- * Idempotent by design: retries reuse an existing Metabase dashboard (either the
- * one already persisted on the BiDashboard row, or an identical-named dashboard
- * inside the client collection) instead of creating "Dashboard A, B, C".
+ * Re-provisioning the same BiDashboard row reuses its existing dashboard
+ * (idempotent, keeps its version). A NEW dashboard for the same client + business
+ * is always versioned: _v2, _v3, ... instead of colliding.
  *
  * The master template is NEVER modified — it stays reusable for all clients.
  */
@@ -86,6 +91,85 @@ async function resolveBusinessName(prisma, dashboard) {
 }
 
 /**
+ * Resolve the structured identity of a client dashboard:
+ *   clientName   — resolved CarthaPOS client name (client.name → clientId)
+ *   businessName — resolved business/business name (request.businessName → client.name → clientId)
+ *   businessType — the dashboard business type
+ */
+async function resolveClientDashboardIdentity(prisma, dashboard) {
+  const clientName = (dashboard.client && dashboard.client.name) || dashboard.clientId;
+  let businessName;
+  if (dashboard.upload && dashboard.upload.businessName) {
+    // The business name detected from the exported ZIP metadata.json is the
+    // most authoritative (what the client actually named their business).
+    businessName = dashboard.upload.businessName;
+  } else if (dashboard.request && dashboard.request.businessName) {
+    businessName = dashboard.request.businessName;
+  } else if (dashboard.client && dashboard.client.name) {
+    businessName = dashboard.client.name;
+  } else {
+    businessName = dashboard.clientId;
+  }
+  return {
+    clientName,
+    businessName,
+    businessType: dashboard.businessType || 'unknown',
+  };
+}
+
+/**
+ * Build the display name for a client's Metabase dashboard + collection:
+ *   "{clientName}_{businessType}_{businessName}"
+ * e.g. "Wess Tekbes_restaurant_Wess Tekbes".
+ */
+function buildClientDashboardName(identity) {
+  const {
+    clientName = '',
+    businessType = '',
+    businessName = '',
+  } = identity || {};
+  return [clientName, businessType, businessName]
+    .map((part) => String(part).trim())
+    .filter(Boolean)
+    .join('_');
+}
+
+// Matches "{baseName}" (v1, no suffix) or "{baseName}_v{2..}": returns the
+// version number for a name that starts with the base, else 0 (not a match).
+function versionOfDashboardName(name, baseName) {
+  if (!name) return 0;
+  if (name === baseName) return 1;
+  const re = new RegExp(`^${escapeRegExp(baseName)}_v(\\d+)$`);
+  const m = name.match(re);
+  if (!m) return 0;
+  const n = parseInt(m[1], 10);
+  return Number.isFinite(n) && n >= 2 ? n : 0;
+}
+
+function escapeRegExp(str) {
+  return String(str).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/**
+ * Given the dashboards already present in a client's collection, compute the
+ * versioned dashboard name to use for a fresh copy:
+ *   baseName            → first occurrence
+ *   baseName_v2/_v3/... → subsequent occurrences (highest existing + 1)
+ *   excludedIds         → dashboards already owned by this BiDashboard row are
+ *                         ignored so re-provisioning the same row stays idempotent.
+ */
+function resolveVersionedDashboardName(existingDashboards, baseName, excludedIds) {
+  const excluded = new Set((excludedIds || []).map((id) => String(id)));
+  let maxVersion = 0;
+  for (const d of existingDashboards) {
+    if (excluded.has(String(d.id))) continue;
+    const v = versionOfDashboardName(d.name, baseName);
+    if (v > maxVersion) maxVersion = v;
+  }
+  return maxVersion >= 1 ? `${baseName}_v${maxVersion + 1}` : baseName;
+}
+
+/**
  * Provision a client-specific Metabase dashboard from the registered template.
  *
  * @param {object} opts
@@ -119,7 +203,18 @@ async function provisionClientDashboard({
 
   const masterId = Number(masterDashboardId != null ? masterDashboardId : template.metabaseDashboardId);
   const tenant = tenantId || dashboard.clientId;
-  const resolvedName = businessName || (await resolveBusinessName(prisma, dashboard));
+
+  // Resolve the client identity (clientName, businessName, businessType) and
+  // build the base display name "{clientName}_{businessType}_{businessName}",
+  // used for the per-client Metabase collection. The dashboard inside is named
+  // the same, but is versioned (_v2/_v3/...) so the same client can hold
+  // multiple dashboards for the same business.
+  const identity = await resolveClientDashboardIdentity(prisma, dashboard);
+  if (businessName) {
+    identity.businessName = businessName;
+  }
+  const baseName = buildClientDashboardName(identity);
+  const targetName = baseName;
 
   // 1. Master template must actually exist in Metabase.
   let master;
@@ -145,17 +240,32 @@ async function provisionClientDashboard({
     );
   }
 
-  // 3. Ensure the per-client collection INSIDE the business-type collection.
-  const clientCollection = await metabaseClient.ensureCollection(resolvedName, businessCollection.collectionId);
+  // 3. Ensure the fixed "client's dashboard" collection INSIDE the business-type
+  //    collection, then a per-client sub-collection named after the client/business.
+  //    Each client's copy and its cards/charts live together in their own
+  //    sub-collection, so the "client's dashboard" collection stays clean and no
+  //    client's items are ever mixed with another's.
+  const CLIENT_COLLECTION_NAME = "client's dashboard";
+  const clientCollection = await metabaseClient.ensureCollection(CLIENT_COLLECTION_NAME, businessCollection.collectionId);
+  const perClientCollection = await metabaseClient.ensureCollection(targetName, clientCollection.id);
 
   // 4. Reuse existing instance (idempotency).
   //    a) Already persisted on the BiDashboard row and still present in Metabase.
   let provisioned = null;
   let reused = false;
+  const containerCollectionId = perClientCollection.id;
+
+  // Dashboards already inside this client's collection — used both to reuse an
+  // exact-named copy and to compute the next version for a fresh copy.
+  const dashboardsInCollection = await metabaseClient.listDashboards(containerCollectionId, 0, true);
+
+  // a) Reuse the dashboard already persisted on this BiDashboard row and still
+  //    present in the client collection (idempotent re-provisioning of the same
+  //    row — it keeps its versioned name instead of creating a duplicate).
   if (dashboard.metabaseDashboardId != null) {
     try {
       const existing = await metabaseClient.getDashboard(Number(dashboard.metabaseDashboardId));
-      if (existing && String(existing.collection_id) === String(clientCollection.id)) {
+      if (existing && String(existing.collection_id) === String(containerCollectionId)) {
         provisioned = existing;
         reused = true;
       }
@@ -164,11 +274,19 @@ async function provisionClientDashboard({
     }
   }
 
-  //    b) Identical-named dashboard already in the client collection (handles
-  //       the case where Metabase succeeded but CarthaPOS persistence failed).
-  const targetName = master.name;
+  // Name for a fresh copy: "{baseName}" first, then "{baseName}_v2/_v3/_4..."
+  // so the same client can hold several dashboards for the same business. The
+  // row's own persisted dashboard is excluded so reapplying keeps its version.
+  const dashboardName = resolveVersionedDashboardName(
+    dashboardsInCollection,
+    baseName,
+    dashboard.metabaseDashboardId != null ? [dashboard.metabaseDashboardId] : [],
+  );
+
+  // b) Identical-named dashboard already in the client collection (handles the
+  //    case where Metabase succeeded but CarthaPOS persistence failed).
   if (!provisioned) {
-    const existingByName = await metabaseClient.findDashboardByName(clientCollection.id, targetName);
+    const existingByName = dashboardsInCollection.find((d) => d && d.name === dashboardName);
     if (existingByName) {
       provisioned = await metabaseClient.getDashboard(existingByName.id);
       reused = true;
@@ -176,17 +294,18 @@ async function provisionClientDashboard({
   }
 
   if (!provisioned) {
-    // 5. Deep copy the master into the client collection.
+    // 5. Deep copy the master into the per-client collection.
     const created = await metabaseClient.duplicateDashboard(master.id, {
-      name: targetName,
-      collectionId: clientCollection.id,
+      name: dashboardName,
+      collectionId: containerCollectionId,
     });
     // The copy POST response omits dashcards; fetch the dashboard for card queries.
     provisioned = await metabaseClient.getDashboard(created.id);
   }
 
   // 6. Bake the tenant filter into every copied card (idempotent: cards that
-  //    are already tenant-bound are left untouched).
+  //    are already tenant-bound are left untouched) and keep every chart inside
+  //    the client's own collection.
   const databaseId = firstCardDatabase(provisioned) || firstCardDatabase(master) || Number(process.env.METABASE_DATABASE_ID);
   const tableFieldMap = await metabaseClient.tenantFieldIdByTable(databaseId);
   let cardCount = 0;
@@ -195,6 +314,17 @@ async function provisionClientDashboard({
     if (!card || card.id == null) continue;
     const datasetQuery = card.dataset_query || (await metabaseClient.getCard(card.id)).dataset_query;
     if (!datasetQuery) continue;
+
+    // Keep the card in the client's own collection (not scattered in the shared
+    // "client's dashboard" collection or root).
+    try {
+      const cardDetail = await metabaseClient.getCard(card.id);
+      if (String(cardDetail.collection_id) !== String(containerCollectionId)) {
+        await metabaseClient.moveCardToCollection(card.id, containerCollectionId);
+      }
+    } catch (err) {
+      // non-fatal — the card still works, just may live outside the collection.
+    }
 
     const sourceTable = datasetQuery.type === 'query' && datasetQuery.query
       ? datasetQuery.query['source-table']
@@ -210,13 +340,16 @@ async function provisionClientDashboard({
 
   return {
     metabaseDashboardId: provisioned.id,
-    collectionId: clientCollection.id,
-    collectionName: resolvedName,
+    collectionId: containerCollectionId,
+    collectionName: perClientCollection.name,
     businessCollectionId: businessCollection.collectionId,
     businessCollectionName: businessCollection.collectionName,
     cardCount,
     reused,
-    businessName: resolvedName,
+    businessName: baseName,
+    dashboardName: provisioned.name,
+    clientName: identity.clientName,
+    businessType: identity.businessType,
   };
 }
 
@@ -237,5 +370,9 @@ module.exports = {
   provisionClientDashboard,
   resolveBusinessName,
   resolveBusinessCollection,
+  resolveClientDashboardIdentity,
+  buildClientDashboardName,
+  resolveVersionedDashboardName,
+  versionOfDashboardName,
   BUSINESS_COLLECTIONS,
 };

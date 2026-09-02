@@ -126,7 +126,7 @@ const DATASETS = new Map([
     {
       key: 'products',
       sql: `SELECT id, name, price, cost_price, category, family, barcode,
-                    stock, min_stock, unit, supplier, description, image,
+                    stock, min_stock, manage_stock, unit, supplier, description, image,
                     vat_rate_id, price_type, requires_kitchen,
                     preparation_department, preparation_time,
                     strftime('%Y-%m-%d %H:%M:%S', created_at) AS created_at,
@@ -164,7 +164,7 @@ const DATASETS = new Map([
     {
       key: 'inventory',
       sql: `SELECT p.id AS product_id, p.name AS product_name, p.stock,
-                   p.min_stock, p.category, p.family, p.price,
+                   p.min_stock, p.manage_stock, p.category, p.family, p.price,
                    p.cost_price, p.unit, p.supplier,
                    COALESCE(sold.qty_sold, 0) AS times_sold,
                    ROUND(p.price * p.stock, 2) AS inventory_value,
@@ -175,6 +175,7 @@ const DATASETS = new Map([
               FROM sale_items si
               GROUP BY si.product_id
             ) sold ON p.id = sold.product_id
+            WHERE p.manage_stock = 1
             ORDER BY p.name ASC`,
       module: null,
       businessTypes: 'all',

@@ -145,7 +145,7 @@ export const AuthProvider = ({ children }) => {
   const loginWithDemoUsers = useCallback(async (credentials) => {
     const demoUsers = [
       { username: 'admin', password: 'admin123', role: 'admin', fullName: 'Administrateur', permissions: ['all'] },
-      { username: 'caissier', password: 'caissier123', role: 'cashier', fullName: 'Caissier', permissions: ['sales', 'customers'] },
+      { username: 'caissier', password: 'caissier123', role: 'cashier', fullName: 'Caissier', permissions: ['sales', 'reports'] },
       { username: 'manager', password: 'manager123', role: 'manager', fullName: 'Manager', permissions: ['sales', 'products', 'customers', 'reports', 'inventory'] },
     ];
 

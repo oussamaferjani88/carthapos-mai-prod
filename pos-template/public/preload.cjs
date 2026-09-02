@@ -21,6 +21,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   
   // Validation de licence
   validateLicense: () => createIpcHandler('validate-license'),
+  activateLicense: () => createIpcHandler('activate-license'),
   
   // Gestion USB
   detectUSBDrives: () => createIpcHandler('detect-usb-drives'),

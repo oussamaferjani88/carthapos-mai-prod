@@ -17,7 +17,10 @@ export const useClients = () => {
       let clientsArray = Array.isArray(data) ? data : [];
       if (isUserMode && currentUserId) {
         clientsArray = clientsArray.filter(
-          (client: any) => client.userId === currentUserId || client.createdBy === currentUserId
+          (client: any) =>
+            client.id === currentUserId ||
+            client.userId === currentUserId ||
+            client.createdBy === currentUserId
         );
       }
       setClients(clientsArray);

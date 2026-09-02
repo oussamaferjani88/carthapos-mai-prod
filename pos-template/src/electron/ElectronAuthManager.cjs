@@ -6,9 +6,63 @@
 const bcrypt = require('bcryptjs');
 const SALT_ROUNDS = 10;
 
+// Super administrator = the first user created via the setup wizard
+// (the very first row, always id = 1, with the 'superadmin' role). This
+// account cannot be deleted, deactivated, demoted, or stripped of
+// permissions by anyone.
+const SUPER_ADMIN_ID = 1;
+const SUPER_ADMIN_ROLE = 'superadmin';
+
+// Canonical per-module permission keys — mirror of src/lib/permissions.js so
+// the main process and the renderer always fold legacy/duplicate module names
+// onto the same key.
+const MODULE_ALIASES = {
+  pos: 'sales',
+  caisse: 'sales',
+  vente: 'sales',
+  ventes: 'sales',
+  'customer-management': 'customers',
+  'gift-cards': 'gift_cards',
+  'menu-management': 'products',
+  menu: 'products',
+  // "Produits" page and "Gestion de stock" are the same feature — fold products
+  // onto inventory so granting stock rights also controls the products page.
+  products: 'inventory',
+};
+
+function canonicalModule(name) {
+  const seen = new Set();
+  let key = name;
+  while (MODULE_ALIASES[key] && !seen.has(key)) {
+    seen.add(key);
+    key = MODULE_ALIASES[key];
+  }
+  return key;
+}
+
+// Role-default permission list for the legacy user.permissions array. Mirrors
+// roleDefaults() in src/lib/permissions.js: a manager gets every
+// permission-gated module except user-management, a cashier gets caisse +
+// reports, so the list is never stale for users with no saved rows.
+const MANAGER_DEFAULT_MODULES = [
+  'sales', 'dashboard', 'reports', 'inventory', 'products', 'customers',
+  'settings', 'kitchen', 'tables', 'suppliers', 'services', 'loyalty',
+  'barcode', 'production', 'appointments', 'prescription', 'gift_cards',
+];
+const CASHIER_DEFAULT_MODULES = ['sales', 'reports'];
+
 class ElectronAuthManager {
   constructor(dbManager) {
     this.db = dbManager;
+  }
+
+  isSuperAdmin(userId) {
+    return Number(userId) === SUPER_ADMIN_ID;
+  }
+
+  // Both the superadmin (first user) and regular admins have full access.
+  isAdminRole(role) {
+    return role === 'admin' || role === 'superadmin';
   }
 
   /**
@@ -23,8 +77,8 @@ class ElectronAuthManager {
   async needsFirstTimeSetup() {
     try {
       const admins = await this.db.getData(
-        'SELECT id, username, password_hash FROM users WHERE role = ? AND is_active = 1',
-        ['admin']
+        'SELECT id, username, password_hash FROM users WHERE role IN (?, ?) AND is_active = 1',
+        ['admin', 'superadmin']
       );
 
       console.log('[DIAG] needsFirstTimeSetup: SQL returned rows =', admins ? admins.length : 0);
@@ -167,7 +221,7 @@ class ElectronAuthManager {
           userData.username || 'admin',
           passwordHash,
           userData.fullName || userData.full_name || 'Administrateur',
-          'admin',
+          'superadmin',
           1,
           new Date().toISOString(),
           new Date().toISOString()
@@ -178,7 +232,7 @@ class ElectronAuthManager {
         id: result.lastID,
         username: userData.username || 'admin',
         full_name: userData.fullName || userData.full_name || 'Administrateur',
-        role: 'admin',
+        role: 'superadmin',
         permissions: ['all']
       };
 
@@ -273,7 +327,7 @@ class ElectronAuthManager {
     if (userData.phone && !/^[\d\s\+\-\(\)]{6,}$/.test(userData.phone)) {
       errors.push("Format de téléphone invalide");
     }
-    if (userData.role && !['admin', 'cashier', 'manager', 'server'].includes(userData.role)) {
+    if (userData.role && !['admin', 'superadmin', 'cashier', 'manager', 'server'].includes(userData.role)) {
       errors.push('Rôle invalide');
     }
     return { valid: errors.length === 0, errors };
@@ -284,7 +338,7 @@ class ElectronAuthManager {
    * @returns {Promise<number>}
    */
   async countActiveAdmins() {
-    const result = await this.db.getRow('SELECT COUNT(*) as count FROM users WHERE role = ? AND is_active = 1', ['admin']);
+    const result = await this.db.getRow('SELECT COUNT(*) as count FROM users WHERE role IN (?, ?) AND is_active = 1', ['admin', 'superadmin']);
     return result ? result.count : 0;
   }
 
@@ -485,17 +539,29 @@ class ElectronAuthManager {
   async getUserPermissions(userId, role) {
     try {
       // Admin has all permissions
-      if (role === 'admin') {
+      if (this.isAdminRole(role)) {
         return ['all'];
       }
 
-      // Get user-specific module permissions
+      // Get user-specific module permissions (canonicalized + deduplicated)
       const modules = await this.db.getData(
         'SELECT module_name FROM user_modules WHERE user_id = ? AND can_read = 1',
         [userId]
       );
 
-      return modules.map(m => m.module_name);
+      const granted = [...new Set((modules || []).map(m => canonicalModule(m.module_name)))];
+      if (granted.length > 0) {
+        return granted;
+      }
+
+      // No saved permission rows -> role defaults (never stale/misleading)
+      if (role === 'manager') {
+        return [...MANAGER_DEFAULT_MODULES];
+      }
+      if (role === 'cashier') {
+        return [...CASHIER_DEFAULT_MODULES];
+      }
+      return [];
     } catch (error) {
       console.error('❌ Error getting permissions:', error);
       return [];
@@ -528,11 +594,26 @@ class ElectronAuthManager {
    */
   async setUserModules(userId, modules, grantedBy) {
     try {
+      // The super administrator's permissions are fixed and cannot be revoked
+      if (this.isSuperAdmin(userId)) {
+        throw new Error("Impossible de modifier les permissions du compte de super administrateur");
+      }
+
       // Delete existing permissions
       await this.db.runQuery('DELETE FROM user_modules WHERE user_id = ?', [userId]);
 
+      // Guard against duplicate module_name entries (alias rows share a
+      // canonical module), which would violate the UNIQUE(user_id, module_name).
+      const seen = new Set();
+      const uniqueModules = modules.filter(m => {
+        const key = String(m.module_name || '');
+        if (!key || seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      });
+
       // Insert new permissions
-      for (const module of modules) {
+      for (const module of uniqueModules) {
         await this.db.runQuery(
           `INSERT INTO user_modules 
            (user_id, module_name, can_read, can_create, can_update, can_delete, granted_by, granted_at) 
@@ -570,7 +651,7 @@ class ElectronAuthManager {
       const user = await this.db.getRow('SELECT role FROM users WHERE id = ?', [userId]);
       
       // Admin has all permissions
-      if (user && user.role === 'admin') {
+      if (user && this.isAdminRole(user.role)) {
         return true;
       }
 
@@ -832,8 +913,20 @@ class ElectronAuthManager {
       const validation = this.validateUserInput(userData, true);
       if (!validation.valid) throw new Error(validation.errors[0]);
 
+      // The super administrator's role, active status and server flag cannot be
+      // changed by anyone. Only profile details and the password may be updated.
+      if (this.isSuperAdmin(userId)) {
+        const protectedFields = [];
+        if (userData.role !== undefined && userData.role !== oldUser.role) protectedFields.push('le rôle');
+        if (userData.is_active !== undefined && !!userData.is_active !== !!oldUser.is_active) protectedFields.push('le statut');
+        if (userData.is_server !== undefined && !!userData.is_server !== !!oldUser.is_server) protectedFields.push('le statut serveur');
+        if (protectedFields.length > 0) {
+          throw new Error(`Impossible de modifier ${protectedFields.join(', ')} du compte de super administrateur`);
+        }
+      }
+
       // Prevent deactivating last admin
-      if (userData.is_active === false && oldUser.role === 'admin') {
+      if (userData.is_active === false && this.isAdminRole(oldUser.role)) {
         const adminCount = await this.countActiveAdmins();
         if (adminCount <= 1) throw new Error("Impossible de désactiver le dernier administrateur");
       }
@@ -906,8 +999,13 @@ class ElectronAuthManager {
       const user = await this.db.getRow('SELECT * FROM users WHERE id = ?', [userId]);
       if (!user) throw new Error('Utilisateur non trouvé');
 
+      // The super administrator can never be deleted or deactivated
+      if (this.isSuperAdmin(userId)) {
+        throw new Error("Impossible de supprimer le compte de super administrateur");
+      }
+
       // Prevent deleting last admin
-      if (user.role === 'admin') {
+      if (this.isAdminRole(user.role)) {
         const adminCount = await this.countActiveAdmins();
         if (adminCount <= 1) throw new Error("Impossible de supprimer le dernier administrateur");
       }

@@ -274,6 +274,21 @@ async function updateCardDatasetQuery(cardId, datasetQuery) {
 }
 
 /**
+ * Move a card (saved question/chart) into a target collection so each client's
+ * dashboard and its charts live together inside that client's own collection.
+ */
+async function moveCardToCollection(cardId, collectionId) {
+  if (!isConfigured()) throw new Error('Metabase is not configured');
+  const token = await getSession();
+  const data = await request(`/api/card/${cardId}`, {
+    method: 'PUT',
+    body: { collection_id: collectionId },
+    token,
+  });
+  return data;
+}
+
+/**
  * Fetch database metadata and build { tableId: { tenantFieldId } } by locating
  * the field named 'tenantId' (or 'tenantid') in each table.
  */
@@ -345,6 +360,7 @@ module.exports = {
   findDashboardByName,
   getCard,
   updateCardDatasetQuery,
+  moveCardToCollection,
   tenantFieldIdByTable,
   bakeTenantFilter,
 };

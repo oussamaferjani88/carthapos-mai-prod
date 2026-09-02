@@ -1,0 +1,82 @@
+===========================================================================
+CHAPTER 7 - Build Automation, Containerization and Deployment (chapitre7.tex)
+Figures to create: 1
+===========================================================================
+
+
+FIGURE 1: fig:devops-pipeline
+-----------------------------------------------------------
+Type: Pipeline Diagram
+Filename: figures/ch7-devops-pipeline.png
+Caption: CarthaPOS engineering pipeline from source code to deployment
+
+Description:
+Draw the build and deployment pipeline as a horizontal flow from
+source code to production. Show each stage as a box with tools annotated.
+
+STAGE 1: Source Code (GitHub)
+  - Monorepo structure: backend/, admin/, frontend/, pos-template/, metabase/
+  - Git branching model (main + feature branches)
+  - .gitignore excludes node_modules, build outputs, keys, DB artifacts
+
+STAGE 2: Build Automation (Makefile / npm scripts)
+  - make install: npm install (backend, scripts) + pnpm install (admin, pos-template)
+  - make build-admin: React production bundle
+  - make build-pos-template: Electron POS template bundle
+  - ESLint linting (0 errors across all sources)
+  - Prisma client generation
+
+STAGE 3: Container Image (Docker)
+  - Dockerfile: node:18-bullseye base
+  - Multi-step: install deps, copy source, generate Prisma client
+  - Packages pos-template inside image at /app/pos-template
+  - Production dependencies pre-installed at build time
+
+STAGE 4: Deployment Target (Render.com)
+  - Backend: Docker service on port 10000
+    - Startup: prisma migrate deploy + node server.js
+    - Health check: /api/health
+  - Frontend: static site (carthapos.onrender.com)
+  - Admin: static site (carthapos-admin.onrender.com)
+  - Database: managed PostgreSQL
+  - Metabase: separate service
+
+EXTERNAL: GitHub Actions
+  - Triggered on push to main
+  - Builds POS installers for Windows
+  - Artifacts stored as GitHub releases
+
+Use colored boxes: gray for source, blue for build, orange for container,
+green for deployment. Show arrows between stages.
+
+
+===========================================================================
+
+
+===========================================================================
+CHAPTER 8 - Conclusion and Project Assessment (chapitre8.tex)
+Figures to create: 1
+===========================================================================
+
+
+FIGURE 2: fig:pos-interface-screenshot
+-----------------------------------------------------------
+Type: Screenshot
+Filename: figures/ch8-pos-interface-screenshot.png
+Caption: Generated CarthaPOS Electron application showing the main user interface
+
+Description:
+Take a screenshot of the generated CarthaPOS Electron application running
+on a client machine. This is the FINAL generated product, not the admin interface.
+
+Show:
+  - The Electron window with the CarthaPOS title bar
+  - The main POS interface (sales screen with product grid)
+  - The sidebar navigation with enabled module icons
+  - The CarthaPOS branding (logo, business name, theme colors)
+  - A restaurant-sector instance as the example
+
+This figure demonstrates the end result of the generation pipeline:
+a customized, themed, sector-adapted POS application.
+Crop to show the full Electron application window.
+Add a thin border around the screenshot.

@@ -4,6 +4,7 @@ import { Button } from '../../../ui/button';
 import { Input } from '../../../ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../../ui/select';
 import { Store, ArrowRightLeft, TrendingUp, Package, AlertCircle } from 'lucide-react';
+import { POSConfiguration } from '../../../../config/POSConfiguration';
 
 export const POSMultiStore = ({ config }) => {
   const [selectedStore, setSelectedStore] = useState('store-1');
@@ -20,16 +21,10 @@ export const POSMultiStore = ({ config }) => {
     { id: 2, from: 'Entrepôt Central', to: 'Magasin Zone Commerciale', product: 'Croissants', qty: 100, date: '2025-10-01' }
   ];
 
-  const styles = {
-    card: {
-      backgroundColor: config.cardColor || '#ffffff',
-      borderRadius: config.borderRadius || '8px',
-      boxShadow: '0 2px 4px rgba(0,0,0,0.1)'
-    }
-  };
+  const styles = POSConfiguration.getStyles(config);
 
   return (
-    <div className="h-full flex flex-col space-y-4 p-6 bg-gray-50" style={{ fontFamily: config.fontFamily }}>
+    <div className="h-full flex flex-col space-y-4 py-6 bg-gray-50" style={{ fontFamily: config.fontFamily }}>
       {/* Header */}
       <div className="flex justify-between items-center">
         <div>

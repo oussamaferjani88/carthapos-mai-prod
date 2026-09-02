@@ -1,10 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { getCurrencySymbol } from '../utils/currency';
 import { Factory, Plus, Package, Clock, CheckCircle, AlertTriangle, TrendingUp, DollarSign } from 'lucide-react';
-import { useThemeApplier } from '../hooks/useThemeApplier';
+import { usePermissions } from '../contexts/PermissionsContext';
 
 const Production = () => {
-  useThemeApplier();
+  const { canCreate, canUpdate } = usePermissions('production');
   const formatCurrency = (v) => `${(parseFloat(v) || 0).toFixed(2)} ${getCurrencySymbol('TND')}`;
   
   const [productionOrders, setProductionOrders] = useState([
@@ -155,6 +155,7 @@ const Production = () => {
   };
 
   const handleStatusChange = (orderId, newStatus) => {
+    if (!canUpdate) { alert("Action non autorisée : accès en lecture seule sur la production."); return; }
     setProductionOrders(orders =>
       orders.map(order =>
         order.id === orderId
@@ -169,6 +170,7 @@ const Production = () => {
   };
 
   const handleCreateOrder = () => {
+    if (!canCreate) { alert("Action non autorisée : accès en lecture seule sur la production."); return; }
     const order = {
       id: Date.now(),
       orderNumber: `PROD-2024-${String(productionOrders.length + 1).padStart(3, '0')}`,
@@ -212,6 +214,7 @@ const Production = () => {
             Suivez vos ordres de production, recettes et coûts
           </p>
         </div>
+        {canCreate && (
         <button
           onClick={() => setShowNewOrderForm(true)}
           className="px-4 py-2 bg-primary text-primary-foreground rounded-md hover:bg-primary/90 flex items-center gap-2"
@@ -219,6 +222,7 @@ const Production = () => {
           <Plus className="w-4 h-4" />
           Nouvel Ordre
         </button>
+        )}
       </div>
 
       {/* Stats Cards */}

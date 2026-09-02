@@ -1,0 +1,523 @@
+================================================================================
+CARTHAPOS - PRE-DEPLOYMENT Q&A TEST SUITE
+================================================================================
+Purpose : test EVERYTHING (admin panel, client interface, generated POS apps
+          for RETAIL and RESTAURANT) to find real problems BEFORE deploying.
+
+How to use
+----------
+- Run each test. Enter PASS / FAIL / N/A in the Result box.
+- Record any error messages / console errors verbatim next to failures.
+- "Expected" states the correct behaviour. Anything else = defect.
+- The generated POS must be REGENERATED first (pos-template blueprint changed):
+  generate 4 POS: Retail (no tables/kitchen), Restaurant (without tables/kitchen),
+  Restaurant (with tables+kitchen) ~ a 4th can be the retail/kitchen combo if needed.
+- A USB stick with a valid license file is required for USB-based license tests.
+- Backend, admin, frontend must be running from FRESH builds (npm/pnpm build).
+
+Personas
+--------
+- ADMIN  : SUPER_ADMIN account (backend/.env ADMIN_INITIAL_* credentials)
+- MANAGER: admin staff with limited permissions (test RBAC)
+- CLIENT : client account created from the client portal (frontend register)
+
+Module keys referenced (backend/prisma/seed.js):
+  tables="Gestion des tables", kitchen="Cuisine", menu-management, takeaway,
+  inventory, suppliers, variants, promotions, serial-batch, weight-scale,
+  customer-management, loyalty, gift-cards, layaway, barcode, reports.
+HIDDEN in admin module grid (not selectable, defined in ModuleGrid.jsx):
+  split-payments, offline-mode, tax-management.
+
+Legend: [Q] = test question / action   [EXPECTED] = correct outcome
+================================================================================
+
+
+================================================================================
+SECTION 1 - ADMIN PANEL
+================================================================----------------
+PREREQ: admin builds on port 5173 (make build-admin), backend on port 3001,
+AUTH_REQUIRED left OFF for the admin flow tests below (same as production dev).
+
+1.1  Login & navigation
+--------------------------------------------------------------------------------
+[Q] ADMIN-01  Open admin app. Login with SUPER_ADMIN credentials.
+[EXPECTED] Login succeeds, redirected to dashboard. No console errors.
+[RESULT] ____
+
+[Q] ADMIN-02  Check the left sidebar sections: General, POS, BI Analytics,
+              Administration.
+[EXPECTED] "Rapports" entry is GONE (removed). Present: Dashboard, Clients,
+           Licences, Modules, Générateur POS, Projets POS, Demandes BI,
+           Assignations, Notifications, Import BI, Historique BI, USB,
+           Users (Journal), Settings.
+[RESULT] ____
+
+[Q] ADMIN-03  Navigate to Dashboard. All KPI cards render (revenue, tickets,
+              clients, licenses count) without loading errors.
+[EXPECTED] No broken widgets, no infinite spinners, numbers match DB.
+[RESULT] ____
+
+1.2  Clients
+--------------------------------------------------------------------------------
+[Q] ADMIN-04  Clients page: list all clients, create a new client, edit it,
+              delete it.
+[EXPECTED] CRUD works; new client appears; edit persists; delete asks
+           confirmation and removes it. Validation rejects empty name/email.
+[RESULT] ____
+
+1.3  Licenses & modules
+--------------------------------------------------------------------------------
+[Q] ADMIN-05  Licences page: create a SUBScription license with expiration date
+              (bound to a client, sector, modules). Then a LIFETIME license.
+[EXPECTED] Both created; key generated; activation history recorded
+           ("ISSUE"); status shows correctly.
+[RESULT] ____
+
+[Q] ADMIN-06  Open POS generator  -> Modules step. Verify the module grid.
+[EXPECTED] "Paiement multiple", "Mode hors ligne", "Gestion des taxes/TVA" are
+           NOT visible. All other modules selectable.
+[RESULT] ____
+
+[Q] ADMIN-07  License history / lifecycle: suspend, resume, renew, transfer,
+              revoke a test license.
+[EXPECTED] Each action reflects in history (performedBy = admin username or
+           "admin"), status changes correctly, revoke blocks activation.
+[RESULT] ____
+
+1.4  POS generator (admin side)
+--------------------------------------------------------------------------------
+[Q] ADMIN-08  POS generator step 1 "Configuration de base": selector lists ALL
+              clients (admin must pick any client).
+[EXPECTED] Full client dropdown visible. Selecting a client shows its sector.
+[RESULT] ____
+
+[Q] ADMIN-09  Generate a RETAIL POS (client X, sector retail/commerce,
+              modules: inventory, barcode, reports, customers, promotions,
+              gift-cards, loyalty).
+[EXPECTED] Generation runs through the step sequence (prepare -> generate ->
+           build -> download). Build completes on GitHub Actions (or local
+           source build), installer download starts, project appears in
+           "Projets POS".
+[RESULT] ____
+
+[Q] ADMIN-10  Generate a RESTAURANT POS WITHOUT tables & kitchen modules.
+[EXPECTED] Succeeds; project listed with correct client/sector/business name.
+[RESULT] ____
+
+[Q] ADMIN-11  Generate a RESTAURANT POS WITH "tables" + "kitchen" modules.
+[EXPECTED] Succeeds; both modules appear in the license module list.
+[RESULT] ____
+
+[Q] ADMIN-12  In POS generator step 4/5, verify license binding (MACHINE vs USB):
+              generate with USB binding and with portable mode.
+[EXPECTED] License file generated server-side; binding type stored; download
+           path valid (HTTP 200 on the installer URL).
+[RESULT] ____
+
+1.5  Projets POS (projects list)
+--------------------------------------------------------------------------------
+[Q] ADMIN-13  Projets POS page: each project card shows "Créé par <name>".
+[EXPECTED] Shows "Créé par CarthaPos Admin" for existing/legacy projects
+           (createdBy='admin'); for newly created ones shows the real admin
+           username when auth is enabled.
+[RESULT] ____
+
+[Q] ADMIN-14  Filter by creator: use the "Créé par" dropdown.
+[EXPECTED] List narrows to projects of that creator; "Tout créateur" resets.
+[RESULT] ____
+
+[Q] ADMIN-15  Filter by date: set "Du" and "Au" dates.
+[EXPECTED] Only projects created between the dates are shown (timezone-safe);
+           combinations with creator filter + search all work together.
+[RESULT] ____
+
+[Q] ADMIN-16  "Réinitialiser" button appears ONLY when a filter is active and
+              clears all filters.
+[EXPECTED] Search text, creator filter and dates cleared on click.
+[RESULT] ____
+
+[Q] ADMIN-17  Details dialog of a project: shows business name, client, sector,
+              status, version, "Créé par", "Créé le", license key, modules.
+[EXPECTED] All fields accurate; close/reopen works.
+[RESULT] ____
+
+[Q] ADMIN-18  Re-download an existing ready project and "Dupliquer" it.
+[EXPECTED] Download returns the installer; duplicate creates a new project
+           with copied config/modules under a new license.
+[RESULT] ____
+
+1.6  Users, journal (logs) & permissions
+--------------------------------------------------------------------------------
+[Q] ADMIN-19  User management: create a MANAGER user with subset of permissions.
+[EXPECTED] User created; permissions enforced when they log in (limited
+           sidebar/routes match granted permissions).
+[RESULT] ____
+
+[Q] ADMIN-20  Journal / activity logs: use the "Du"/"Au" date range + user
+              dropdown + action-type filter + "Réinitialiser".
+[EXPECTED] Logs filtered by the chosen date range (locale-day comparison), by
+           the selected user, and by action type; reset clears everything.
+           Actions recorded when licenses/projects are created (performedBy).
+[RESULT] ____
+
+[Q] ADMIN-21  RBAC: log in as MANAGER. Try to open /clients or /user-management.
+[EXPECTED] PermissionRoute blocks pages the role lacks; sidebar hides them.
+[RESULT] ____
+
+1.7  BI subsystem (admin)
+--------------------------------------------------------------------------------
+[Q] ADMIN-22  Demandes BI / Import BI: upload or trigger a POS data export,
+              run the ETL.
+[EXPECTED] Export zip processed; warehouse populated; status becomes complete.
+[RESULT] ____
+
+[Q] ADMIN-23  After a retail/pharmacy BI import, open a stock-based dashboard
+              (inventory KPIs: out of stock / low stock / reorder value).
+[EXPECTED] Only MANAGE_STOCK=1 products appear in inventory metrics; label
+           column manage_stock present; no unknown-column errors in the
+           warehouse (verify `DimProduct.manageStock` exists).
+[RESULT] ____
+
+[Q] ADMIN-24  Restaurant BI: dashboards rely on sales KPIs (CA, panier moyen,
+              tickets/jour, coût matières) - verify they work WITHOUT any
+              inventory dataset rows (restaurant has no manage_stock products).
+[EXPECTED] KPIs compute; "units sold" from sale_items unaffected by
+           products-dataset filtering.
+[RESULT] ____
+
+[Q] ADMIN-25  Metabase: embedded dashboards load in admin (bi-dashboard viewer).
+[EXPECTED] No 401/embedding errors; charts render.
+[RESULT] ____
+
+1.8  USB manager & settings
+--------------------------------------------------------------------------------
+[Q] ADMIN-26  USB Manager: detect a plugged USB drive, write/license fingerprint
+              to it.
+[EXPECTED] Drive detected and reported; fingerprint written/verified.
+[RESULT] ____
+
+[Q] ADMIN-27  Settings pages (application settings, env-driven config) save and
+              re-open correctly.
+[EXPECTED] No errors; persisted values intact after reload.
+[RESULT] ____
+
+
+================================================================================
+SECTION 2 - CLIENT INTERFACE (frontend / client portal)
+================================================================================
+PREREQ: frontend builds (port 5173) and points to backend.
+
+2.1  Registration & authentication
+--------------------------------------------------------------------------------
+[Q] PORTAL-01  Register a NEW client account (business name + email + password).
+[EXPECTED] Success; a User(CLIENT) + linked Client row are created server-side
+           (Client.userId set). Email/username uniqueness enforced.
+[RESULT] ____
+
+[Q] PORTAL-02  Log out, then log back in with the same credentials.
+[EXPECTED] Login succeeds, session persists across refresh, role=CLIENT.
+[RESULT] ____
+
+[Q] PORTAL-03  Wrong password and unknown email tests.
+[EXPECTED] Clear error message, no crash, no token stored.
+[RESULT] ____
+
+2.2  Client POS generator (user mode - regression of fixed bug)
+--------------------------------------------------------------------------------
+[Q] PORTAL-04  Logged as CLIENT, navigate to the client portal POS generator
+               ("/pos-generator" inside the portal).
+[EXPECTED] Step 1 "Configuration de base" must NOT list all clients. It shows
+           the dashboard-style card "Client lié à ce compte" with the client's
+           business name + email.  (list of all clients = BUG, should be fixed)
+[RESULT] ____
+
+[Q] PORTAL-05  Verify the client's generation is tied to THEIR OWN client.
+[EXPECTED] After generation, Projets POS (client view) shows the project with
+           their business; admin Projets shows createdBy = client identity.
+[RESULT] ____
+
+[Q] PORTAL-06  Client goes through all POS generator steps with their own
+               business config (retail scenario).
+[EXPECTED] Steps advance, validation correct, generation requested with
+           clientId = their client id.
+[RESULT] ____
+
+[Q] PORTAL-07  Client (the SAME browser) opens the ADMIN app at /pos-generator.
+[EXPECTED] ADMIN mode NOT leaked from portal (localStorage is per-origin): the
+           admin generator still lists ALL clients.  (separation works)
+[RESULT] ____
+
+2.3  Client dashboard & BI
+--------------------------------------------------------------------------------
+[Q] PORTAL-08  Client dashboard renders: projects, BI dashboards widgets.
+[EXPECTED] Only dashboards/projects of their own client are visible
+           (resolveClientId scoping works).
+[RESULT] ____
+
+[Q] PORTAL-09  Open a BI dashboard from the client sidebar.
+[EXPECTED] Metabase embed loads; no cross-client data visible.
+[RESULT] ____
+
+[Q] PORTAL-10  Logout clears token, user, client and AccessMode keys.
+[EXPECTED] Refresh after logout stays logged out; re-login with another
+           account shows that account's data only (no stale identity).
+[RESULT] ____
+
+
+================================================================================
+SECTION 3 - GENERATED POS  ->  RETAIL  (no tables/kitchen modules)
+================================================================================
+PREREQ: freshly regenerated retail POS installer installed on a test PC.
+
+3.1  First launch & license
+--------------------------------------------------------------------------------
+[Q] RTL-01    Install + launch the exe on a machine with the USB license stick.
+[EXPECTED] App starts, license verified (USB fingerprint + signature +
+           checksum). Green "licence valide".
+[RESULT] ____
+
+[Q] RTL-02    Launch WITHOUT the USB stick / on an unknown machine.
+[EXPECTED] License screen shows invalid/absent license; app locked; no
+           partial data access. Re-insert stick -> unlocks.
+[RESULT] ____
+
+[Q] RTL-03    First-run SetupWizard (compact) appears.
+[EXPECTED] Title "CarthaPos Bienvenue" + business name shown under title; the
+           slim business-info strip (Pays / Devise / Langue) displays; form =
+           Nom complet | Nom utilisateur, Mot de passe | Confirmer in a
+           2-column layout; fields align; password strength checks inline;
+           "Suivant/Créer le compte" button works; no layout breakage.
+[RESULT] ____
+
+[Q] RTL-04    Create the POS admin/super-admin account in the wizard.
+[EXPECTED] Account created; wizard finishes; you land on the POS home.
+[RESULT] ____
+
+3.2  Products & sales
+--------------------------------------------------------------------------------
+[Q] RTL-05    Products page: create products with barcode, price, cost, and
+              quantity ON for manage-stock; create a product with quantity
+              OFF (non-managed).
+[EXPECTED] Both saved. Managed product shows current stock; non-managed shows
+           "—" (no stock display). No crash.
+[RESULT] ____
+
+[Q] RTL-06    Start a sale, scan/unlock a barcode, add managed item, pay cash.
+[EXPECTED] Cart updates, total correct (taxes as configured), payment closes
+           ticket, receipt printed/previewed.
+[RESULT] ____
+
+[Q] RTL-07    Open Inventory page after that sale.
+[EXPECTED] Managed product stock DECREASED by quantity sold; non-managed
+           product NOT touched; a stock_movements row exists referencing the
+           sale.
+[RESULT] ____
+
+[Q] RTL-08    Inventory: open the stock-adjust dialog on the NON-managed
+              product.
+[EXPECTED] Adjust dialog BLOCKED with toast "Produit non géré en stock…";
+           bulk adjust ("Ajuster les sélectionnés") SKIPS non-managed rows;
+           CSV export shows "Non géré"/blank stock for it.
+[RESULT] ____
+
+[Q] RTL-09    Reorder/low-stock alerts for retail.
+[EXPECTED] min_stock threshold triggers a low-stock flag in Inventory/reports.
+[RESULT] ____
+
+[Q] RTL-10    Variants (size/color) on a product; sell a variant.
+[EXPECTED] Variant affects price/stock correctly; trx recorded per variant.
+[RESULT] ____
+
+[Q] RTL-11    Promotions / coupons & Gift cards & Loyalty.
+[EXPECTED] Promotion applies at checkout; gift card issues & redeems; loyalty
+           points accrue and redeem.
+[RESULT] ____
+
+[Q] RTL-12    Customers module: add customer, attach past sale.
+[EXPECTED] Customer saved; history shows orders.
+[RESULT] ____
+
+3.3  Offline / data / reports
+--------------------------------------------------------------------------------
+[Q] RTL-13    Reports module renders (sales by day, products, payments).
+[EXPECTED] Numbers reconcile with actual sales (no off-by-one, no missing
+           negative).
+[RESULT] ____
+
+[Q] RTL-14    BI export: trigger data export from the POS.
+[EXPECTED] Export zip created containing products + inventory datasets;
+           products dataset includes EVERY product (even non-managed),
+           inventory dataset contains ONLY manage_stock=1 rows and a
+           manage_stock column; no SQL errors (verify via a test import in
+           admin BI).
+[RESULT] ____
+
+[Q] RTL-15    Users: POS user management + journal with date range/user filter.
+[EXPECTED] Filters behave (Du/Au, user dropdown, reset); actions logged.
+[RESULT] ____
+
+[Q] RTL-16    Settings: change currency/language, restart app.
+[EXPECTED] Persisted (SQLite), applied on restart, no data loss.
+[RESULT] ____
+
+[Q] RTL-17    Backup/restore the SQLite db (if exposed in Settings).
+[EXPECTED] Backup saves a valid file; restore recovers ALL data.
+[RESULT] ____
+
+
+================================================================================
+SECTION 4 - GENERATED POS  ->  RESTAURANT  WITHOUT tables/kitchen modules
+================================================================================
+
+[Q] RSTR-A-01 Install + first launch + license check as in RTL-01..02.
+[EXPECTED] Same license behaviour.
+[RESULT] ____
+
+[Q] RSTR-A-02 SetupWizard compact as in RTL-03..04 (business = restaurant).
+[EXPECTED] Same behaviour.
+[RESULT] ____
+
+[Q] RSTR-A-03 Products -> build a MENU (categories + dishes + prices).
+[EXPECTED] Menu Management present & functional (categories, items, pricing).
+[RESULT] ____
+
+[Q] RSTR-A-04 Takeaway ("Vente à emporter") order: take a client name + items,
+              mark ready, pay.
+[EXPECTED] Order created with takeaway flow; no table required; receipt ok.
+[RESULT] ____
+
+[Q] RSTR-A-05 Verify NO table-plan / kitchen screen pages exist in the nav.
+[EXPECTED] "Tables" and "Cuisine" are absent from sidebar; opening stale URLs
+           does not crash.
+[RESULT] ____
+
+[Q] RSTR-A-06 Regular dine-in sale WITHOUT tables: plain ticket sale works
+              (product -> pay). Stock decreases if inventory module on.
+[EXPECTED] Same as retail sell flow; no dependency on table row.
+[RESULT] ____
+
+[Q] RSTR-A-07 Orders reflected in Reports; BI export works (restaurant KPIs,
+              sales-based only).
+[EXPECTED] No inventory-dependent errors in restaurant BI.
+[RESULT] ____
+
+[Q] RSTR-A-08 Kitchen screen never appears; notifications module not required.
+[EXPECTED] No dead buttons linking to Cuisine/Tables.
+[RESULT] ____
+
+
+================================================================================
+SECTION 5 - GENERATED POS  ->  RESTAURANT  WITH tables + kitchen modules
+================================================================================
+
+[Q] RSTR-B-01 Install + launch + license + wizard.
+[EXPECTED] Same as RTL-01..04.
+[RESULT] ____
+
+[Q] RSTR-B-02 "Gestion des tables": open the table plan, create tables/zones.
+[EXPECTED] Floor plan renders; tables created; hover/selection works.
+[RESULT] ____
+
+[Q] RSTR-B-03 Open a table, add dishes, SEND order to kitchen.
+[EXPECTED] Ticket state = open; kitchen gets the order (see RSTR-B-05).
+[RESULT] ____
+
+[Q] RSTR-B-04 Add multiple items / split or merge orders if supported.
+[EXPECTED] No double-charge; ticket totals consistent with items.
+[RESULT] ____
+
+[Q] RSTR-B-05 "Cuisine" (KDS) screen: shows incoming orders grouped by
+              table/ticket with line items.
+[EXPECTED] Orders appear in real time; marking a dish "done/prepared" updates
+           status; no stuck/frozen items.
+[RESULT] ____
+
+[Q] RSTR-B-06 Close/Pay the table (cash or card).
+[EXPECTED] Bill equals item total (+service if configured); payment closes
+           ticket; table becomes free; kitchen view clears the ticket.
+[RESULT] ____
+
+[Q] RSTR-B-07 Run the SAME sale as a takeaway while tables active.
+[EXPECTED] Takeaway works in parallel with table flow.
+[RESULT] ____
+
+[Q] RSTR-B-08 Menu management + kitchen: update a dish price mid-shift.
+[EXPECTED] New orders use new price; already-open ticket unaffected (or
+           consistent snapshots).
+[RESULT] ____
+
+[Q] RSTR-B-09 Reports after a full dinner service.
+[EXPECTED] Revenue/tickets match table transactions; no orphan totals.
+[RESULT] ____
+
+[Q] RSTR-B-10 BI export from a restaurant WITH tables/kitchen.
+[EXPECTED] Export OK; inventory dataset empty (restaurant products
+           manage_stock off) but products dataset complete; restaurant BI
+           dashboards unaffected.
+[RESULT] ____
+
+[Q] RSTR-B-11 Users/permissions: waiter with limited rights can open tables
+              but not access settings/users.
+[EXPECTED] Role-based gating works in-app.
+[RESULT] ____
+
+
+================================================================================
+SECTION 6 - CROSS-CUTTING & DEPLOYMENT CHECKS
+================================================================================
+
+[Q] X-01  License security: copy a license file to another USB / different
+          machine.
+[EXPECTED] Signature/checksum/binding (machine or USB) rejects it.
+[RESULT] ____
+
+[Q] X-02  Regenerate a POS from an existing project ("Modifier" a saved config
+          then re-generate). 
+[EXPECTED] New build keeps the saved config; project list updates; old
+          artifacts cleaned.
+[RESULT] ____
+
+[Q] X-03  Two admins generate different POS at the same time.
+[EXPECTED] No file-path collision / no corrupted generated output
+           (generated-pos/<name>-<key> unique per run).
+[RESULT] ____
+
+[Q] X-04  Installer runs on a CLEAN Windows machine with no Node/dev tools.
+[EXPECTED] Self-contained app launches; no missing DLL errors.
+[RESULT] ____
+
+[Q] X-05  Admin BI ETL after a POS export: warehouse prisma client matches
+          schema (DimProduct.manageStock). Restart backend, re-run ETL.
+[EXPECTED] `npx prisma generate --schema=prisma-warehouse/schema.prisma` runs
+           clean (no locked DLL); ETL completes with 0 errors.
+[RESULT] ____
+
+[Q] X-06  Search the whole flow for leftover "Rapports" references in the admin
+          visible UI (console/network view).
+[EXPECTED] No stale /reports route 404s from sidebar (route removed);
+           direct /reports URL shows not-found redirect, not a crash.
+[RESULT] ____
+
+[Q] X-07  Verify createdBy recorded for portal-generated vs admin-generated
+          licenses (check DB: License.createdBy).
+[EXPECTED] Admin creations -> admin username (or 'admin'); portal/client
+           creations -> client/user identifier. Never null.
+[RESULT] ____
+
+
+================================================================================
+SUMMARY
+================================================================================
+Total tests:  (fill after running)
+PASS: ____    FAIL: ____    N/A: ____
+
+FAILED TEST IDs (report with exact console/network error text):
+______________________________________________________________________
+______________________________________________________________________
+______________________________________________________________________
+
+NOTES / OBSERVED PROBLEMS:
+______________________________________________________________________
+
+DECISION:  [ ] DEPLOY        [ ] FIX LIST BELOW BEFORE DEPLOY
+================================================================================

@@ -36,7 +36,7 @@ const STATUS_TO_SALES_KITCHEN = {
   cancelled: 'cancelled',
 };
 
-const AUTH_ROLES = ['admin', 'manager', 'cashier', 'server'];
+const AUTH_ROLES = ['admin', 'superadmin', 'manager', 'cashier', 'server'];
 
 const SLA_THRESHOLDS = { normal: 10, high: 20, urgent: 30 };
 
@@ -547,7 +547,7 @@ function registerKitchenHandlers(ipcMainInstance, databaseManager, getMainWindow
   // ── Delete Kitchen Order (admin only) ──────────────────────────────
   ipcMainInstance.handle('kitchen:delete-order', async (event, id) => {
     const user = requireAuth(event);
-    if (user.role !== 'admin' && user.role !== 'manager') throw new Error('Accès refusé.');
+    if (user.role !== 'admin' && user.role !== 'superadmin' && user.role !== 'manager') throw new Error('Accès refusé.');
     if (!id) throw new Error('Order ID is required');
     await databaseManager.runQuery('DELETE FROM kitchen_orders WHERE id = ?', [id]);
     broadcastKitchenEvent('kitchen:order-deleted', { id });

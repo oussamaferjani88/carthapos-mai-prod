@@ -1,29 +1,51 @@
 import { useState, useRef, useEffect } from 'react';
-import { Upload, File, Loader2 } from 'lucide-react';
+import {
+  Upload, File, Loader2, Building2, Landmark, Store, UserRound, AlertTriangle,
+} from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/card';
 import { Button } from '../../components/ui/button';
 import { Progress } from '../../components/ui/progress';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../components/ui/select';
+import { Badge } from '../../components/ui/badge';
 import api from '../../lib/api';
 
 export default function Step1Upload({ onComplete }) {
   const [file, setFile] = useState(null);
   const [uploading, setUploading] = useState(false);
+  const [detecting, setDetecting] = useState(false);
   const [progress, setProgress] = useState(0);
-  const [clients, setClients] = useState([]);
-  const [clientId, setClientId] = useState('');
-  const [businessType, setBusinessType] = useState('');
+  const [detected, setDetected] = useState(null);
   const [result, setResult] = useState(null);
   const [error, setError] = useState(null);
   const [dragOver, setDragOver] = useState(false);
   const fileInputRef = useRef(null);
 
+  // When a ZIP is picked, peek its metadata.json to auto-detect the client and
+  // business instead of asking the admin to choose manually.
   useEffect(() => {
-    api.get('/bi-uploads/clients/list').then(r => {
-      const data = r.data?.data || [];
-      setClients(data);
-    }).catch(() => {});
-  }, []);
+    if (!file) {
+      setDetected(null);
+      return;
+    }
+    let cancelled = false;
+    setDetecting(true);
+    setError(null);
+    setDetected(null);
+    const formData = new FormData();
+    formData.append('file', file);
+    api.post('/bi-uploads/peek-metadata', formData, { headers: { 'Content-Type': null } })
+      .then((r) => {
+        if (cancelled) return;
+        setDetected(r.data?.data || {});
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        setError(err.response?.data?.error || err.message);
+      })
+      .finally(() => {
+        if (!cancelled) setDetecting(false);
+      });
+    return () => { cancelled = true; };
+  }, [file]);
 
   const handleDrop = (e) => {
     e.preventDefault();
@@ -39,8 +61,8 @@ export default function Step1Upload({ onComplete }) {
   };
 
   const handleUpload = async () => {
-    if (!file || !clientId || !businessType) {
-      setError('Veuillez sélectionner un fichier, un client et un type d\'entreprise');
+    if (!file || !detected || !detected.clientId || !detected.businessType) {
+      setError('Impossible de détecter le client dans le fichier importé.');
       return;
     }
     setUploading(true);
@@ -49,8 +71,9 @@ export default function Step1Upload({ onComplete }) {
     try {
       const formData = new FormData();
       formData.append('file', file);
-      formData.append('clientId', clientId);
-      formData.append('businessType', businessType);
+      formData.append('clientId', detected.clientId);
+      formData.append('businessType', detected.businessType);
+      formData.append('businessName', detected.businessName || detected.businessNameResolved || '');
       const res = await api.post('/bi-uploads', formData, {
         headers: { 'Content-Type': null },
         onUploadProgress: (e) => setProgress(Math.round((e.loaded / e.total) * 100)),
@@ -124,39 +147,66 @@ export default function Step1Upload({ onComplete }) {
           </div>
         )}
 
-        <div className="grid grid-cols-2 gap-4">
-          <div>
-            <label className="text-sm font-medium mb-1 block">Client</label>
-            <Select value={clientId} onValueChange={setClientId}>
-              <SelectTrigger><SelectValue placeholder="Sélectionner un client" /></SelectTrigger>
-              <SelectContent>
-                {clients.map(c => (
-                  <SelectItem key={c.clientId} value={c.clientId}>
-                    {c.name || c.clientId}
-                    {c.businessType ? ` (${c.businessType})` : ''}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+        {detecting && (
+          <div className="flex items-center gap-2 text-sm text-muted-foreground">
+            <Loader2 className="h-4 w-4 animate-spin" /> Analyse du fichier pour détecter le client...
           </div>
-          <div>
-            <label className="text-sm font-medium mb-1 block">Type d'entreprise</label>
-            <Select value={businessType} onValueChange={setBusinessType}>
-              <SelectTrigger><SelectValue placeholder="Sélectionner un type" /></SelectTrigger>
-              <SelectContent>
-                {['retail', 'restaurant', 'cafe', 'bakery', 'pharmacy', 'salon', 'hotel', 'clinic'].map(t => (
-                  <SelectItem key={t} value={t}>{t}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+        )}
+
+        {detected && !detecting && (
+          <div className="rounded-lg border p-4 space-y-3 bg-background">
+            <div className="flex items-center gap-2 text-sm font-medium">
+              <UserRound className="h-4 w-4 text-primary" /> Client détecté automatiquement
+              {detected.matched ? (
+                <Badge variant="default" className="ml-auto">Client reconnu</Badge>
+              ) : (
+                <Badge variant="secondary" className="ml-auto">Client non reconnu</Badge>
+              )}
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <div className="flex items-start gap-2">
+                <Building2 className="h-4 w-4 mt-0.5 text-muted-foreground" />
+                <div>
+                  <p className="text-xs text-muted-foreground">Client</p>
+                  <p className="text-sm font-medium">{detected.clientName || detected.nameResolved || '—'}</p>
+                </div>
+              </div>
+              <div className="flex items-start gap-2">
+                <Store className="h-4 w-4 mt-0.5 text-muted-foreground" />
+                <div>
+                  <p className="text-xs text-muted-foreground">Type d'entreprise</p>
+                  <p className="text-sm font-medium">{detected.businessType || '—'}</p>
+                </div>
+              </div>
+              <div className="flex items-start gap-2">
+                <Landmark className="h-4 w-4 mt-0.5 text-muted-foreground" />
+                <div>
+                  <p className="text-xs text-muted-foreground">Nom commercial</p>
+                  <p className="text-sm font-medium">{detected.businessNameResolved || detected.businessName || '—'}</p>
+                </div>
+              </div>
+            </div>
+            {!detected.matched && (
+              <div className="flex items-start gap-2 rounded-lg bg-amber-50 border border-amber-200 p-3 text-xs text-amber-700">
+                <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
+                <span>
+                  Le client ({detected.nameResolved || 'inconnu'}) n'a pas pu être reconnu dans CarthaPOS.
+                  Vérifiez que le POS a été généré récemment (avec l'identifiant client) avant d'importer.
+                </span>
+              </div>
+            )}
           </div>
-        </div>
+        )}
 
         {error && <p className="text-sm text-red-600">{error}</p>}
 
         {uploading && <Progress value={progress} className="w-full" />}
 
-        <Button onClick={handleUpload} disabled={uploading || !file || !clientId || !businessType} className="w-full">
+        <Button
+          onClick={handleUpload}
+          disabled={uploading || !file || detecting || !detected || !detected.clientId}
+          className="w-full"
+        >
           {uploading ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> Téléversement... {progress}%</> : 'Importer le ZIP'}
         </Button>
       </CardContent>

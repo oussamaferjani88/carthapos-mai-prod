@@ -96,40 +96,31 @@ const Generator = () => {
   };
 
   return (
-    <div className="min-h-screen bg-background flex flex-col">
+    <div className="space-y-6">
       {/* Header */}
-      <div className="border-b border-border bg-card">
-        <div className="max-w-7xl mx-auto px-6 lg:px-8 py-4">
-          <div className="flex items-center justify-between gap-4">
-            <div className="flex items-center gap-4">
-              <Link to="/dashboard">
-                <Button variant="ghost" size="sm" className="gap-2">
-                  <ArrowLeft className="w-4 h-4" />
-                  {t('dashboard.back')}
-                </Button>
-              </Link>
-              <div>
-                <h1 className="text-2xl font-bold">{t('generator.title')}</h1>
-                <p className="text-sm text-muted-foreground">{t('generator.subtitle')}</p>
-              </div>
-            </div>
-            <Button 
-              onClick={openInNewWindow}
-              variant="outline"
-              size="sm"
-              className="gap-2"
-            >
-              <ExternalLink className="w-4 h-4" />
-              Open in new window
+      <div className="flex items-center justify-between gap-3">
+        <div className="flex items-center gap-3">
+          <Link to="/dashboard">
+            <Button variant="ghost" size="sm" className="gap-2">
+              <ArrowLeft className="w-4 h-4" />
+              {t('dashboard.back')}
             </Button>
+          </Link>
+          <div>
+            <h1 className="text-xl font-semibold tracking-tight sm:text-[22px]">{t('generator.title')}</h1>
+            <p className="mt-1 text-[13px] text-muted-foreground">{t('generator.subtitle')}</p>
           </div>
         </div>
+        <Button onClick={openInNewWindow} variant="outline" size="sm" className="gap-2">
+          <ExternalLink className="w-4 h-4" />
+          Open in new window
+        </Button>
       </div>
 
       {/* Content */}
-      <div className="flex-1 p-6">
+      <div>
         {isChecking ? (
-          <div className="flex items-center justify-center h-full">
+          <div className="flex items-center justify-center py-20">
             <div className="text-center">
               <RefreshCw className="w-12 h-12 animate-spin text-primary mx-auto mb-4" />
               <p className="text-muted-foreground">Connecting to POS Generator...</p>

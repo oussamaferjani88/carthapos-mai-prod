@@ -148,11 +148,11 @@ export default function BIDashboardViewer() {
 
   if (!dashboardId) {
     return (
-      <div className="space-y-6 p-6">
+      <div className="space-y-6">
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-2xl font-bold">Mes tableaux de bord BI</h1>
-            <p className="text-muted-foreground text-sm">Sélectionnez un tableau de bord pour consulter vos analyses.</p>
+            <h1 className="text-xl font-semibold tracking-tight sm:text-[22px]">Mes tableaux de bord BI</h1>
+            <p className="mt-1 text-[13px] text-muted-foreground">Sélectionnez un tableau de bord pour consulter vos analyses.</p>
           </div>
           <Button variant="outline" size="sm" onClick={loadData}>
             <RefreshCw className="mr-2 h-4 w-4" /> Actualiser
@@ -209,7 +209,7 @@ export default function BIDashboardViewer() {
     <div className="space-y-6 p-6">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-bold">{dashboard.name}</h1>
+          <h1 className="text-xl font-semibold tracking-tight sm:text-[22px]">{dashboard.name}</h1>
           {dashboard.description && (
             <p className="text-muted-foreground text-sm mt-1">{dashboard.description}</p>
           )}

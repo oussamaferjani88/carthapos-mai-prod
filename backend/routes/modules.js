@@ -1,10 +1,13 @@
 const express = require('express');
 const { PrismaClient } = require('@prisma/client');
+const { adminAuth } = require('../middleware/auth');
+const { requirePermission, requirePermissionForAdmin } = require('../middleware/permissions');
 const router = express.Router();
 const prisma = new PrismaClient();
 
 // GET /api/modules - Récupérer tous les modules
-router.get('/', async (req, res) => {
+// (shared with portal; permission-enforced only for admin sessions)
+router.get('/', requirePermissionForAdmin('modules.view'), async (req, res) => {
   try {
     const modules = await prisma.module.findMany({
       orderBy: [
@@ -64,8 +67,8 @@ router.get('/:id', async (req, res) => {
   }
 });
 
-// POST /api/modules - Créer un nouveau module
-router.post('/', async (req, res) => {
+// POST /api/modules - Créer un nouveau module (admin only)
+router.post('/', adminAuth, requirePermission('modules.manage'), async (req, res) => {
   try {
     const { name, displayName, description, category, isCore } = req.body;
 
@@ -98,8 +101,8 @@ router.post('/', async (req, res) => {
   }
 });
 
-// PUT /api/modules/:id - Mettre à jour un module
-router.put('/:id', async (req, res) => {
+// PUT /api/modules/:id - Mettre à jour un module (admin only)
+router.put('/:id', adminAuth, requirePermission('modules.manage'), async (req, res) => {
   try {
     const { id } = req.params;
     const { name, displayName, description, category, isCore } = req.body;
@@ -141,8 +144,8 @@ router.put('/:id', async (req, res) => {
   }
 });
 
-// DELETE /api/modules/:id - Supprimer un module
-router.delete('/:id', async (req, res) => {
+// DELETE /api/modules/:id - Supprimer un module (admin only)
+router.delete('/:id', adminAuth, requirePermission('modules.manage'), async (req, res) => {
   try {
     const { id } = req.params;
 

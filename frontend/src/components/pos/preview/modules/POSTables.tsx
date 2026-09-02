@@ -18,7 +18,7 @@ interface TableData {
   x: number; y: number; merged_tables: string | null; merged_into: number | null;
 }
 
-export const POSTables = ({ config }: { config: any }) => {
+export const POSTables = ({ config, setNotification }: { config: any; setNotification?: (n: any) => void }) => {
   const initialData: TableData[] = [
     { id: 1, table_number: 'T1', capacity: 4, status: 'available', waiter: '', notes: '', current_order_id: null, x: 10, y: 10, merged_tables: null, merged_into: null },
     { id: 2, table_number: 'T2', capacity: 2, status: 'occupied', waiter: 'Sophie', notes: 'Anniversaire', current_order_id: 123, x: 150, y: 10, merged_tables: null, merged_into: null },
@@ -44,18 +44,28 @@ export const POSTables = ({ config }: { config: any }) => {
 
   useEffect(() => { if (!mergeMode) setSelectedForMerge([]); }, [mergeMode]);
 
+  const notify = (msg: string) => { if (setNotification) setNotification(msg); };
+
   const openCreate = () => { setEditingId(null); setFormData({ table_number: '', capacity: 2, waiter: '', notes: '' }); setDialogOpen(true); };
   const openEdit = (table: TableData) => { setEditingId(table.id); setFormData({ table_number: table.table_number, capacity: table.capacity, waiter: table.waiter || '', notes: table.notes || '' }); setDialogOpen(true); };
 
   const handleSave = () => {
-    if (!formData.table_number.trim()) return;
-    if (editingId) setTables(prev => prev.map(t => t.id === editingId ? { ...t, ...formData } : t));
-    else setTables(prev => [...prev, { id: Date.now(), ...formData, status: 'available', current_order_id: null, x: 50, y: 50, merged_tables: null, merged_into: null }]);
+    if (!formData.table_number.trim()) { alert('Le numéro de table est obligatoire'); return; }
+    if (editingId) {
+      setTables(prev => prev.map(t => t.id === editingId ? { ...t, ...formData } : t));
+      notify(`Table ${formData.table_number} modifiée`);
+    } else {
+      setTables(prev => [...prev, { id: Date.now(), ...formData, status: 'available', current_order_id: null, x: 50, y: 50, merged_tables: null, merged_into: null }]);
+      notify(`Table ${formData.table_number} créée`);
+    }
     setDialogOpen(false);
   };
 
   const updateStatus = (id: number, status: string) => setTables(prev => prev.map(t => t.id === id ? { ...t, status } : t));
-  const deleteTable = (id: number) => setTables(prev => prev.filter(t => t.id !== id));
+  const deleteTable = (id: number) => {
+    setTables(prev => prev.filter(t => t.id !== id));
+    notify('Table supprimée');
+  };
 
   const onMouseDown = (e: React.MouseEvent, table: TableData) => {
     if (mergeMode || transferMode) return;
@@ -81,14 +91,15 @@ export const POSTables = ({ config }: { config: any }) => {
 
   const toggleMergeSelect = (id: number) => setSelectedForMerge(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
   const executeMerge = () => {
-    if (selectedForMerge.length < 2) return;
+    if (selectedForMerge.length < 2) { alert('Minimum 2 tables'); return; }
     const primary = tables.find(t => t.id === selectedForMerge[0])!;
     const cap = tables.filter(t => selectedForMerge.includes(t.id)).reduce((s, t) => s + t.capacity, 0);
     const notes = tables.filter(t => selectedForMerge.includes(t.id) && t.id !== primary.id).filter(o => o.notes).map(o => `Table ${o.table_number}: ${o.notes}`).join('; ');
     setTables(prev => prev.map(t =>
       t.id === primary.id ? { ...t, capacity: cap, notes: [t.notes, notes].filter(Boolean).join('; '), merged_tables: selectedForMerge.join(',') }
-      : selectedForMerge.includes(t.id) ? { ...t, status: 'merged', merged_into: primary.id } : t
+      : selectedForMerge.includes(t.id) ? { ...t, status: 'merged', merged_into: primary.id, waiter: '', notes: '' } : t
     ));
+    notify(`Tables fusionnées: ${selectedForMerge.length} tables`);
     setMergeMode(false); setSelectedForMerge([]);
   };
   const executeSplit = (id: number) => {
@@ -96,6 +107,7 @@ export const POSTables = ({ config }: { config: any }) => {
     if (!table?.merged_tables) return;
     const ids = table.merged_tables.split(',').map(Number);
     setTables(prev => prev.map(t => ids.includes(t.id) ? { ...t, status: 'available', merged_into: null } : t.id === id ? { ...t, capacity: Math.round(table.capacity / ids.length), merged_tables: null, notes: '' } : t));
+    notify('Tables séparées');
   };
   const startTransfer = (id: number) => { setTransferSource(id); setTransferMode(true); };
   const executeTransfer = (targetId: number) => {
@@ -103,6 +115,7 @@ export const POSTables = ({ config }: { config: any }) => {
     const src = tables.find(t => t.id === transferSource)!;
     const tgt = tables.find(t => t.id === targetId)!;
     setTables(prev => prev.map(t => t.id === transferSource ? { ...t, status: 'available', current_order_id: null, waiter: '' } : t.id === targetId ? { ...t, status: 'occupied', current_order_id: src.current_order_id, waiter: src.waiter, notes: src.notes } : t));
+    notify(`Table ${src.table_number} → ${tgt.table_number}`);
     setTransferMode(false); setTransferSource(null);
   };
 
@@ -144,9 +157,10 @@ export const POSTables = ({ config }: { config: any }) => {
       </div>
 
       <div className="flex gap-2">
-        <Button variant={mergeMode ? 'default' : 'outline'} onClick={() => { setMergeMode(!mergeMode); setTransferMode(false); }}>
+        <Button variant={mergeMode ? 'default' : 'outline'} onClick={() => { setMergeMode(!mergeMode); setTransferMode(false); setTransferSource(null); }}>
           <Merge className="mr-2 h-4 w-4" /> {mergeMode ? 'Fusionner' : 'Mode fusion'}
         </Button>
+        <Button variant="outline" disabled><Receipt className="mr-2 h-4 w-4" />Diviser l'addition</Button>
       </div>
 
       {mergeMode && (
@@ -203,7 +217,7 @@ export const POSTables = ({ config }: { config: any }) => {
                   <div className="flex justify-between items-start mb-2">
                     <div>
                       <h3 className="font-bold text-lg" style={{ color: textColor }}>{table.table_number}</h3>
-                      <p className="text-sm text-muted-foreground">Capacité: {table.capacity}</p>
+                      <p className="text-sm text-muted-foreground">Capacité: {table.capacity} personnes</p>
                       {table.waiter && <p className="text-xs text-blue-600 mt-1 flex items-center gap-1"><UserCircle className="h-3 w-3" />{table.waiter}</p>}
                       {table.notes && <p className="text-xs text-amber-600 mt-1 flex items-center gap-1"><FileText className="h-3 w-3" />{table.notes}</p>}
                     </div>

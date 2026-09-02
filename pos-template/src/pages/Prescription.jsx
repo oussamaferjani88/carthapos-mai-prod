@@ -1,10 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { getCurrencySymbol } from '../utils/currency';
 import { Stethoscope, Plus, FileText, User, Calendar, Clock, Search, Filter } from 'lucide-react';
-import { useThemeApplier } from '../hooks/useThemeApplier';
+import { usePermissions } from '../contexts/PermissionsContext';
 
 const Prescription = () => {
-  useThemeApplier();
+  const { canCreate, canUpdate } = usePermissions('prescription');
   const formatCurrency = (v) => `${(parseFloat(v) || 0).toFixed(2)} ${getCurrencySymbol('TND')}`;
   
   const [prescriptions, setPrescriptions] = useState([
@@ -114,12 +114,14 @@ const Prescription = () => {
   };
 
   const handleStatusChange = (prescriptionId, newStatus) => {
-    setPrescriptions(prescriptions.map(p => 
+    if (!canUpdate) { alert("Action non autorisée : accès en lecture seule sur les ordonnances."); return; }
+    setPrescriptions(prescriptions.map(p =>
       p.id === prescriptionId ? { ...p, status: newStatus } : p
     ));
   };
 
   const handleMedicationFulfill = (prescriptionId, medicationIndex) => {
+    if (!canUpdate) { alert("Action non autorisée : accès en lecture seule sur les ordonnances."); return; }
     setPrescriptions(prescriptions.map(p => {
       if (p.id === prescriptionId) {
         const updatedMedications = [...p.medications];
@@ -152,13 +154,15 @@ const Prescription = () => {
             Gérez les ordonnances médicales et prescriptions
           </p>
         </div>
-        <button
-          onClick={() => setShowNewForm(true)}
-          className="px-4 py-2 bg-primary text-primary-foreground rounded-md hover:bg-primary/90 flex items-center gap-2"
-        >
-          <Plus className="w-4 h-4" />
-          Nouvelle Ordonnance
-        </button>
+        {canCreate && (
+          <button
+            onClick={() => setShowNewForm(true)}
+            className="px-4 py-2 bg-primary text-primary-foreground rounded-md hover:bg-primary/90 flex items-center gap-2"
+          >
+            <Plus className="w-4 h-4" />
+            Nouvelle Ordonnance
+          </button>
+        )}
       </div>
 
       {/* Stats Cards */}

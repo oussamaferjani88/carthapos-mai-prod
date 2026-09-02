@@ -7,10 +7,13 @@
  *   create-admin-user (first-time only), authenticate-user, authenticate-by-pin,
  *   get-active-users-for-login, get-recent-logins, logout, validate-user-exists,
  *   validate-password, auth-session-set/clear
- * - Admin-only channels: add-user, delete-user, update-user (own profile allowed),
- *   set-user-modules, update-security-settings, update-admin-password
- * - Manager+ channels: admin-reset-password, change-password (own password allowed),
- *   set-user-pin (own PIN allowed)
+ * - User-management is itself a permission: add-user (create), delete-user
+ *   (delete), update-user / set-user-modules / admin-reset-password /
+ *   set-user-pin / update-user-avatar (update, own profile always allowed),
+ *   get-all-users / get-user-sessions / full audit logs (read). Admins bypass.
+ * - Admin-role only (admin OR superadmin): operating on admin accounts
+ *   (create/modify/delete/reset a user whose role is admin/superadmin),
+ *   update-admin-password, update-security-settings.
  */
 
 const { ipcMain } = require('electron');
@@ -47,10 +50,53 @@ function registerAuthHandlers(ipcMainInstance, externalAuthManager, externalData
     return session?.userData?.role || null;
   }
 
+  // Strictly the superadmin account (id 1). Creating or promoting a user to
+  // the superadmin role is reserved to the super admin itself.
+  function requireSuperAdmin(event) {
+    if (Number(getCurrentUserId(event)) !== 1) {
+      throw new Error('Accès refusé: réservé au super administrateur');
+    }
+  }
+
+  // Both the superadmin (first user) and regular admins are "admin" for guards.
+  function isAdminRole(role) {
+    return role === 'admin' || role === 'superadmin';
+  }
+
   function requireAdmin(event) {
     const role = getCurrentUserRole(event);
-    if (!role || (role !== 'admin' && role !== 'manager')) {
+    if (!role || (role !== 'admin' && role !== 'superadmin' && role !== 'manager')) {
       throw new Error('Accès refusé: droits administrateur requis');
+    }
+  }
+
+  // Strictly the admin role (no manager). Used for operating on admin accounts
+  // so a granted manager/cashier can never promote themselves or alter admins.
+  function requireAdminRole(event) {
+    const role = getCurrentUserRole(event);
+    if (!isAdminRole(role)) {
+      throw new Error('Accès refusé: réservé au rôle administrateur');
+    }
+  }
+
+  // "Gestion des utilisateurs" is itself a permission now: access follows the
+  // user-management module row (or the admin bypass), not the role. Without a
+  // granted permission the action is refused.
+  async function requireUserManagement(event, action) {
+    const currentUserId = getCurrentUserId(event);
+    const role = getCurrentUserRole(event);
+    if (!currentUserId) throw new Error('Non authentifié');
+    if (isAdminRole(role)) return;
+    await ensureManagers();
+    const granted = await authManager.checkUserPermission(currentUserId, 'user-management', action);
+    if (!granted) throw new Error('Accès refusé: permission « gestion des utilisateurs » requise');
+  }
+
+  async function targetRole(userId) {
+    try {
+      return (await dbManager.getRow('SELECT role FROM users WHERE id = ?', [userId]))?.role || null;
+    } catch {
+      return null;
     }
   }
 
@@ -105,7 +151,7 @@ function registerAuthHandlers(ipcMainInstance, externalAuthManager, externalData
       // Only allow during first-time setup (no session) or if admin is logged in
       const userId = getCurrentUserId(event);
       const role = getCurrentUserRole(event);
-      if (userId && role !== 'admin') {
+      if (userId && !isAdminRole(role)) {
         throw new Error('Accès refusé: seuls les administrateurs peuvent modifier le mot de passe admin');
       }
       return await authManager.updateAdminPassword(newPassword);
@@ -209,7 +255,7 @@ function registerAuthHandlers(ipcMainInstance, externalAuthManager, externalData
   ipcMainInstance.handle('get-all-users', async (event) => {
     try {
       await ensureManagers();
-      requireAdmin(event);
+      await requireUserManagement(event, 'read');
       return await dbManager.getData(
         `SELECT id, username, full_name, email, phone, role, badge_id, is_active, is_server, avatar_url, use_pin, last_login, created_at, updated_at
          FROM users ORDER BY created_at DESC`
@@ -223,7 +269,11 @@ function registerAuthHandlers(ipcMainInstance, externalAuthManager, externalData
   ipcMainInstance.handle('add-user', async (event, userData) => {
     try {
       await ensureManagers();
-      requireAdmin(event);
+      await requireUserManagement(event, 'create');
+      // Only the admin role may create further admin accounts; only the super
+      // admin may create further superadmin accounts.
+      if (userData && userData.role === 'superadmin') requireSuperAdmin(event);
+      if (userData && isAdminRole(userData.role) && userData.role !== 'superadmin') requireAdminRole(event);
       const createdBy = getCurrentUserId(event) || 1;
       return await authManager.createUser(userData, createdBy);
     } catch (error) {
@@ -244,11 +294,17 @@ function registerAuthHandlers(ipcMainInstance, externalAuthManager, externalData
     try {
       await ensureManagers();
       const currentUserId = getCurrentUserId(event);
-      const role = getCurrentUserRole(event);
-      // Users can update their own profile; admin/manager can update anyone
-      if (currentUserId !== userId && role !== 'admin' && role !== 'manager') {
-        throw new Error('Accès refusé: vous ne pouvez modifier que votre propre profil');
+      // Users can update their own profile; managing someone else requires the
+      // "gestion des utilisateurs" update permission.
+      if (currentUserId !== userId) await requireUserManagement(event, 'update');
+      // Admin accounts can only be managed by the admin role — this blocks a
+      // granted manager/cashier from promoting themselves or altering admins.
+      // Superadmin accounts (or promotion to superadmin) are super-admin-only.
+      if (userData?.role === 'superadmin' || (await targetRole(userId)) === 'superadmin') {
+        requireSuperAdmin(event);
       }
+      const targetIsAdmin = isAdminRole(await targetRole(userId)) || isAdminRole(userData?.role);
+      if (targetIsAdmin) requireAdminRole(event);
       const updatedBy = currentUserId || 1;
       await authManager.updateUser(userId, userData, updatedBy);
       return { success: true };
@@ -261,7 +317,9 @@ function registerAuthHandlers(ipcMainInstance, externalAuthManager, externalData
   ipcMainInstance.handle('delete-user', async (event, userId) => {
     try {
       await ensureManagers();
-      requireAdmin(event);
+      await requireUserManagement(event, 'delete');
+      if ((await targetRole(userId)) === 'superadmin') requireSuperAdmin(event);
+      if (isAdminRole(await targetRole(userId))) requireAdminRole(event);
       const deletedBy = getCurrentUserId(event) || 1;
       await authManager.deleteUser(userId, deletedBy);
       return { success: true };
@@ -287,11 +345,9 @@ function registerAuthHandlers(ipcMainInstance, externalAuthManager, externalData
     try {
       await ensureManagers();
       const currentUserId = getCurrentUserId(event);
-      const role = getCurrentUserRole(event);
-      // Users can change their own password; admin/manager can change anyone's
-      if (currentUserId !== userId && role !== 'admin' && role !== 'manager') {
-        throw new Error('Accès refusé: vous ne pouvez modifier que votre propre mot de passe');
-      }
+      // Users can change their own password; changing someone else's password
+      // requires the "gestion des utilisateurs" update permission.
+      if (currentUserId !== userId) await requireUserManagement(event, 'update');
       return await authManager.changePassword(userId, oldPassword, newPassword);
     } catch (error) {
       logger.error('❌ Error changing password:', error);
@@ -302,7 +358,9 @@ function registerAuthHandlers(ipcMainInstance, externalAuthManager, externalData
   ipcMainInstance.handle('admin-reset-password', async (event, userId, newPassword) => {
     try {
       await ensureManagers();
-      requireAdmin(event);
+      await requireUserManagement(event, 'update');
+      if ((await targetRole(userId)) === 'superadmin') requireSuperAdmin(event);
+      if (isAdminRole(await targetRole(userId))) requireAdminRole(event);
       return await authManager.adminResetPassword(userId, newPassword);
     } catch (error) {
       logger.error('❌ Error resetting password:', error);
@@ -335,11 +393,9 @@ function registerAuthHandlers(ipcMainInstance, externalAuthManager, externalData
     try {
       await ensureManagers();
       const currentUserId = getCurrentUserId(event);
-      const role = getCurrentUserRole(event);
-      // Users can set their own PIN; admin/manager can set anyone's
-      if (currentUserId !== userId && role !== 'admin' && role !== 'manager') {
-        throw new Error('Accès refusé: vous ne pouvez modifier que votre propre PIN');
-      }
+      // Users can set their own PIN; setting someone else's requires the
+      // "gestion des utilisateurs" update permission.
+      if (currentUserId !== userId) await requireUserManagement(event, 'update');
       return await authManager.setUserPin(userId, pin, usePin);
     } catch (error) {
       logger.error('❌ Error setting user PIN:', error);
@@ -354,10 +410,7 @@ function registerAuthHandlers(ipcMainInstance, externalAuthManager, externalData
     try {
       await ensureManagers();
       const currentUserId = getCurrentUserId(event);
-      const role = getCurrentUserRole(event);
-      if (currentUserId !== userId && role !== 'admin' && role !== 'manager') {
-        throw new Error('Accès refusé');
-      }
+      if (currentUserId !== userId) await requireUserManagement(event, 'update');
       return await authManager.updateUserAvatar(userId, avatarUrl);
     } catch (error) {
       logger.error('❌ Error updating user avatar:', error);
@@ -381,8 +434,40 @@ function registerAuthHandlers(ipcMainInstance, externalAuthManager, externalData
   ipcMainInstance.handle('set-user-modules', async (event, userId, modules) => {
     try {
       await ensureManagers();
-      requireAdmin(event);
-      const grantedBy = getCurrentUserId(event) || 1;
+      // Permission assignment is admin-only, and nobody may change their own.
+      // - super admin (id 1): every other user.
+      // - admin (created by the super admin): managers & cashiers only.
+      // - manager / cashier: nobody.
+      const currentUserId = getCurrentUserId(event);
+      const role = getCurrentUserRole(event);
+      if (!currentUserId) throw new Error('Non authentifié');
+      if (Number(userId) === Number(currentUserId)) {
+        throw new Error('Impossible de modifier ses propres permissions');
+      }
+      if (Number(currentUserId) !== 1) {
+        if (!isAdminRole(role)) {
+          throw new Error('Accès refusé: réservé au rôle administrateur');
+        }
+        const target = await targetRole(userId);
+        if (isAdminRole(target)) {
+          throw new Error('Accès refusé: un administrateur ne peut modifier les permissions que des managers et caissiers');
+        }
+      }
+      const grantedBy = currentUserId;
+      // Only the super admin may grant or change the "gestion des utilisateurs"
+      // permission. A non-superadmin actor can at most carry forward the value
+      // already present for the target (otherwise the delete+insert below would
+      // silently grant or revoke it).
+      if (Number(currentUserId) !== 1) {
+        const existing = await authManager.getUserModules(userId);
+        const umRow = (Array.isArray(existing) ? existing : []).find(m => String(m.module_name) === 'user-management');
+        const umPreserved = umRow
+          ? { module_name: 'user-management', can_read: umRow.can_read ? 1 : 0, can_create: umRow.can_create ? 1 : 0, can_update: umRow.can_update ? 1 : 0, can_delete: umRow.can_delete ? 1 : 0 }
+          : null;
+        const clean = (Array.isArray(modules) ? modules : []).filter(m => String(m.module_name) !== 'user-management');
+        if (umPreserved) clean.push(umPreserved);
+        modules = clean;
+      }
       await authManager.setUserModules(userId, modules, grantedBy);
       return { success: true };
     } catch (error) {
@@ -445,7 +530,9 @@ function registerAuthHandlers(ipcMainInstance, externalAuthManager, externalData
         logger.warn('⚠️ get-audit-logs: no active session, returning empty');
         return [];
       }
-      if (role !== 'admin' && role !== 'manager') {
+      const fullAccess = isAdminRole(role) ||
+        (await authManager.checkUserPermission(getCurrentUserId(event), 'user-management', 'read'));
+      if (!fullAccess) {
         // Non-admin: return only own activity
         const userId = getCurrentUserId(event);
         return await authManager.getAuditLogs({ ...filters, user_id: userId });
@@ -513,10 +600,7 @@ function registerAuthHandlers(ipcMainInstance, externalAuthManager, externalData
     try {
       await ensureManagers();
       const currentUserId = getCurrentUserId(event);
-      const role = getCurrentUserRole(event);
-      if (currentUserId !== userId && role !== 'admin' && role !== 'manager') {
-        throw new Error('Accès refusé');
-      }
+      if (currentUserId !== userId) await requireUserManagement(event, 'read');
       return await authManager.getUserSessions(userId);
     } catch (error) {
       logger.error('❌ IPC get-user-sessions error:', error);

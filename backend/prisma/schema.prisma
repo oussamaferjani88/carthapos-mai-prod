@@ -28,35 +28,107 @@ model Client {
 }
 
 model License {
-  id                   String                @id @default(cuid())
-  clientId             String                @map("clientid")
-  licenseKey           String                @unique @map("licensekey")
+  id                   String                     @id @default(cuid())
+  clientId             String                     @map("clientid")
+  licenseKey           String                     @unique @map("licensekey")
   sector               String
-  licenseType          LicenseType           @map("licensetype")
-  expirationDate       DateTime?             @map("expirationdate")
-  isActive             Boolean               @default(true) @map("isactive")
-  machineId            String?               @map("machineid")
-  buildStatus          String?               @default("pending") @map("buildstatus")
-  buildProjectPath     String?               @map("buildprojectpath")
-  buildProjectName     String?               @map("buildprojectname")
-  buildRunId           String?               @map("buildrunid")
-  bindingType          String                @default("MACHINE") @map("bindingtype")
-  usbSerialNumber      String?               @map("usbserialnumber")
-  isActivated          Boolean               @default(false) @map("isactivated")
-  activatedAt          DateTime?             @map("activatedat")
-  lastValidatedAt      DateTime?             @map("lastvalidatedat")
-  createdBy            String?               @default("admin") @map("createdby")
-  createdAt            DateTime              @default(now()) @map("createdat")
-  updatedAt            DateTime              @updatedAt @map("updatedat")
+  licenseType          LicenseType                @map("licensetype")
+  expirationDate       DateTime?                  @map("expirationdate")
+  isActive             Boolean                    @default(true) @map("isactive")
+  machineId            String?                    @map("machineid")
+  buildStatus          String?                    @default("pending") @map("buildstatus")
+  buildProjectPath     String?                    @map("buildprojectpath")
+  buildProjectName     String?                    @map("buildprojectname")
+  buildRunId           String?                    @map("buildrunid")
+  bindingType          String                     @default("MACHINE") @map("bindingtype")
+  usbSerialNumber      String?                    @map("usbserialnumber")
+  isActivated          Boolean                    @default(false) @map("isactivated")
+  activatedAt          DateTime?                  @map("activatedat")
+  lastValidatedAt      DateTime?                  @map("lastvalidatedat")
+  createdBy            String?                    @default("admin") @map("createdby")
+  status               LicenseStatus              @default(CREATED)
+  legacy               Boolean                    @default(false)
+  licenseVersion       Int                        @default(1) @map("licenseversion")
+  machineFingerprint   String?                    @map("machinefingerprint")
+  activatedMachineId   String?                    @map("activatedmachineid")
+  usbDeviceId          String?                    @map("usbdeviceid")
+  activationCount      Int                        @default(0) @map("activationcount")
+  transferCount        Int                        @default(0) @map("transfercount")
+  maxTransfers         Int                        @default(3) @map("maxtransfers")
+  issuedAt             DateTime?                  @map("issuedat")
+  suspendedAt          DateTime?                  @map("suspendedat")
+  revokedAt            DateTime?                  @map("revokedat")
+  renewedAt            DateTime?                  @map("renewedat")
+  replacedAt           DateTime?                  @map("replacedat")
+  replacedById         String?                    @map("replacedbyid")
+  signature            String?
+  signedLicensePayload Json?                      @map("signedlicensepayload")
+  publicKeyFingerprint String?                    @map("publickeyfingerprint")
+  lastValidationResult String?                    @map("lastvalidationresult")
+  createdAt            DateTime                   @default(now()) @map("createdat")
+  updatedAt            DateTime                   @updatedAt @map("updatedat")
   UserPosConfiguration UserPosConfiguration?
   configuration        LicenseConfiguration?
   modules              LicenseModule[]
-  client               Client                @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  client               Client                     @relation(fields: [clientId], references: [id], onDelete: Cascade)
   biDashboards         BiDashboard[]
   biAnalysisRequests   BiAnalysisRequest[]
   biRequests           BiRequest[]
+  activationHistories  LicenseActivationHistory[]
+  validationLogs       LicenseValidationLog[]
+  transferHistories    LicenseTransferHistory[]
 
   @@map("licenses")
+}
+
+model LicenseActivationHistory {
+  id          String         @id @default(cuid())
+  licenseId   String         @map("licenseid")
+  action      String
+  fromStatus  LicenseStatus? @map("fromstatus")
+  toStatus    LicenseStatus? @map("tostatus")
+  details     Json?
+  performedBy String?        @map("performedby")
+  performedAt DateTime       @default(now()) @map("performedat")
+  createdAt   DateTime       @default(now()) @map("createdat")
+  license     License        @relation(fields: [licenseId], references: [id], onDelete: Cascade)
+
+  @@index([licenseId])
+  @@map("license_activation_histories")
+}
+
+model LicenseValidationLog {
+  id          String                @id @default(cuid())
+  licenseId   String                @map("licenseid")
+  isValid     Boolean               @map("isvalid")
+  reason      LicenseFailureReason?
+  status      String?
+  details     Json?
+  validatedAt DateTime              @default(now()) @map("validatedat")
+  createdAt   DateTime              @default(now()) @map("createdat")
+  license     License               @relation(fields: [licenseId], references: [id], onDelete: Cascade)
+
+  @@index([licenseId])
+  @@index([validatedAt])
+  @@map("license_validation_logs")
+}
+
+model LicenseTransferHistory {
+  id                      String   @id @default(cuid())
+  licenseId               String   @map("licenseid")
+  transferType            String   @map("transfertype")
+  fromMachineFingerprint  String?  @map("frommachinefingerprint")
+  toMachineFingerprint    String?  @map("tomachinefingerprint")
+  fromUsbDeviceId         String?  @map("fromusbdeviceid")
+  toUsbDeviceId           String?  @map("tousbdeviceid")
+  authorizedBy            String?  @map("authorizedby")
+  authorizedAt            DateTime @default(now()) @map("authorizedat")
+  details                 Json?
+  createdAt               DateTime @default(now()) @map("createdat")
+  license                 License  @relation(fields: [licenseId], references: [id], onDelete: Cascade)
+
+  @@index([licenseId])
+  @@map("license_transfer_histories")
 }
 
 model Module {
@@ -154,7 +226,7 @@ model User {
   username             String                 @unique
   email                String                 @unique
   password             String
-  role                 UserRole               @default(CASHIER)
+  role                 UserRole               @default(CLIENT)
   isActive             Boolean                @default(true) @map("isactive")
   lastLogin            DateTime?              @map("lastlogin")
   createdAt            DateTime               @default(now()) @map("createdat")
@@ -175,8 +247,41 @@ model User {
   orders               Order[]
   affiliateOwner       Referral[]             @relation("AffiliateOwner")
   referrals            Referral[]             @relation("UserReferrals")
+  userPermissions      UserPermission[]
 
   @@map("users")
+}
+
+// ──────────────────────────────────────────────
+// RBAC — Granular permissions (admin dashboard)
+// ──────────────────────────────────────────────
+
+model Permission {
+  id               String           @id @default(cuid())
+  key              String           @unique
+  module           String
+  name             String
+  description      String?
+  createdAt        DateTime         @default(now()) @map("createdat")
+  updatedAt        DateTime         @updatedAt @map("updatedat")
+  userPermissions  UserPermission[]
+
+  // NB: mapped to "app_permissions" (not "permissions") because the shared
+  // Postgres database already contains a Metabase-owned "permissions" table.
+  @@map("app_permissions")
+}
+
+model UserPermission {
+  id           String     @id @default(cuid())
+  userId       String     @map("userid")
+  permissionId String     @map("permissionid")
+  createdAt    DateTime   @default(now()) @map("createdat")
+  user         User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  permission   Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, permissionId])
+  @@index([userId])
+  @@map("user_permissions")
 }
 
 model Referral {
@@ -540,6 +645,7 @@ model BiUpload {
   clientId         String?             @map("clientid")
   requestId        String?             @map("requestid")
   businessType     String?             @map("businesstype")
+  businessName     String?             @map("businessname")
   biSchemaVersion  String?             @map("bischemaversion")
   fileHash         String?             @unique @map("filehash")
   fileName         String?             @map("filename")
@@ -603,255 +709,45 @@ model BiProcessingLog {
   @@map("bi_processing_logs")
 }
 
-// ──────────────────────────────────────────────
-// Analytics Warehouse - Dimension Tables
-// ──────────────────────────────────────────────
-
-model DimClient {
-  id           String     @id @default(cuid())
-  tenantId     String?    @unique
-  exportId     String?
-  name         String
-  businessType String?
-  createdAt    DateTime   @default(now())
-  factSales    FactSale[]
-  factSaleItems FactSaleItem[]
-  factKitchenOrderItems FactKitchenOrderItem[]
-
-  @@map("dim_clients")
-}
-
-model DimProduct {
-  id            String          @id @default(cuid())
-  tenantId      String?
-  exportId      String?
-  productId     String?
-  name          String
-  category      String?
-  family        String?
-  barcode       String?
-  createdAt     DateTime        @default(now())
-  factSales     FactSale[]
-  factInventory FactInventory[]
-  factSaleItems FactSaleItem[]
-
-  @@map("dim_products")
-}
-
-model DimSupplier {
-  id         String   @id @default(cuid())
-  tenantId   String?
-  exportId   String?
-  supplierId String?
-  name       String
-  contact    String?
-  phone      String?
-  email      String?
-  createdAt  DateTime @default(now())
-
-  @@map("dim_suppliers")
-}
-
-model DimCustomer {
-  id           String    @id @default(cuid())
-  tenantId     String?
-  exportId     String?
-  customerId   String?
-  name         String
-  email        String?
-  phone        String?
-  address      String?
-  loyaltyPoints Int?
-  totalSpent   Float?
-  visitCount   Int?
-  lastVisitDate DateTime?
-  tags         String?
-  isActive     Int?
-  createdAt    DateTime  @default(now())
-  factSales    FactSale[]
-
-  @@map("dim_customers")
-}
-
-model DimTime {
-  id                Int                @id
-  date              DateTime           @unique
-  year              Int
-  quarter           Int
-  month             Int
-  day               Int
-  dayOfWeek         Int?
-  isWeekend         Boolean?
-  createdAt         DateTime           @default(now())
-  factSales         FactSale[]
-  factInventory     FactInventory[]
-  factAppointments  FactAppointment[]
-  factKitchenOrders FactKitchenOrder[]
-  factSaleItems     FactSaleItem[]
-  factKitchenOrderItems FactKitchenOrderItem[]
-
-  @@map("dim_time")
-}
-
-// ──────────────────────────────────────────────
-// Analytics Warehouse - Fact Tables
-// ──────────────────────────────────────────────
-
-model FactSale {
-  id            String   @id @default(cuid())
-  tenantId      String?
-  exportId      String?
-  dimClientId   String?
-  dimProductId  String?
-  dimTimeId     Int?
-  dimCustomerId String?
-  saleId        String?
-  customerId    String?
-  total         Float
-  tax           Float?
-  discount      Float?
-  paymentMethod String?
-  transactionHour Int?
-  createdAt     DateTime @default(now())
-
-  dimClient   DimClient?   @relation(fields: [dimClientId], references: [id])
-  dimProduct  DimProduct?  @relation(fields: [dimProductId], references: [id])
-  dimTime     DimTime?     @relation(fields: [dimTimeId], references: [id])
-  dimCustomer DimCustomer? @relation(fields: [dimCustomerId], references: [id])
-
-  @@unique([exportId, saleId])
-  @@map("fact_sales")
-}
-
-model FactInventory {
-  id           String   @id @default(cuid())
-  tenantId     String?
-  exportId     String?
-  rowIndex     Int?
-  dimProductId String?
-  dimTimeId    Int?
-  productName  String?
-  stock        Int
-  price        Float?
-  timesSold    Int?
-  createdAt    DateTime @default(now())
-
-  dimProduct DimProduct? @relation(fields: [dimProductId], references: [id])
-  dimTime    DimTime?    @relation(fields: [dimTimeId], references: [id])
-
-  @@unique([exportId, rowIndex])
-  @@map("fact_inventory")
-}
-
-model FactAppointment {
-  id            String   @id @default(cuid())
-  tenantId      String
-  exportId      String
-  rowIndex      Int
-  dimTimeId     Int?
-  customerName  String
-  customerPhone String?
-  serviceId     String?
-  duration      Int?
-  status        String
-  createdAt     DateTime @default(now())
-
-  dimTime DimTime? @relation(fields: [dimTimeId], references: [id])
-
-  @@unique([exportId, rowIndex])
-  @@map("fact_appointments")
-}
-
-model FactKitchenOrder {
-  id          String   @id @default(cuid())
-  tenantId    String
-  exportId    String
-  rowIndex    Int
-  dimTimeId   Int?
-  orderId     String?
-  tableNumber Int?
-  items       String?
-  priority    String?
-  status      String
-  transactionHour Int?
-  startedAt   DateTime?
-  readyAt     DateTime?
-  completedAt DateTime?
-  createdAt   DateTime @default(now())
-
-  dimTime DimTime? @relation(fields: [dimTimeId], references: [id])
-
-  @@unique([exportId, rowIndex])
-  @@map("fact_kitchen_orders")
-}
-
-model FactSaleItem {
-  id            String   @id @default(cuid())
-  tenantId      String?
-  exportId      String?
-  dimClientId   String?
-  dimProductId  String?
-  dimTimeId     Int?
-  saleItemId    String?
-  saleId        String?
-  productId     String?
-  quantity      Int
-  unitPrice     Float?
-  lineTotal     Float?
-  vatRate       Float?
-  vatAmount     Float?
-  paymentMethod String?
-  productName   String?
-  category      String?
-  family        String?
-  transactionHour Int?
-  createdAt     DateTime @default(now())
-
-  dimClient  DimClient?  @relation(fields: [dimClientId], references: [id])
-  dimProduct DimProduct? @relation(fields: [dimProductId], references: [id])
-  dimTime    DimTime?    @relation(fields: [dimTimeId], references: [id])
-
-  @@unique([exportId, saleItemId])
-  @@map("fact_sale_items")
-}
-
-model FactKitchenOrderItem {
-  id                 String   @id @default(cuid())
-  tenantId           String?
-  exportId           String?
-  dimClientId        String?
-  dimTimeId          Int?
-  kitchenOrderItemId String?
-  orderId            String?
-  saleId             String?
-  productId          String?
-  productName        String?
-  quantity           Int
-  unitPrice          Float?
-  lineTotal          Float?
-  department         String?
-  preparationTime    Int?
-  transactionHour    Int?
-  createdAt          DateTime @default(now())
-
-  dimClient DimClient? @relation(fields: [dimClientId], references: [id])
-  dimTime   DimTime?   @relation(fields: [dimTimeId], references: [id])
-
-  @@unique([exportId, kitchenOrderItemId])
-  @@map("fact_kitchen_order_items")
-}
-
 enum LicenseType {
   SUBSCRIPTION
   LIFETIME
 }
 
+enum LicenseStatus {
+  CREATED
+  ISSUED
+  ACTIVATED
+  ACTIVE
+  EXPIRED
+  SUSPENDED
+  REVOKED
+  REPLACED
+  RENEWED
+}
+
+enum LicenseFailureReason {
+  NO_LICENSE
+  INVALID_SIGNATURE
+  EXPIRED
+  REVOKED
+  SUSPENDED
+  MACHINE_MISMATCH
+  USB_NOT_FOUND
+  USB_MISMATCH
+  HYBRID_BINDING_FAILED
+  CLOCK_ROLLBACK
+  OFFLINE_GRACE_EXPIRED
+  LICENSE_CORRUPTED
+  UNSUPPORTED_LICENSE_VERSION
+}
+
 enum UserRole {
+  SUPER_ADMIN
   ADMIN
   MANAGER
-  CASHIER
-  KITCHEN
   CLIENT
+  BI_SPECIALIST
 }
 
 enum OrderType {

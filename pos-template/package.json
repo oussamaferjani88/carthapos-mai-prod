@@ -57,7 +57,6 @@
     "cmdk": "^1.1.1",
     "concurrently": "^9.2.0",
     "cross-env": "^7.0.3",
-    "crypto-js": "^4.2.0",
     "date-fns": "^2.29.3",
     "embla-carousel-react": "^8.6.0",
     "framer-motion": "^12.15.0",
@@ -111,13 +110,6 @@
       "dist/**/*",
       "public/**/*",
       "src/electron/**/*",
-      "node_modules/**/*",
-      "!node_modules/node-gyp/**/*",
-      "!node_modules/@electron/rebuild/**/*",
-      "!node_modules/**/test/**/*",
-      "!node_modules/**/tests/**/*",
-      "!node_modules/**/*.md",
-      "!node_modules/**/*.txt",
       "!**/*.ts",
       "!**/*.tsbuildinfo",
       "!**/*.map",
@@ -143,6 +135,9 @@
     "asarUnpack": [
       "src/electron/**/*",
       "public/preload.cjs",
+      "dist/app-config.json",
+      "dist/favicon.ico",
+      "dist/favicon.svg",
       "**/*.node"
     ],
     "extraFiles": [

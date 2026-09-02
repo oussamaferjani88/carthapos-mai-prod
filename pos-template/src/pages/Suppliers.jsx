@@ -1,6 +1,7 @@
-import { useState, useEffect } from 'react';
-import { 
-  Truck, 
+import { useState, useEffect, useRef } from 'react';
+import { usePermissions } from '../contexts/PermissionsContext';
+import {
+  Truck,
   Plus, 
   Edit2, 
   Trash2, 
@@ -37,6 +38,15 @@ import {
 } from '../components/ui/dropdown-menu';
 
 export default function Suppliers() {
+  const { canCreate, canUpdate, canDelete } = usePermissions('suppliers');
+  const permsRef = useRef({ canCreate, canUpdate, canDelete });
+  permsRef.current = { canCreate, canUpdate, canDelete };
+  const permGuard = (action) => {
+    const p = permsRef.current;
+    const ok = action === 'create' ? p.canCreate : action === 'delete' ? p.canDelete : p.canUpdate;
+    if (!ok) alert("Action non autorisée : vous avez un accès en lecture seule sur les fournisseurs.");
+    return ok;
+  };
   const [suppliers, setSuppliers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -121,6 +131,7 @@ export default function Suppliers() {
       alert('Veuillez remplir au moins le nom du fournisseur');
       return;
     }
+    if (!permGuard(editingSupplier ? 'update' : 'create')) return;
 
     try {
       if (editingSupplier) {
@@ -162,6 +173,7 @@ export default function Suppliers() {
   };
 
   const deleteSupplier = async (supplierId) => {
+    if (!permGuard('delete')) return;
     if (window.confirm('Êtes-vous sûr de vouloir supprimer ce fournisseur ?')) {
       try {
         if (window.electronAPI) {
@@ -176,6 +188,7 @@ export default function Suppliers() {
   };
 
   const toggleSupplierStatus = async (supplierId, currentStatus) => {
+    if (!permGuard('update')) return;
     try {
       if (window.electronAPI) {
         await window.electronAPI.updateSupplierStatus(supplierId, !currentStatus);
@@ -222,10 +235,12 @@ export default function Suppliers() {
             Gestion des fournisseurs et partenaires commerciaux
           </p>
         </div>
-        <Button onClick={openCreateDialog}>
-          <Plus className="mr-2 h-4 w-4" />
-          Nouveau fournisseur
-        </Button>
+        {canCreate && (
+          <Button onClick={openCreateDialog}>
+            <Plus className="mr-2 h-4 w-4" />
+            Nouveau fournisseur
+          </Button>
+        )}
       </div>
 
       {/* Stats Cards */}
@@ -363,22 +378,31 @@ export default function Suppliers() {
                           </Button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end">
-                          <DropdownMenuItem onClick={() => openEditDialog(supplier)}>
-                            <Edit2 className="mr-2 h-4 w-4" />
-                            Modifier
-                          </DropdownMenuItem>
-                          <DropdownMenuItem 
-                            onClick={() => toggleSupplierStatus(supplier.id, supplier.is_active)}
-                          >
-                            {supplier.is_active ? 'Désactiver' : 'Activer'}
-                          </DropdownMenuItem>
-                          <DropdownMenuItem 
-                            onClick={() => deleteSupplier(supplier.id)}
-                            className="text-red-600"
-                          >
-                            <Trash2 className="mr-2 h-4 w-4" />
-                            Supprimer
-                          </DropdownMenuItem>
+                          {canUpdate && (
+                            <DropdownMenuItem onClick={() => openEditDialog(supplier)}>
+                              <Edit2 className="mr-2 h-4 w-4" />
+                              Modifier
+                            </DropdownMenuItem>
+                          )}
+                          {canUpdate && (
+                            <DropdownMenuItem
+                              onClick={() => toggleSupplierStatus(supplier.id, supplier.is_active)}
+                            >
+                              {supplier.is_active ? 'Désactiver' : 'Activer'}
+                            </DropdownMenuItem>
+                          )}
+                          {canDelete && (
+                            <DropdownMenuItem
+                              onClick={() => deleteSupplier(supplier.id)}
+                              className="text-red-600"
+                            >
+                              <Trash2 className="mr-2 h-4 w-4" />
+                              Supprimer
+                            </DropdownMenuItem>
+                          )}
+                          {!canUpdate && !canDelete && (
+                            <DropdownMenuItem disabled>Lecture seule</DropdownMenuItem>
+                          )}
                         </DropdownMenuContent>
                       </DropdownMenu>
                     </TableCell>
@@ -396,7 +420,7 @@ export default function Suppliers() {
                   : 'Commencez par ajouter votre premier fournisseur'
                 }
               </p>
-              {!searchTerm && (
+              {!searchTerm && canCreate && (
                 <Button onClick={openCreateDialog}>
                   <Plus className="mr-2 h-4 w-4" />
                   Ajouter un fournisseur

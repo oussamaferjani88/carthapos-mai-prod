@@ -1,0 +1,522 @@
+================================================================================
+  CarthaPOS Admin Panel — User Privilege & Permission Assignment Audit
+  Date: 2026-08-18
+  Scope: How the SUPER_ADMIN creates users, assigns permissions, and how
+         those permissions are (or are not) enforced server-side
+================================================================================
+
+
+TABLE OF CONTENTS
+  1.  Executive Summary
+  2.  User Creation Flow
+  3.  Role Model
+  4.  Permission Catalog (35 Keys)
+  5.  PermissionPicker UI — How Admin Toggles Permissions
+  6.  Permission Assignment API — Backend Storage
+  7.  SUPER_ADMIN Bypass — Four Layers
+  8.  Backend Permission Enforcement Middleware
+  9.  Reports Module Permissions — Frontend vs Backend
+  10. BI Export / Upload — Permission Gap Analysis
+  11. POS-Level Permission System (Separate — See Companion File)
+  12. Findings Summary Table
+  13. Recommendations
+
+
+================================================================================
+1. EXECUTIVE SUMMARY
+================================================================================
+
+The SUPER_ADMIN creates staff users (ADMIN, MANAGER, CASHIER, KITCHEN)
+through the admin panel. When creating an ADMIN or MANAGER, the admin
+can toggle 35 granular permission keys across 10 modules using a
+visual PermissionPicker. These permissions are stored in the
+user_permissions PostgreSQL table and checked by backend middleware.
+
+CRITICAL FINDING: While the permission catalog and UI are complete and
+well-structured, several backend route groups — most notably the entire
+BI uploads subsystem — do NOT enforce any permission middleware. This
+means:
+  - The reports.export permission exists in the catalog and UI but is
+    only checked client-side (Reports.jsx). No backend route enforces it.
+  - The bi.import permission exists in the catalog and UI but is never
+    checked in any BI route handler.
+  - The BI upload, download, and ETL routes use only optionalAuth, meaning
+    even unauthenticated requests can reach them in dev mode.
+
+
+================================================================================
+2. USER CREATION FLOW
+================================================================================
+
+Entry Point:
+  admin/src/pages/management/UserManagement.jsx (lines 1-17)
+  — thin wrapper rendering UserManagementAdvanced
+
+Core Component:
+  admin/src/components/management/UserManagementAdvanced.jsx (770 lines)
+
+Form Fields (New User dialog, lines 574-671):
+  1. Username       — text input (min 2 chars, alphanumeric + ._-)
+  2. Email          — email input (optional)
+  3. Password       — password input (min 6 chars)
+  4. Confirm Password — password input
+  5. Role           — select dropdown
+
+Role Options (line 51, PERMISSION_BEARING_ROLES):
+  - SUPER_ADMIN  — NOT listed in the dropdown (only canonical account)
+  - ADMIN        — full permission picker shown
+  - MANAGER      — full permission picker shown
+  - CASHIER      — no permission picker (role-only access)
+  - KITCHEN      — no permission picker (role-only access)
+
+Permission Picker Visibility (lines 642-653):
+  Shown ONLY when role is ADMIN or MANAGER.
+  Changing the role clears the permissions array:
+    onChange={(e) => setNewUser((prev) => ({
+      ...prev, role: e.target.value, permissions: []
+    }))}
+
+API Call (lines 165-198, handleAddUser):
+  POST /api/users via usersApi.create()
+  Payload includes permissions conditionally (line 186):
+    permissions: PERMISSION_BEARING_ROLES.includes(newUser.role)
+      ? newUser.permissions : []
+
+Frontend API Client (admin/src/lib/api.js, lines 108-117):
+  usersApi.create:       (data) => api.post('/users', data)
+  usersApi.updatePermissions:
+    (id, permissions) => api.put(`/users/${id}/permissions`, { permissions })
+
+
+================================================================================
+3. ROLE MODEL
+================================================================================
+
+Database (backend/prisma/schema.prisma):
+  enum UserRole {
+    SUPER_ADMIN
+    ADMIN
+    MANAGER
+  }
+
+  Note: CASHIER and KITCHEN are NOT in the Prisma enum. They exist only
+  in the POS-level SQLite users table (pos-template) and are not part of
+  the admin platform's user model.
+
+Admin Panel Roles:
+  SUPER_ADMIN — the canonical operator account (matched by username against
+                process.env.ADMIN_INITIAL_USERNAME). Always gets all 35
+                permissions. Cannot have permissions modified.
+  ADMIN       — administrative user. Receives granular permissions from the
+                SUPER_ADMIN via the PermissionPicker.
+  MANAGER     — delegated user. Same permission model as ADMIN.
+
+Permission-Bearing Roles (admin/src/components/management/
+  UserManagementAdvanced.jsx, line 51):
+  PERMISSION_BEARING_ROLES = ['ADMIN', 'MANAGER']
+
+Non-Permission-Bearing:
+  CASHIER, KITCHEN — exist in the dropdown but do NOT get a permission
+  picker. They are role-only (access is determined by role, not granular
+  keys). These roles are relevant only at the POS level.
+
+
+================================================================================
+4. PERMISSION CATALOG (35 KEYS)
+================================================================================
+
+Source of Truth:
+  backend/utils/permissionCatalog.js (65 lines)
+
+The catalog defines 35 keys in <module>.<action> dot notation:
+
+  Module        Keys                                              Count
+  ------------  ------------------------------------------------  -----
+  dashboard     view                                               1
+  clients       view, create, update, delete                        4
+  licenses      view, create, update, suspend, revoke, delete       6
+  modules       view, manage                                        2
+  pos           view, generate, build                               3
+  usb           view, write                                         2
+  users         view, create, update, delete, permissions           5
+  reports       view, export                                        2
+  products      view, edit                                          2
+  inventory     view, edit                                          2
+  bi            view, requests, assignments, notifications,
+                import, history                                     6
+                                             TOTAL:               35
+
+Frontend Mirror:
+  admin/src/utils/permissions.js, lines 336-381
+  — ADMIN_PERMISSIONS object maps every backend key to a constant.
+
+Permission Groups for UI Display:
+  admin/src/utils/permissions.js, lines 383-444
+  — ADMIN_PERMISSION_GROUPS array organizes 35 keys into 10 module
+    groups for the PermissionPicker UI.
+
+Route-Level Permission Map:
+  admin/src/utils/permissions.js, line 471 (ADMIN_ROUTE_PERMISSIONS)
+  — Maps each admin panel route to its required permission key.
+  — Used by the route guard in App.jsx to gate page access.
+
+
+================================================================================
+5. PERMISSIONPICKER UI — HOW ADMIN TOGGLES PERMISSIONS
+================================================================================
+
+Component: admin/src/components/management/UserManagementAdvanced.jsx
+           lines 56-118 (PermissionPicker function)
+
+Rendering Structure:
+  For each module group in ADMIN_PERMISSION_GROUPS:
+    1. A card with the module name and description
+    2. A "Tout selectionner / Tout retirer" toggle per group (lines 82-89)
+    3. Individual toggle buttons per permission key (lines 93-111)
+       — displays the action name after the dot (e.g. "view", "create")
+       — blue background when ON, neutral when OFF
+
+Permission Data Flow:
+  1. Admin opens user edit dialog
+  2. openPermissions(user) loads existing permissions (lines 218-236)
+  3. Calls window.electronAPI.getUserModules? — NO, for admin panel it
+     uses the REST API: GET /api/users/:id returns permissions array
+  4. PermissionPicker renders toggle state from editingUser.permissions
+  5. Admin toggles permissions
+  6. savePermissions() calls PUT /api/users/:id/permissions
+
+The PermissionPicker is ONLY shown for ADMIN and MANAGER roles.
+CASHIER and KITCHEN roles get no picker — their access is role-based only.
+
+
+================================================================================
+6. PERMISSION ASSIGNMENT API — BACKEND STORAGE
+================================================================================
+
+Endpoint:
+  PUT /api/users/:id/permissions
+
+File: backend/routes/users.js, lines 152-197
+
+Middleware Chain:
+  router.put('/:id/permissions', requireSuperAdmin, async (req, res) => {
+  — Only SUPER_ADMIN can call this endpoint.
+
+Payload:
+  { "permissions": ["clients.view", "clients.create", "bi.import", ...] }
+  — An array of permission key strings (validated as array at line 157).
+
+Storage Mechanism (lines 178-192):
+  1. Looks up matching Permission records from app_permissions table
+     by key (line 178).
+  2. Within a Prisma transaction (line 180):
+     a. Deletes ALL existing UserPermission rows for that user:
+        prisma.userPermission.deleteMany({
+          where: { userId: id }
+        })
+     b. Inserts new rows:
+        prisma.userPermission.createMany({
+          data: catalog.map(p => ({
+            userId: id,
+            permissionId: p.id
+          })),
+          skipDuplicates: true
+        })
+  3. Returns { success: true, permissions: [keys...] }
+
+Database Schema (backend/prisma/schema.prisma, lines 259-285):
+  Permission (app_permissions table):
+    id          Int       @id @default(autoincrement())
+    key         String    @unique
+    module      String
+    name        String
+    description String?
+
+  UserPermission (user_permissions table):
+    id           Int      @id @default(autoincrement())
+    userId       Int
+    permissionId Int
+    user         User     @relation(fields: [userId], references: [id])
+    permission   Permission @relation(fields: [permissionId], references: [id])
+    @@unique([userId, permissionId])
+    @@index([userId])
+
+Protection Against SUPER_ADMIN Modification (lines 161-176):
+  - The canonical SUPER_ADMIN (matched by username against env var)
+    cannot have permissions changed.
+  - Any SUPER_ADMIN account's permissions cannot be changed.
+
+
+================================================================================
+7. SUPER_ADMIN BYPASS — FOUR LAYERS
+================================================================================
+
+Layer 1: Backend Middleware (backend/middleware/permissions.js)
+  requirePermission() line 62:
+    if (req.user.role === 'SUPER_ADMIN') return next();
+  requirePermissionForAdmin() line 88:
+    if (req.user.role === 'SUPER_ADMIN') return next();
+
+Layer 2: Auth Login Response (backend/routes/auth.js, lines 114-115)
+  if (user.role === 'SUPER_ADMIN') {
+    permissions = PERMISSION_CATALOG.map((p) => p.key);  // ALL 35 keys
+  }
+  — Sends all 35 permission keys to the frontend on login.
+
+Layer 3: Frontend Auth Context (admin/src/contexts/AuthContext.jsx, lines 87-91)
+  new PermissionManager([
+    ...(user.role === 'SUPER_ADMIN' ? ['all'] : []),
+    ...user.permissions,
+  ])
+
+Layer 4: PermissionManager.hasPermission (admin/src/utils/permissions.js,
+  lines 220-224)
+  hasPermission(permission) {
+    if (this.userPermissions.includes(PERMISSIONS.ALL)) {  // 'all'
+      return true;
+    }
+    return this.userPermissions.includes(permission);
+  }
+
+Canonical Account Protection:
+  backend/middleware/permissions.js, lines 37-40:
+    The canonical SUPER_ADMIN is identified by matching req.user.username
+    against process.env.ADMIN_INITIAL_USERNAME.
+  backend/utils/seedPermissions.js, lines 43-59:
+    On every startup, the canonical user is enforced to SUPER_ADMIN+active;
+    any non-canonical SUPER_ADMIN is downgraded to ADMIN.
+
+
+================================================================================
+8. BACKEND PERMISSION ENFORCEMENT MIDDLEWARE
+================================================================================
+
+File: backend/middleware/permissions.js (127 lines)
+
+Three middleware functions:
+
+1. requirePermission(permissionKey) — Lines 56-77
+   - Requires a valid admin session AND the specific permission.
+   - SUPER_ADMIN bypass at line 62.
+   - Non-permission-bearing roles are rejected (lines 63-65).
+   - For ADMIN/MANAGER, queries user_permissions table via
+     getUserPermissionKeys() (lines 29-35) and checks membership.
+   - Used by: modules.js routes (POST/PUT/DELETE for modules.manage)
+
+2. requirePermissionForAdmin(permissionKey) — Lines 84-102
+   - Shared/public route guard. No session = allow through (public/POS).
+   - SUPER_ADMIN bypass at line 88.
+   - For ADMIN/MANAGER, enforces the permission (lines 89-94).
+   - Any other authenticated role passes through (line 98).
+   - Used by: clients.js (all routes), modules.js (GET), usb.js (all)
+
+3. requireSuperAdmin(req, res, next) — Lines 107-118
+   - Calls auth.verifyToken first, then checks SUPER_ADMIN role.
+   - Returns 403 with SUPER_ADMIN_REQUIRED code if not.
+   - Used by: ALL user management routes in users.js
+
+Route Mounting (backend/server.js):
+  Line 96:  app.use('/api/users', userRoutes)
+  Line 110: Global verifyToken gate is OFF in dev mode (AUTH_REQUIRED=false)
+  Lines 136-149: BI routes mounted with optionalAuth only:
+    app.use('/api/bi-requests', optionalAuth, biRequestsRoutes)
+    app.use('/api/bi-uploads', optionalAuth, biUploadsRoutes)
+    app.use('/api/bi/analysis', optionalAuth, biAnalysisRoutes)
+    app.use('/api/bi/dashboards', optionalAuth, biDashboardsRoutes)
+
+
+================================================================================
+9. REPORTS MODULE PERMISSIONS — FRONTEND vs BACKEND
+================================================================================
+
+Permission Keys Defined:
+  backend/utils/permissionCatalog.js, lines 47-48:
+    { key: 'reports.view', module: 'reports', ... }
+    { key: 'reports.export', module: 'reports', ... }
+
+Frontend Enforcement (CLIENT-SIDE ONLY):
+  admin/src/pages/Reports.jsx:
+    Line 17-18: Uses hasPermission from auth context
+    reports.view: Checked indirectly via route guard at App.jsx line 115
+      — ADMIN_ROUTE_PERMISSIONS['/reports'] maps to 'reports.view'
+    reports.export: Checked at line 58 and line 94 to gate the
+      "Exporter CSV" button:
+        if (!can("reports.export")) return;
+
+Backend Enforcement:
+  *** NONE ***
+  No backend route file imports requirePermission or
+  requirePermissionForAdmin with reports.view or reports.export.
+  The Reports page is entirely client-side gated.
+  The backend data endpoints it calls (/api/clients, /api/licenses,
+  /api/modules) are protected by their own domain-level permissions
+  (clients.view, licenses.view, modules.view) — but not by
+  reports.view or reports.export.
+
+Impact:
+  An ADMIN/MANAGER without reports.view can still access the reports
+  data by calling the backend API directly (e.g. GET /api/clients).
+  An ADMIN/MANAGER without reports.export can still export data by
+  calling the backend CSV export endpoint directly.
+
+
+================================================================================
+10. BI EXPORT / UPLOAD — PERMISSION GAP ANALYSIS
+================================================================================
+
+The BI workflow has three critical operations, none of which enforce
+permission middleware:
+
+A. BI UPLOAD (POST /api/bi-uploads)
+   File: backend/routes/bi-uploads.js, lines 60-61
+   router.post('/', (req, res, next) => {
+     upload.single('file')(req, res, (err) => { ... next(); });
+   }, async (req, res) => {
+   Middleware chain: multer upload -> handler
+   Permission check: NONE
+
+B. BI UPLOAD DOWNLOAD (GET /api/bi-uploads/:id/download)
+   File: backend/routes/bi-uploads.js, lines 620-635
+   router.get('/:id/download', async (req, res) => {
+   Permission check: NONE
+   Any request with the upload ID can download the ZIP file.
+
+C. BI START-ETL (POST /api/bi-uploads/:id/start-etl)
+   File: backend/routes/bi-uploads.js, lines 490-616
+   router.post('/:id/start-etl', async (req, res) => {
+   Permission check: NONE
+
+Server Mounting (backend/server.js, lines 136-149):
+  All BI routes use optionalAuth only:
+    app.use('/api/bi-uploads', optionalAuth, biUploadsRoutes)
+  optionalAuth means: if a valid token is present, attach req.user;
+  if no token, proceed without user. It does NOT reject unauthenticated
+  requests.
+
+Impact:
+  The permission key 'bi.import' (defined in the catalog at line 61)
+  is NEVER checked in any backend route.
+  The permission key 'reports.export' is NEVER checked in any backend
+  route.
+  In dev mode (AUTH_REQUIRED=false), even unauthenticated requests can
+  upload BI data, download BI archives, and trigger ETL processing.
+
+Connection to POS-Level BI Export:
+  The POS generates a BI export ZIP via ipc-bi-export-handler.cjs and
+  the Client uploads it through the web portal. The portal calls
+  POST /api/bi-uploads. Since this route has no permission check, the
+  upload succeeds regardless of the user's assigned permissions.
+
+  If the admin intended to restrict BI export by removing 'reports.export'
+  from a user's permissions, this restriction is only enforced in the
+  admin panel's UI (the "Exporter CSV" button is hidden). The actual
+  BI upload endpoint is not guarded by this permission.
+
+
+================================================================================
+11. POS-LEVEL PERMISSION SYSTEM (SEPARATE)
+================================================================================
+
+For completeness: the POS runs a completely separate permission system.
+See POS_PERMISSION_SYSTEM_INVESTIGATION.txt for full details.
+
+Key differences:
+  - Database: SQLite (not PostgreSQL)
+  - Schema: users.role + user_modules table (not Permission + UserPermission)
+  - Roles: admin, cashier, manager, server (not SUPER_ADMIN, ADMIN, MANAGER)
+  - Granularity: per-module CRUD booleans (not 35 dot-notation keys)
+  - No code coupling with the admin permission system
+
+The POS BI export (ipc-bi-export-handler.cjs) has NO permission check
+at all — any logged-in POS user can trigger it.
+
+
+================================================================================
+12. FINDINGS SUMMARY TABLE
+================================================================================
+
+  #   Finding                                        Severity   Location
+  --- ----------------------------------------------- ---------- ----------------
+  1   Permission catalog is well-structured with      OK         permissionCatalog.js
+      35 keys across 10 modules
+
+  2   PermissionPicker UI correctly shows/hides       OK         UserManagementAdvanced
+      toggles based on ADMIN/MANAGER role                       .jsx:56-118
+
+  3   Permission assignment API correctly does        OK         users.js:152-197
+      full-replace in a transaction
+
+  4   SUPER_ADMIN bypass works correctly at           OK         permissions.js:62,88
+      middleware, login, and frontend layers
+
+  5   Canonical SUPER_ADMIN is protected from         OK         permissions.js:37-40
+      permission changes and role downgrade                      seedPermissions.js:43-59
+
+  6   reports.view only enforced client-side           MEDIUM    Reports.jsx:58,94
+      (route guard in App.jsx). No backend guard.               App.jsx:115
+
+  7   reports.export only enforced client-side         HIGH      Reports.jsx:58,94
+      (button hidden). No backend guard.                         No backend route
+
+  8   bi.import defined in catalog but NEVER           HIGH      bi-uploads.js:60-61
+      enforced in any BI route handler.                          server.js:137
+
+  9   BI upload/download/ETL routes have NO            CRITICAL  bi-uploads.js:60,490
+      permission middleware beyond optionalAuth.                 ,620
+
+  10  In dev mode (AUTH_REQUIRED=false), BI routes     HIGH      server.js:110-113
+      are accessible without any authentication.
+
+  11  POS-level BI export has no permission check      MEDIUM    ipc-bi-export-handler
+      — any logged-in POS user can export.                       .cjs:41
+
+  12  CASHIER/KITCHEN roles in admin UI have no        LOW       UserManagementAdvanced
+      permission picker — by design, but undocumented.           .jsx:642-653
+
+
+================================================================================
+13. RECOMMENDATIONS
+================================================================================
+
+Priority 1 — CRITICAL (server-side enforcement gaps):
+
+  1. Add requirePermission('bi.import') middleware to all BI upload
+     routes in bi-uploads.js:
+       POST / (upload)
+       POST /:id/start-etl
+       GET /:id/download
+
+  2. Add requirePermission('reports.export') middleware to any backend
+     route that exports report data as CSV. If no such route exists
+     (export is purely client-side), document that the permission is
+     UI-only.
+
+  3. Consider adding requirePermission('reports.view') to the data
+     endpoints that the Reports page consumes, or accept that those
+     endpoints are shared with other pages.
+
+Priority 2 — HIGH (consistency):
+
+  4. Decide whether BI workflow permissions (bi.view, bi.requests,
+     bi.assignments, bi.notifications, bi.import, bi.history) should
+     be enforced in the BI route handlers. Currently they are purely
+     display/organizational keys in the catalog.
+
+  5. Add a backend guard to the BI upload route so that only users
+     with bi.import or reports.export can POST to /api/bi-uploads.
+
+Priority 3 — MEDIUM (documentation):
+
+  6. Document which permission keys are "UI-only" (client-side gating)
+     vs "enforced" (server-side middleware). The current state is
+     inconsistent: some keys are enforced (modules.manage), some are
+     UI-only (reports.export), and some are never checked (bi.import).
+
+  7. Document the relationship between admin-panel permissions and
+     POS-level permissions — they are entirely separate systems with
+     no coupling.
+
+
+================================================================================
+END OF AUDIT
+================================================================================

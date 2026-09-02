@@ -1,11 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { Plus, Package, Clock, Car, CheckCircle, XCircle, Phone, MapPin, User } from 'lucide-react';
-import { useThemeApplier } from '../hooks/useThemeApplier';
 import { getCurrencySymbol } from '../utils/currency';
 
 const Takeaway = () => {
-  useThemeApplier();
-  
   const [orders, setOrders] = useState([
     {
       id: 1,

@@ -1,0 +1,318 @@
+=====================================================================
+CARTHAPOS PFE REPORT - WORK STATE & BLUEPRINT
+=====================================================================
+Generated: 2026-08-16
+Scope: CarthaPOS admin dashboard + POS generator + BI + deployment,
+       ITBS 2026 LaTeX template. RBAC thread COMPLETED.
+       Inventory task COMPLETED (read-only, nothing modified).
+       Report writing / LaTeX / diagrams / bibliography = DEFERRED.
+=====================================================================
+
+---------------------------------------------------------------------
+1. OBJECTIVE
+---------------------------------------------------------------------
+Two completed work threads plus one new task:
+
+  1. RBAC implementation for the CarthaPOS Admin Dashboard was
+     finished end-to-end (backend + frontend, verified 35/35 tests,
+     admin build green, final 14-section report delivered).
+  2. CURRENT TASK (report prep only): structured technical inventory
+     of the Carthapos repository and of the ITBS 2026 LaTeX template,
+     then produce the PFE report blueprint (Scrum mapping, 6-chapter
+     structure, diagram plan, figures/tables policy, factual-marker
+     conventions).
+     Constraints: NO LaTeX files may be created or modified; no report
+     chapters, diagrams, or bibliography entries written yet.
+
+---------------------------------------------------------------------
+2. LA TEX TEMPLATE FACTS (inventoried, NOT modified)
+---------------------------------------------------------------------
+- Template is NOT memoir: \documentclass[a4paper, oneside, 12pt,
+  final]{extreport} in "LaTeX Memoire Template - IT Business School
+  2026\rapport.tex".
+- Chapters included via \input (Accord_depot, abstract.tex twice,
+  introduction.tex, chapitre1.tex, chapitre2.tex).
+- \listoffigures and \listoftables already exist (~lines 296-299).
+- Bibliography: BibTeX "apalike", \bibliography{Biblio.bib} +
+  \nocite{*}; rapport.bbl already generated (8 demo entries).
+  Biblio.bib has only @BOOK/@book/@incollection/@INPROCEEDINGS types
+  -> will be replaced with academic entry types.
+- Front matter \pagenumbering{roman} -> body {arabic}.
+- Manual page geometry: \textwidth 18cm, \textheight 24cm,
+  \topmargin -0.5cm, \oddsidemargin -1cm, \parindent 0cm.
+- Auto-labels in English (french babel commented out), body text
+  currently French.
+- LATENT COMPILE ISSUES to fix before writing:
+    * tabularx used by \specialcell but NOT loaded
+    * \defaultFont referenced but undefined
+- Title page is ITBS-specific: national emblem, ministry, school,
+  logonoir.png, degree "Diplome National d'Ingenieur en Genie
+  Informatique - Specialite Business Intelligence", \AU academic year.
+
+---------------------------------------------------------------------
+3. GIMSI METHODOLOGY
+---------------------------------------------------------------------
+- ZERO matches anywhere in the repo (code + docs, both case
+  sensitivities). Methodology-only. Must be mapped onto implemented BI
+  layers (goals -> evaluation axes -> KPIs -> data collection ->
+  dashboards -> interpretation).
+- Report must say: GIMSI adopted as methodology, NOT implemented code.
+
+---------------------------------------------------------------------
+4. FACTUAL-MARKER CONVENTIONS
+---------------------------------------------------------------------
+- [EXTERNAL RESEARCH REQUIRED]  market stats / competitors / citations
+- [TO VERIFY]                    unconfirmed items, e.g.:
+    * Maktabi host organization details
+    * which backend entrypoint ships in prod
+    * BiUploadPortal.jsx routing in admin app
+    * legacy-vs-V2 sector presets divergence
+- [PLANNED]                      intended-but-not-deployed:
+    * production deployment
+    * Postgres backups
+    * CI/CD
+    * Metabase per-tenant sandboxing
+    * background BI job queue
+    * production hardening env vars
+
+---------------------------------------------------------------------
+5. DEPLOYMENT STATUS
+---------------------------------------------------------------------
+- Only Dockerfile in repo: backend/Dockerfile (node:18-bullseye,
+  "npx prisma migrate deploy && node server.js", EXPOSE 10000).
+- NO docker-compose anywhere.
+- render.yaml declares: Render Postgres carthapos-db (free) +
+  backend docker web service + frontend/admin static sites with
+  VITE_API_URL. CONFIGURED but NOT DEPLOYED (no evidence of live
+  services).
+- No CI/CD except .github/workflows/build-pos.yml
+  (workflow_dispatch, Windows .exe builds).
+- Metabase is local JAR v0.52.4 only (metabase.jar +
+  start-metabase.bat, port 3000, absent from render.yaml).
+- No .env.example files; backend/.env gitignored.
+- Report Chapter 6 must separate current dev environment from
+  intended production ([PLANNED]).
+
+---------------------------------------------------------------------
+6. RBAC FINAL STATE (completed thread)
+---------------------------------------------------------------------
+- Canonical admin "carthapos-oussama" immutable.
+- 35-key permission catalog: backend/utils/permissionCatalog.js.
+- Permission -> app_permissions and UserPermission -> user_permissions
+  (mapped names deliberate: live DB has a Metabase-owned "permissions"
+  table).
+- Middleware: backend/middleware/permissions.js
+    * requirePermission       401-if-unauthenticated / 403-if-not-granted
+    * requirePermissionForAdmin   portal/POS passthrough
+    * requireSuperAdmin
+    * isCanonicalUsername
+  Uses lazy require('./auth') to break circular dependency.
+- User normalization (utils/seedPermissions.js) runs at every startup.
+- npx prisma migrate dev PERMANENTLY unusable (shadow DB breaks on
+  pre-existing 20260805000000_bi_workflow_integration). Use manual
+  SQL + prisma db execute + migrate resolve.
+- Migration 20260816170000_add_rbac_permissions applied and resolved.
+- utils/autoSeed.js seeds RBAC before module-count early return.
+
+---------------------------------------------------------------------
+7. ENVIRONMENT QUIRKS
+---------------------------------------------------------------------
+- Node v20.20.2 (global fetch).
+- Windows Git Bash: taskkill //PID, netstat -ano.
+- Backend port 3001: nohup node server.js > server.log 2>&1 &.
+- Admin dev server smoke-tested on port 5199 then killed.
+- npm run build in admin/ is GREEN (chunk-size warning only).
+- Backend still running and healthy (GET /api/licenses -> HTTP 200).
+
+---------------------------------------------------------------------
+8. SCRUM MAPPING (report backbone)
+---------------------------------------------------------------------
+- Exactly TWO main sprints:
+    * Sprint 1 - Platform & POS: 9 items
+    * Sprint 2 - BI: 11 items
+- No third major sprint.
+
+---------------------------------------------------------------------
+9. REPORT STRUCTURE (6 chapters)
+---------------------------------------------------------------------
+  Ch.1  Project Study
+  Ch.2  State of the Art  (ORIGINAL, not copied from the AI/recruitment
+        subject)
+  Ch.3  Requirements & Global System Design
+  Ch.4  Sprint 1 - Platform & POS
+  Ch.5  Sprint 2 - BI
+  Ch.6  Deployment & Production Architecture
+
+---------------------------------------------------------------------
+10. DIAGRAM PLAN (13 required + 2 optional; NO images created yet)
+---------------------------------------------------------------------
+Required figures (each with proposed caption + target section):
+   1. Global architecture
+   2. Workflow (POS generation) x3
+   5. Licensing flow
+   6. BI flow
+   7. ETL pipeline
+   8. Star schema
+   9. Use-case diagram
+  10. Class diagram
+  11. Sprint 1 architecture
+  12. Sprint 2 architecture
+  13. Deployment architecture
+  14. GIMSI mapping
+
+Optional figures:
+  * RBAC permission matrix
+  * POS module map
+
+Each with academic caption and \label{fig:...} so \listoffigures
+auto-populates.
+
+---------------------------------------------------------------------
+11. FIGURES/TABLES POLICY
+---------------------------------------------------------------------
+- All figures numbered per template chapter.
+- Screenshots for Ch.4/Ch.5 added later.
+- Tables: list of permissions (Ch.4), KPI definitions (Ch.5), etc.
+
+---------------------------------------------------------------------
+12. INVENTORY SUMMARY (by area)
+---------------------------------------------------------------------
+BACKEND / DATABASE
+- Express 4 + Prisma 5 / PostgreSQL.
+- server.js (prod, port 3001) and server-v2.js (new /api/v1/* +
+  Swagger /api-docs).
+- 36 Prisma models, 8 enums, 36 migrations.
+- RBAC middlewares + routes (see section 6).
+- Canonical admin via backend/.env ADMIN_INITIAL_*.
+
+POS GENERATOR / ELECTRON
+- backend/utils/pos-generator.js + backend/utils/generators/* +
+  backend/src/controllers/posController.js +
+  backend/src/services/posService.js.
+- Pipeline: validate license -> ProjectBuilder -> AssetManager
+  .copyTemplate -> ModuleFilter -> DependencyManager ->
+  ThemeCustomizer -> FilePatcher -> BuildSystemManager.
+- Endpoints: POST /api/pos/generate|build,
+  GET /api/pos/templates|sectors|download|build-status/:licenseId,
+  DELETE /api/pos/cleanup/:licenseId.
+- pos-template/: Electron + React + SQLite.
+    * MachineIdentityProvider.cjs (sha256 machine fingerprint)
+    * src/electron/bi/: BiSchemaContract.cjs v2.2.0,
+      BiDataMapper.cjs (19 mappers), BiValidator.cjs,
+      BiDatasetRegistry.cjs
+    * ipc-bi-export-handler.cjs: bi:export -> ZIP CSVs + metadata.json
+      -> Documents/CarthaPOS/BI_Exports/
+    * 27 real pages (18 DB-backed, 8 static shells).
+    * PREVIEW-ONLY modules (admin preview components, NOT in real POS):
+      variants, promotions, serial-batch, weight-scale, layaway,
+      split-payments, rental, employee-management, tax-management,
+      offline-mode, multi-store, transfers.
+      -> MUST be marked "not implemented in the real POS" in the report.
+
+BI
+- backend/services/: etl-pipeline.js, warehouse-service.js,
+  data-preparation-service.js, bi-schema-registry.js,
+  bi-model-registry.js, bi-provisioning.js, bi-insight-generator.js,
+  analytics-cache-service.js, bi-data-utils.js.
+- Warehouse = star schema: DimClient/DimProduct/DimSupplier/
+  DimCustomer/DimTime + FactSale/FactSaleItem/FactInventory/
+  FactAppointment/FactKitchenOrder/FactKitchenOrderItem
+  (all with tenantId).
+- No background job queue (ETL synchronous on upload).
+- backend/utils/metabase-client.js + metabase/: JAR v0.52.4 local-only.
+- Provisioning: business collections + per-client deep-copy dashboards
+  with baked tenant filter.
+- Metabase CE limitations (no dashboard create API, no row-level
+  security) -> documented workarounds used.
+- Per-tenant sandboxing [PLANNED].
+- admin/src/pages/BiWizard.jsx (9-step upload wizard);
+  BiUploadPortal.jsx NOT routed in admin app [TO VERIFY].
+
+DEPLOYMENT
+- See section 5.
+
+DOCS
+- docs/ (~170 reports) - inventory evidence for BI, deployment, POS
+  generation claims. No GIMSI mentions anywhere.
+
+---------------------------------------------------------------------
+13. RELEVANT FILES (path map)
+---------------------------------------------------------------------
+LATEX
+- "LaTeX Memoire Template - IT Business School 2026/rapport.tex"
+- abstract.tex, introduction.tex, chapitre1.tex, chapitre2.tex,
+  Accord_depot.tex, Biblio.bib, rapport.bbl, embleme.jpg,
+  logonoir.png (inventoried, untouched)
+
+BACKEND
+- backend/server.js, backend/server-v2.js
+- backend/middleware/permissions.js
+- backend/routes/users.js (SUPER_ADMIN-only mgmt + GET /permissions,
+  GET /stats, PUT /:id/permissions)
+- backend/utils/permissionCatalog.js, backend/utils/seedPermissions.js,
+  backend/utils/autoSeed.js
+- backend/utils/pos-generator.js, backend/utils/generators/*
+- backend/src/controllers/posController.js,
+  backend/src/services/posService.js
+- backend/services/* (BI services listed in section 12)
+- backend/utils/metabase-client.js
+- backend/Dockerfile
+- prisma/migrations/ (36 migrations, incl. 20260805000000_bi_workflow_integration
+  and 20260816170000_add_rbac_permissions)
+
+POS TEMPLATE
+- pos-template/src/electron/license/MachineIdentityProvider.cjs
+- pos-template/src/electron/bi/* (BiSchemaContract, BiDataMapper,
+  BiValidator, BiDatasetRegistry)
+- pos-template/src/electron/handlers/ipc-bi-export-handler.cjs
+
+ADMIN FRONTEND (RBAC - all final)
+- admin/src/pages/Dashboard.jsx (403-resilient, safeGet per endpoint)
+- admin/src/pages/Reports.jsx (KBAC-filtered stats + gated CSV export)
+- admin/src/components/management/UserManagementAdvanced.jsx
+- admin/src/App.jsx (PermissionRoute wrappers)
+- admin/src/components/layout/Layout.jsx (nav filtering)
+- admin/src/contexts/AuthContext.jsx (PermissionManager from real
+  user.permissions; SUPER_ADMIN prepends 'all')
+- admin/src/utils/permissions.js (ADMIN_PERMISSIONS,
+  ADMIN_PERMISSION_GROUPS x10, ADMIN_NAV_PERMISSION_MAP,
+  ADMIN_ROUTE_PERMISSIONS, filterAdminNavigation)
+- admin/src/lib/api.js (usersApi.getPermissions / updatePermissions)
+- admin/src/pages/BiWizard.jsx, admin/src/pages/BiUploadPortal.jsx
+
+DEPLOYMENT
+- render.yaml, .github/workflows/build-pos.yml, .dockerignore,
+  .gitignore, Makefile, metabase/ (JAR + start-metabase.bat)
+
+---------------------------------------------------------------------
+14. VERIFICATION RESULTS
+---------------------------------------------------------------------
+- RBAC tests: node scripts/test-rbac.js -> 35 PASS, 0 FAILED.
+- Live-verified: ADMIN /me returns exactly its grant rows; test-user
+  cleanup works.
+- Public endpoints preserved: GET /licenses|/clients|/modules
+  no-cookie -> 200; POST licenses/:id/validate and generate-file -> 200;
+  GET /users/stats no-session -> 401.
+- Admin build green; Vite dev on 5199 transformed 5 key modules
+  (App.jsx, Reports.jsx, UserManagementAdvanced.jsx, Dashboard.jsx,
+  utils/permissions.js) HTTP 200.
+- Browser E2E (visual click-through) of RBAC UI NOT performed.
+
+---------------------------------------------------------------------
+15. NEXT STEPS (blocked on user instruction)
+---------------------------------------------------------------------
+1. WAIT for the user to instruct the next task; do NOT write
+   LaTeX/diagrams/bibliography yet.
+2. When instructed, begin Chapter 1 (Project Study) chapter-by-chapter
+   into the template files, reusing this inventory and marking external
+   claims with [EXTERNAL RESEARCH REQUIRED].
+3. BEFORE writing: fix template latent issues (load tabularx, define
+   \defaultFont, decide babel/English labels) and prepare the
+   replacement Biblio.bib (BibTeX apalike, academic entry types).
+4. When generating figures: produce the 13 required diagrams
+   (Fig. numbering per template chapter) then screenshots for
+   Ch.4/Ch.5, each with academic captions and \label{fig:...}.
+
+=====================================================================
+END OF WORK STATE & BLUEPRINT
+=====================================================================

@@ -13,6 +13,7 @@ const path = require('path');
 const os = require('os');
 const crypto = require('crypto');
 const { PrismaClient } = require('@prisma/client');
+const warehousePrisma = require('../prisma-warehouse/client');
 
 const etlPipeline = require('../services/etl-pipeline');
 const BiSchemaRegistry = require('../services/bi-schema-registry');
@@ -287,23 +288,23 @@ router.post('/self-test', async (req, res) => {
     step('ETL completed', true, `records=${result.recordsLoaded} elapsed=${result.elapsed}s`);
 
     // Step 8: Verify warehouse data
-    const dimClient = await prisma.dimClient.findUnique({ where: { tenantId: client.id } });
+    const dimClient = await warehousePrisma.dimClient.findUnique({ where: { tenantId: client.id } });
     step('DimClient', !!dimClient, dimClient ? `tenantId=${dimClient.tenantId}` : 'NOT FOUND');
 
-    const factSales = await prisma.factSale.count({ where: { exportId: upload.id } });
+    const factSales = await warehousePrisma.factSale.count({ where: { exportId: upload.id } });
     step('FactSales', factSales === 2, `${factSales} rows (expected 2)`);
 
-    const factInventory = await prisma.factInventory.count({ where: { exportId: upload.id } });
+    const factInventory = await warehousePrisma.factInventory.count({ where: { exportId: upload.id } });
     step('FactInventory', factInventory === 2, `${factInventory} rows (expected 2)`);
 
-    const dimProducts = await prisma.dimProduct.count({ where: { tenantId: client.id } });
+    const dimProducts = await warehousePrisma.dimProduct.count({ where: { tenantId: client.id } });
     step('DimProducts', dimProducts === 2, `${dimProducts} products`);
 
     // Step 9: Verify idempotency — run ETL again, should upsert
     step('Testing idempotency (re-run ETL)...', true);
     const result2 = await etlPipeline.run(upload.id, testZipPath);
 
-    const factSales2 = await prisma.factSale.count({ where: { exportId: upload.id } });
+    const factSales2 = await warehousePrisma.factSale.count({ where: { exportId: upload.id } });
     const dupOk = factSales2 === 2;
     step('Idempotency check', dupOk, `${factSales2} sales rows after re-run (expected 2)`);
 

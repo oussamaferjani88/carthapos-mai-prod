@@ -234,13 +234,12 @@ router.post('/generate-from-upload', async (req, res) => {
     });
     const nextVersion = (aggregate._max.version || 0) + 1;
 
-    // Admin-selected Metabase dashboard takes priority; otherwise fall back to
-    // the template's registered dashboard (if any).
-    const resolvedMetabaseId = metabaseDashboardId != null
-      ? Number(metabaseDashboardId)
-      : template?.metabaseDashboardId != null
-        ? Number(template.metabaseDashboardId)
-        : null;
+    // A generated dashboard is a DRAFT and is NOT linked to the shared template.
+    // The per-client Metabase copy is created later by the provisioning step
+    // (/bi/dashboards/:id/provision), which stamps the copy's id here. Never
+    // pre-link the template's id, otherwise every client shares the same
+    // Metabase dashboard instead of getting their own copy.
+    const resolvedMetabaseId = metabaseDashboardId != null ? Number(metabaseDashboardId) : null;
 
     const dashboard = await prisma.biDashboard.create({
       data: {
@@ -559,11 +558,10 @@ router.get('/:id/embed', async (req, res) => {
       });
     }
 
-    // Admin-assigned dashboard takes priority; fall back to template's
-    // registered dashboard. This is what the collection-based assignment flow
-    // stamps during generation.
-    const metabaseDashboardId =
-      dashboard.metabaseDashboardId ?? template?.metabaseDashboardId ?? null;
+    // Only ever embed THIS dashboard's own provisioned Metabase copy. Never
+    // fall back to the shared template — a client must never see the template's
+    // data via another client's dashboard row.
+    const metabaseDashboardId = dashboard.metabaseDashboardId ?? null;
     const hasMetabaseLink = !!metabaseDashboardId;
 
     // Determine embed availability. A dashboard is embeddable when it has a
@@ -648,6 +646,7 @@ router.post('/:id/provision', async (req, res) => {
       include: {
         client: { select: { id: true, name: true } },
         request: { select: { id: true, businessName: true, businessType: true, status: true } },
+        upload: { select: { businessName: true } },
       },
     });
     if (!dashboard) return res.status(404).json({ error: 'Dashboard not found' });
@@ -675,13 +674,16 @@ router.post('/:id/provision', async (req, res) => {
       businessName: req.body?.businessName || null,
     });
 
-    // Persist the generated client Metabase dashboard id.
+    // Persist the generated client Metabase dashboard id, and rename the
+    // CarthaPOS dashboard row with the client/business name so it matches the
+    // renamed Metabase copy.
     const updated = await prisma.biDashboard.update({
       where: { id: dashboard.id },
       data: {
         metabaseDashboardId: result.metabaseDashboardId,
         templateUsed: dashboard.businessType,
         generatedAt: dashboard.generatedAt || new Date(),
+        name: result.dashboardName || result.businessName || dashboard.name,
       },
     });
 

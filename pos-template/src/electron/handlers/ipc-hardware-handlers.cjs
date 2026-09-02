@@ -9,8 +9,8 @@
 const { ipcMain } = require('electron');
 const { activeSessions } = require('./ipc-session-store.cjs');
 
-const SETTINGS_WRITE_ROLES = ['admin', 'manager'];
-const CASHIER_OPERABLE_ROLES = ['admin', 'manager', 'cashier'];
+const SETTINGS_WRITE_ROLES = ['admin', 'superadmin', 'manager'];
+const CASHIER_OPERABLE_ROLES = ['admin', 'superadmin', 'manager', 'cashier'];
 
 function getCurrentUserRole(event) {
   try {

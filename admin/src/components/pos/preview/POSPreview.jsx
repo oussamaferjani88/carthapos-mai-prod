@@ -60,18 +60,15 @@ const POSPreview = ({
     return layoutConfig ? layoutConfig.visible !== false : true;
   };
 
-  const layoutFlexDirection =
-    config.navbarPosition === 'top'
-      ? 'flex-col'
-      : config.navbarPosition === 'right'
-        ? 'flex-row-reverse'
-        : 'flex-row';
+  // Toujours flex-row pour left/right (le placement est géré par l'ordre des
+  // enfants). Flex-col uniquement pour top (navbar en haut, contenu en bas).
+  const isTopNav = config.navbarPosition === 'top';
 
   return (
     <div
       className={cn(
         'pos-preview h-full w-full flex overflow-hidden',
-        layoutFlexDirection,
+        isTopNav ? 'flex-col' : 'flex-row',
         animationTypeClass,
         animationSpeedClass,
         config.glassEffect ? 'pos-glass-effect' : '',
@@ -79,6 +76,8 @@ const POSPreview = ({
         `pos-shadow-${config.shadowIntensity || 'medium'}`,
         animationClasses
       )}
+      data-btn-style={config.components?.buttons?.style || 'default'}
+      data-input-style={config.components?.forms?.inputStyle || 'default'}
       style={{
         fontFamily: `"${config.fontFamily}", sans-serif`,
         backgroundColor: config.backgroundColor,
@@ -86,6 +85,7 @@ const POSPreview = ({
         fontSize: config.fontSize,
         fontWeight: config.fontWeight,
         ...POSConfiguration.getStyleVars(config),
+        ...POSConfiguration.getShadcnThemeVars(config),
         transition: config.animations ? 'all 0.2s ease-in-out' : 'none'
       }}
     >

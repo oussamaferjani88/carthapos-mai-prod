@@ -13,6 +13,7 @@ import { Tabs, TabsList, TabsTrigger } from '../components/ui/tabs';
 import { POSConfiguration } from '../lib/POSConfiguration';
 import { useAppConfig } from '../hooks/useAppConfig';
 import { useAuth } from '../contexts/AuthContext';
+import { usePermissions } from '../contexts/PermissionsContext';
 import { isPreviewMode } from '../utils/environment';
 import { activityLog } from '../utils/activityLog';
 import { getImageStyle } from '../utils/imageSettings';
@@ -84,9 +85,16 @@ export default function Products() {
     ? electronConfig.modules.some(m => (m.name || m) === 'kitchen' && m.isEnabled !== false)
     : false;
 
-  const isAdmin = user?.role === 'admin';
-  const isManager = user?.role === 'manager';
-  const canEdit = isAdmin || isManager;
+  const { canCreate, canUpdate, canDelete, canManage } = usePermissions('products');
+  const canEdit = canUpdate; // legacy alias used across this page
+  const permsRef = useRef({ canCreate, canUpdate, canDelete });
+  permsRef.current = { canCreate, canUpdate, canDelete };
+  const permGuard = useCallback((action) => {
+    const p = permsRef.current;
+    const ok = action === 'create' ? p.canCreate : action === 'delete' ? p.canDelete : p.canUpdate;
+    if (!ok) alert("Action non autorisée : vous avez un accès en lecture seule sur les produits.");
+    return ok;
+  }, []);
 
   const [products, setProducts] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -275,6 +283,7 @@ export default function Products() {
   }, [editingFamilyNewName, families, selectedFamily]);
 
   const handleBulkAssignFamily = useCallback(async () => {
+    if (!permGuard('update')) return;
     if (!bulkFamilyValue) return;
     const ids = [...selectedIds];
     setProducts(prev => prev.map(p => selectedIds.has(p.id) ? { ...p, family: bulkFamilyValue } : p));
@@ -282,7 +291,7 @@ export default function Products() {
       for (const id of ids) {
         if (window.electronAPI?.updateProduct) {
           const prod = products.find(p => p.id === id);
-          if (prod) await window.electronAPI.updateProduct(id, { ...prod, family: bulkFamilyValue }, user?.role);
+          if (prod) await window.electronAPI.updateProduct(id, { ...prod, family: bulkFamilyValue }, permsRef.current);
         }
       }
     } catch { await loadData(); }
@@ -291,13 +300,14 @@ export default function Products() {
   }, [selectedIds, products, user, loadData, bulkFamilyValue]);
 
   const handleBulkAssignSupplier = useCallback(async () => {
+    if (!permGuard('update')) return;
     const ids = [...selectedIds];
     setProducts(prev => prev.map(p => selectedIds.has(p.id) ? { ...p, supplier: bulkSupplierValue } : p));
     try {
       for (const id of ids) {
         if (window.electronAPI?.updateProduct) {
           const prod = products.find(p => p.id === id);
-          if (prod) await window.electronAPI.updateProduct(id, { ...prod, supplier: bulkSupplierValue }, user?.role);
+          if (prod) await window.electronAPI.updateProduct(id, { ...prod, supplier: bulkSupplierValue }, permsRef.current);
         }
       }
     } catch { await loadData(); }
@@ -306,6 +316,7 @@ export default function Products() {
   }, [selectedIds, products, user, loadData, bulkSupplierValue]);
 
   const handleBulkAssignVat = useCallback(async () => {
+    if (!permGuard('update')) return;
     const vatId = bulkVatValue === 'none' ? null : parseInt(bulkVatValue) || null;
     const ids = [...selectedIds];
     setProducts(prev => prev.map(p => selectedIds.has(p.id) ? { ...p, vat_rate_id: vatId } : p));
@@ -313,7 +324,7 @@ export default function Products() {
       for (const id of ids) {
         if (window.electronAPI?.updateProduct) {
           const prod = products.find(p => p.id === id);
-          if (prod) await window.electronAPI.updateProduct(id, { ...prod, vat_rate_id: vatId }, user?.role);
+          if (prod) await window.electronAPI.updateProduct(id, { ...prod, vat_rate_id: vatId }, permsRef.current);
         }
       }
     } catch { await loadData(); }
@@ -322,6 +333,7 @@ export default function Products() {
   }, [selectedIds, products, user, loadData, bulkVatValue]);
 
   const handleBulkDuplicate = useCallback(async () => {
+    if (!permGuard('create')) return;
     const toDuplicate = products.filter(p => selectedIds.has(p.id));
     const newProducts = [];
     for (const p of toDuplicate) {
@@ -333,7 +345,7 @@ export default function Products() {
       const saved = [];
       for (const p of newProducts) {
         if (window.electronAPI?.addProduct) {
-          const s = await window.electronAPI.addProduct(p, user?.role);
+          const s = await window.electronAPI.addProduct(p, permsRef.current);
           saved.push(s);
         }
       }
@@ -394,13 +406,15 @@ export default function Products() {
   const stats = useMemo(() => {
     const total = products.length;
     const familiesCount = families.length;
-    const outOfStock = products.filter(p => (p.stock || 0) === 0).length;
-    const lowStock = products.filter(p => p.min_stock > 0 && (p.stock || 0) > 0 && (p.stock || 0) <= p.min_stock).length;
+    const isManaged = p => !(p.manage_stock === 0 || p.manage_stock === false);
+    const managedProducts = products.filter(isManaged);
+    const outOfStock = managedProducts.filter(p => (p.stock || 0) === 0).length;
+    const lowStock = managedProducts.filter(p => p.min_stock > 0 && (p.stock || 0) > 0 && (p.stock || 0) <= p.min_stock).length;
     const withMargin = products.filter(p => p.cost_price > 0);
     const avgMargin = withMargin.length > 0
       ? withMargin.reduce((sum, p) => sum + ((p.price - p.cost_price) / p.cost_price * 100), 0) / withMargin.length
       : 0;
-    const inventoryValue = products.reduce((sum, p) => sum + ((p.stock || 0) * (p.price || 0)), 0);
+    const inventoryValue = managedProducts.reduce((sum, p) => sum + ((p.stock || 0) * (p.price || 0)), 0);
     const avgPrice = total > 0 ? products.reduce((sum, p) => sum + (p.price || 0), 0) / total : 0;
     return { total, families: familiesCount, outOfStock, lowStock, avgMargin, inventoryValue, avgPrice };
   }, [products, families]);
@@ -418,12 +432,13 @@ export default function Products() {
   }, [sortedAndFiltered]);
 
   const handleFormSubmit = useCallback(async (productData) => {
+    if (!permGuard(editingProduct ? 'update' : 'create')) return;
     try {
       if (editingProduct) {
         setProducts(prev => prev.map(p => p.id === editingProduct.id ? { ...p, ...productData } : p));
         if (window.electronAPI) {
           try {
-            await window.electronAPI.updateProduct(editingProduct.id, productData, user?.role);
+            await window.electronAPI.updateProduct(editingProduct.id, productData, permsRef.current);
             activityLog.log({ userId: user?.id || 0, userName: user?.fullName || user?.username || 'Inconnu', actionType: 'produit_modifie', entityType: 'produit', entityId: editingProduct.id, oldValue: { name: editingProduct.name, price: editingProduct.price }, newValue: productData, notes: `Produit "${productData.name}" modifié` });
           } catch (error) {
             await loadData();
@@ -437,7 +452,7 @@ export default function Products() {
         setProducts(prev => [...prev, newProduct]);
         if (window.electronAPI) {
           try {
-            const saved = await window.electronAPI.addProduct(productData, user?.role);
+            const saved = await window.electronAPI.addProduct(productData, permsRef.current);
             activityLog.log({ userId: user?.id || 0, userName: user?.fullName || user?.username || 'Inconnu', actionType: 'produit_ajoute', entityType: 'produit', entityId: saved?.id || null, newValue: productData, notes: `Produit "${productData.name}" ajouté` });
             if (saved && String(saved.id) !== String(tempId)) {
               setProducts(prev => prev.map(p => p.id === tempId ? { ...p, id: saved.id } : p));
@@ -455,11 +470,12 @@ export default function Products() {
   }, [editingProduct, user, loadData]);
 
   const handleDelete = useCallback(async (product) => {
+    if (!permGuard('delete')) return;
     if (!confirm(`Supprimer "${product.name}" ?`)) return;
     setProducts(prev => prev.filter(p => p.id !== product.id));
     try {
       if (window.electronAPI) {
-        await window.electronAPI.deleteProduct(product.id, user?.role);
+        await window.electronAPI.deleteProduct(product.id, permsRef.current);
         activityLog.log({ userId: user?.id || 0, userName: user?.fullName || user?.username || 'Inconnu', actionType: 'produit_supprime', entityType: 'produit', entityId: product.id, oldValue: { name: product.name, price: product.price }, notes: `Produit "${product.name}" supprimé` });
       }
     } catch (error) {
@@ -468,43 +484,48 @@ export default function Products() {
   }, [user]);
 
   const handleDuplicate = useCallback((product) => {
+    if (!permGuard('create')) return;
     setEditingProduct(null);
     setDialogOpen(true);
-  }, []);
+  }, [permGuard]);
 
   const handleBulkDelete = useCallback(async () => {
+    if (!permGuard('delete')) return;
     if (!confirm(`Supprimer ${selectedIds.size} produit(s) ?`)) return;
     const toDelete = products.filter(p => selectedIds.has(p.id));
     setProducts(prev => prev.filter(p => !selectedIds.has(p.id)));
     try {
       for (const p of toDelete) {
-        if (window.electronAPI) await window.electronAPI.deleteProduct(p.id, user?.role);
+        if (window.electronAPI) await window.electronAPI.deleteProduct(p.id, permsRef.current);
       }
       setSelectedIds(new Set());
     } catch { await loadData(); }
   }, [selectedIds, products, loadData]);
 
   const handleBulkGenerateBarcodes = useCallback(async () => {
+    if (!permGuard('update')) return;
     const toUpdate = products.filter(p => selectedIds.has(p.id) && !p.barcode);
     if (toUpdate.length === 0) return;
     for (const p of toUpdate) {
       const barcode = generateLocalBarcode();
       setProducts(prev => prev.map(pr => pr.id === p.id ? { ...pr, barcode } : pr));
       if (window.electronAPI) {
-        try { await window.electronAPI.updateProduct(p.id, { ...p, barcode }, user?.role); } catch { /* skip */ }
+        try { await window.electronAPI.updateProduct(p.id, { ...p, barcode }, permsRef.current); } catch { /* skip */ }
       }
     }
   }, [selectedIds, products]);
 
   const generateBarcodeForProduct = useCallback(async (product) => {
+    if (!permGuard('update')) return;
     const barcode = generateLocalBarcode();
     setProducts(prev => prev.map(p => p.id === product.id ? { ...p, barcode } : p));
     if (window.electronAPI) {
-      try { await window.electronAPI.updateProduct(product.id, { ...product, barcode }, user?.role); } catch { /* skip */ }
+      try { await window.electronAPI.updateProduct(product.id, { ...product, barcode }, permsRef.current); } catch { /* skip */ }
     }
-  }, []);
+  }, [permGuard, user]);
 
   const generateBulkBarcodes = useCallback(async () => {
+    if (!permGuard('update')) return;
     const withoutBarcode = products.filter(p => !p.barcode);
     if (withoutBarcode.length === 0) return;
     if (!confirm(`Générer des codes-barres pour ${withoutBarcode.length} produit(s) ?`)) return;
@@ -512,7 +533,7 @@ export default function Products() {
       const barcode = generateLocalBarcode();
       setProducts(prev => prev.map(pr => pr.id === p.id ? { ...pr, barcode } : pr));
       if (window.electronAPI) {
-        try { await window.electronAPI.updateProduct(p.id, { ...p, barcode }, user?.role); } catch { /* skip */ }
+        try { await window.electronAPI.updateProduct(p.id, { ...p, barcode }, permsRef.current); } catch { /* skip */ }
       }
     }
   }, [products]);
@@ -554,7 +575,7 @@ export default function Products() {
         };
         if (!productData.name || !productData.price) continue;
         try {
-          if (window.electronAPI) await window.electronAPI.addProduct(productData);
+          if (window.electronAPI) await window.electronAPI.addProduct(productData, permsRef.current);
           count++;
         } catch { /* skip */ }
       }
@@ -598,20 +619,20 @@ export default function Products() {
           </div>
           <div className="flex items-center gap-2">
             {isBarcodeEnabled && stats.total > 0 && products.some(p => !p.barcode) && (
-              <Button variant="outline" size="sm" onClick={generateBulkBarcodes}>
+              <Button variant="outline" size="sm" onClick={generateBulkBarcodes} disabled={!canManage}>
                 <Barcode className="h-4 w-4 mr-1" /> Barcodes ({products.filter(p => !p.barcode).length})
               </Button>
             )}
-            <Button variant="outline" size="sm" onClick={handleImportCSV}>
+            <Button variant="outline" size="sm" onClick={handleImportCSV} disabled={!canManage}>
               <Upload className="h-4 w-4 mr-1" /> Importer
             </Button>
-            <Button variant="outline" size="sm" onClick={handleExportCSV}>
+            <Button variant="outline" size="sm" onClick={handleExportCSV} disabled={!canManage}>
               <Download className="h-4 w-4 mr-1" /> Exporter
             </Button>
-            <Button variant="outline" size="sm" onClick={() => setFamilyDialogOpen(true)}>
+            <Button variant="outline" size="sm" onClick={() => setFamilyDialogOpen(true)} disabled={!canManage}>
               <Settings className="h-4 w-4 mr-1" /> Familles
             </Button>
-            <Button size="sm" onClick={() => { setEditingProduct(null); setDialogOpen(true); }} disabled={!canEdit}>
+            <Button size="sm" onClick={() => { setEditingProduct(null); setDialogOpen(true); }} disabled={!canCreate}>
               <Plus className="h-4 w-4 mr-1" /> Nouveau produit
             </Button>
           </div>
@@ -710,7 +731,7 @@ export default function Products() {
               ? 'Essayez de modifier vos critères de recherche'
               : 'Commencez par créer votre premier produit'}
           </p>
-          {!searchTerm && selectedFamily === 'all' && kitchenFilter === 'all' && canEdit && (
+          {!searchTerm && selectedFamily === 'all' && kitchenFilter === 'all' && canCreate && (
             <Button onClick={() => { setEditingProduct(null); setDialogOpen(true); }}>
               <Plus className="h-4 w-4 mr-1" /> Créer un produit
             </Button>
@@ -719,6 +740,7 @@ export default function Products() {
       ) : viewMode === 'cards' ? (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
           {sortedAndFiltered.map((product) => {
+            const isNonManaged = product.manage_stock === 0 || product.manage_stock === false;
             const stock = product.stock || 0;
             const minStock = product.min_stock || 0;
             const negativeStock = stock < 0;
@@ -753,11 +775,11 @@ export default function Products() {
                   )}
                   {/* Stock badge */}
                   <div className="absolute top-2 right-2">
-                    {outOfStock ? (
+                    {!isNonManaged && (outOfStock ? (
                       <Badge variant="destructive" className="text-[10px] shadow-sm">Rupture</Badge>
                     ) : lowStock ? (
                       <Badge variant="outline" className="text-[10px] bg-orange-50 text-orange-600 border-orange-200 shadow-sm">Stock faible</Badge>
-                    ) : null}
+                    ) : null)}
                   </div>
 
                 </div>
@@ -803,6 +825,12 @@ export default function Products() {
                   </div>
 
                   {/* Stock bar */}
+                  {isNonManaged ? (
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs font-medium text-muted-foreground">Stock non géré</span>
+                      <span className="text-xs font-medium tabular-nums text-muted-foreground">—</span>
+                    </div>
+                  ) : (
                   <div className="flex items-center gap-2">
                     <div className="flex-1 h-1.5 bg-muted rounded-full overflow-hidden">
                       <div
@@ -815,6 +843,7 @@ export default function Products() {
                     </div>
                     <span className={`text-xs font-medium tabular-nums ${negativeStock ? 'text-red-600 font-bold' : 'text-muted-foreground'}`}>{stock}</span>
                   </div>
+                  )}
 
                   {/* Quick actions - visible on hover */}
                   <div className="flex items-center gap-1 mt-3 pt-3 border-t opacity-0 group-hover:opacity-100 transition-opacity" onClick={(e) => e.stopPropagation()}>
@@ -829,7 +858,7 @@ export default function Products() {
                         <Barcode className="h-3 w-3" />
                       </Button>
                     )}
-                    {canEdit && (
+                    {canDelete && (
                       <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive hover:text-destructive" onClick={() => handleDelete(product)}>
                         <Trash2 className="h-3 w-3" />
                       </Button>
@@ -854,6 +883,9 @@ export default function Products() {
           formatPrice={formatPrice}
           config={config}
           showBarcode={isBarcodeEnabled}
+          canCreate={canCreate}
+          canUpdate={canUpdate}
+          canDelete={canDelete}
         />
       )}
 
@@ -883,6 +915,9 @@ export default function Products() {
         onPrintBarcode={() => {}}
         formatPrice={formatPrice}
         config={config}
+        canCreate={canCreate}
+        canUpdate={canUpdate}
+        canDelete={canDelete}
       />
 
       {/* BULK TOOLBAR */}
@@ -895,6 +930,9 @@ export default function Products() {
         onGenerateBarcodes={handleBulkGenerateBarcodes}
         onDuplicateSelected={handleBulkDuplicate}
         onExportSelected={handleExportCSV}
+        canCreate={canCreate}
+        canUpdate={canUpdate}
+        canDelete={canDelete}
         onClearSelection={() => setSelectedIds(new Set())}
         showSupplier={isSupplierEnabled}
       />
@@ -923,7 +961,7 @@ export default function Products() {
                   <CategoryIconPicker selectedIcon={newFamilyIcon} onSelect={setNewFamilyIcon} />
                 </div>
               </div>
-              <Button onClick={handleAddFamily} className="self-start mt-0"><Plus className="h-4 w-4 mr-1" /> Ajouter</Button>
+              <Button onClick={handleAddFamily} className="self-start mt-0" disabled={!canManage}><Plus className="h-4 w-4 mr-1" /> Ajouter</Button>
             </div>
 
             <div className="flex flex-col flex-1 min-h-0">
@@ -992,6 +1030,7 @@ export default function Products() {
                                   <Button
                                     variant="ghost" size="icon" className="h-7 w-7"
                                     onClick={() => { setEditingFamilyName(family.name); setEditingFamilyNewName(family.name); }}
+                                    disabled={!canUpdate}
                                   >
                                     <Edit className="h-3.5 w-3.5" />
                                   </Button>
@@ -999,6 +1038,7 @@ export default function Products() {
                                     variant="ghost" size="icon"
                                     className="h-7 w-7 text-destructive hover:text-destructive"
                                     onClick={() => initiateDeleteFamily(family.name)}
+                                    disabled={!canDelete}
                                   >
                                     <Trash2 className="h-3.5 w-3.5" />
                                   </Button>

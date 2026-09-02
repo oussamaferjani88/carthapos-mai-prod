@@ -25,27 +25,33 @@ function registerDatabaseHandlers(getDatabase) {
     }
   });
 
-   // Helper: check if user has write access
-   function canModify(role) {
-     return role === 'admin' || role === 'manager';
+   // Helper: enforce write permission from the caller's module flags.
+   // The renderer already shows/hides the actions based on these same flags
+   // (Products/Inventory pages pass them down); this is a last line of
+   // defense. When no flags are supplied (legacy call sites) the action is
+   // allowed for backward compatibility.
+   function canWrite(perms, action) {
+     return !perms || !!perms[action];
    }
 
    // Add product
-   ipcMain.handle('add-product', async (event, product, userRole) => {
-     if (userRole && !canModify(userRole)) throw new Error('Accès refusé: seuls les administrateurs et managers peuvent ajouter des produits');
+   ipcMain.handle('add-product', async (event, product, perms) => {
+     if (!canWrite(perms, 'canCreate')) throw new Error("Accès refusé: vous n'avez pas la permission d'ajouter des produits");
      const startTime = Date.now();
      try {
        const db = getDatabase();
        if (!db) throw new Error('Database not initialized');
        
-         const { name, price, cost_price, category, family, barcode, stock, min_stock, unit, supplier, image, description, vat_rate_id, price_type, requires_kitchen, preparation_department, preparation_time, image_settings } = product;
-         
-         console.log(`⏱️ [ADD-PRODUCT START] Adding: "${name}" - Family: "${family}"`);
-         
-          return new Promise((resolve, reject) => {
-            db.run(
-              'INSERT INTO products (name, price, cost_price, category, family, barcode, stock, min_stock, unit, supplier, image, description, vat_rate_id, price_type, requires_kitchen, preparation_department, preparation_time, image_settings) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-              [name, price, cost_price || 0, category || family, family, barcode || null, stock || 0, min_stock || 0, unit || 'unit', supplier || '', image || null, description || '', vat_rate_id || null, price_type || 'ttc', requires_kitchen ? 1 : 0, preparation_department || null, preparation_time || null, image_settings || null],
+const { name, price, cost_price, category, family, barcode, stock, min_stock, unit, supplier, image, description, vat_rate_id, price_type, requires_kitchen, preparation_department, preparation_time, image_settings, manage_stock } = product;
+        // Default to managed stock unless explicitly disabled (imports/barcode/etc. don't set it).
+        const manageStockEnabled = manage_stock === false || manage_stock === 0 ? 0 : 1;
+        
+        console.log(`⏱️ [ADD-PRODUCT START] Adding: "${name}" - Family: "${family}"`);
+        
+         return new Promise((resolve, reject) => {
+           db.run(
+             'INSERT INTO products (name, price, cost_price, category, family, barcode, stock, min_stock, unit, supplier, image, description, vat_rate_id, price_type, requires_kitchen, preparation_department, preparation_time, image_settings, manage_stock) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+             [name, price, cost_price || 0, category || family, family, barcode || null, stock || 0, min_stock || 0, unit || 'unit', supplier || '', image || null, description || '', vat_rate_id || null, price_type || 'ttc', requires_kitchen ? 1 : 0, preparation_department || null, preparation_time || null, image_settings || null, manageStockEnabled],
             function(err) {
               const duration = Date.now() - startTime;
               if (err) {
@@ -66,21 +72,23 @@ function registerDatabaseHandlers(getDatabase) {
    });
 
    // Update product
-   ipcMain.handle('update-product', async (event, id, product, userRole) => {
-     if (userRole && !canModify(userRole)) throw new Error('Accès refusé: seuls les administrateurs et managers peuvent modifier des produits');
+   ipcMain.handle('update-product', async (event, id, product, perms) => {
+     if (!canWrite(perms, 'canUpdate')) throw new Error("Accès refusé: vous n'avez pas la permission de modifier des produits");
      const startTime = Date.now();
      try {
        const db = getDatabase();
        if (!db) throw new Error('Database not initialized');
        
-         const { name, price, cost_price, category, family, barcode, stock, min_stock, unit, supplier, image, description, vat_rate_id, price_type, requires_kitchen, preparation_department, preparation_time, image_settings } = product;
-         
-         console.log(`⏱️ [UPDATE-PRODUCT START] ID: ${id} - "${name}"`);
-         
-          return new Promise((resolve, reject) => {
-            db.run(
-              'UPDATE products SET name = ?, price = ?, cost_price = ?, category = ?, family = ?, barcode = ?, stock = ?, min_stock = ?, unit = ?, supplier = ?, image = ?, description = ?, vat_rate_id = ?, price_type = ?, requires_kitchen = ?, preparation_department = ?, preparation_time = ?, image_settings = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
-               [name, price, cost_price || 0, category || family, family, barcode || null, stock || 0, min_stock || 0, unit || 'unit', supplier || '', image || null, description || '', vat_rate_id || null, price_type || 'ttc', requires_kitchen ? 1 : 0, preparation_department || null, preparation_time || null, image_settings || null, id],
+const { name, price, cost_price, category, family, barcode, stock, min_stock, unit, supplier, image, description, vat_rate_id, price_type, requires_kitchen, preparation_department, preparation_time, image_settings, manage_stock } = product;
+        // Default to managed stock unless explicitly disabled
+        const manageStockEnabled = manage_stock === false || manage_stock === 0 ? 0 : 1;
+        
+        console.log(`⏱️ [UPDATE-PRODUCT START] ID: ${id} - "${name}"`);
+        
+         return new Promise((resolve, reject) => {
+           db.run(
+             'UPDATE products SET name = ?, price = ?, cost_price = ?, category = ?, family = ?, barcode = ?, stock = ?, min_stock = ?, unit = ?, supplier = ?, image = ?, description = ?, vat_rate_id = ?, price_type = ?, requires_kitchen = ?, preparation_department = ?, preparation_time = ?, image_settings = ?, manage_stock = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
+              [name, price, cost_price || 0, category || family, family, barcode || null, stock || 0, min_stock || 0, unit || 'unit', supplier || '', image || null, description || '', vat_rate_id || null, price_type || 'ttc', requires_kitchen ? 1 : 0, preparation_department || null, preparation_time || null, image_settings || null, manageStockEnabled, id],
            function(err) {
              const duration = Date.now() - startTime;
              if (err) {
@@ -101,8 +109,8 @@ function registerDatabaseHandlers(getDatabase) {
    });
 
    // Delete product
-   ipcMain.handle('delete-product', async (event, id, userRole) => {
-     if (userRole && !canModify(userRole)) throw new Error('Accès refusé: seuls les administrateurs et managers peuvent supprimer des produits');
+   ipcMain.handle('delete-product', async (event, id, perms) => {
+     if (!canWrite(perms, 'canDelete')) throw new Error("Accès refusé: vous n'avez pas la permission de supprimer des produits");
      const startTime = Date.now();
      try {
        const db = getDatabase();

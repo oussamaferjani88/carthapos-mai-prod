@@ -13,10 +13,10 @@
  */
 const express = require('express');
 const router = express.Router();
-const { PrismaClient } = require('@prisma/client');
+const warehousePrisma = require('../prisma-warehouse/client');
 const cacheService = require('../services/analytics-cache-service');
 
-const prisma = new PrismaClient();
+const prisma = warehousePrisma;
 
 // ─── Date helpers (dimTimeId int YYYYMMDD <-> dateKey 'YYYY-MM-DD') ──
 const pad = (n) => String(n).padStart(2, '0');

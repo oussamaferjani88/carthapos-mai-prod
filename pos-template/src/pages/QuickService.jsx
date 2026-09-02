@@ -148,8 +148,10 @@ export default function QuickService() {
 
       await window.electronAPI.addSale(sale);
       
-      // Update stock for each item
+      // Update stock for each item (non-stock-managed products are excluded:
+      // sales are counted via addSale, no on-hand quantity to decrement)
       for (const item of cart) {
+        if (item.manage_stock === 0 || item.manage_stock === false) continue;
         const updatedProduct = {
           ...item,
           stock: Math.max(0, item.stock - item.quantity)
@@ -266,18 +268,22 @@ export default function QuickService() {
                         <h3 className="font-medium text-sm truncate">{product.name}</h3>
                         <div className="flex items-center justify-between">
                           <span className="text-lg font-bold">{formatPrice(product.price)}</span>
-                          <Badge 
-                            variant={product.stock > (product.min_stock || 10) ? "default" : product.stock > 0 ? "outline" : "destructive"}
-                            className="text-xs"
-                          >
-                            {product.stock}
-                          </Badge>
+                          {product.manage_stock === 0 || product.manage_stock === false ? (
+                            <Badge variant="outline" className="text-xs text-muted-foreground">Stock non géré</Badge>
+                          ) : (
+                            <Badge 
+                              variant={product.stock > (product.min_stock || 10) ? "default" : product.stock > 0 ? "outline" : "destructive"}
+                              className="text-xs"
+                            >
+                              {product.stock}
+                            </Badge>
+                          )}
                         </div>
                         <p className="text-xs text-muted-foreground">{product.category}</p>
                         <Button 
                           size="sm" 
                           className="w-full"
-                          disabled={product.stock === 0}
+                          disabled={!(product.manage_stock === 0 || product.manage_stock === false) && product.stock === 0}
                         >
                           <Plus className="h-3 w-3 mr-1" />
                           Ajouter

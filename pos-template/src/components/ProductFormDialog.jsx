@@ -16,7 +16,8 @@ const EMPTY_PRODUCT = {
   name: '', price: '', cost_price: '', barcode: '', description: '',
   stock: '0', min_stock: '0', supplier: '', family: '', unit: 'pièce',
   image: null, vat_rate_id: null, price_type: 'ttc',
-  requires_kitchen: false, preparation_department: '', preparation_time: ''
+  requires_kitchen: false, preparation_department: '', preparation_time: '',
+  manage_stock: true
 };
 
 const Section = ({ icon: Icon, title, children }) => (
@@ -64,6 +65,7 @@ const ProductFormDialog = memo(function ProductFormDialog({
   const [requiresKitchen, setRequiresKitchen] = useState(false);
   const [preparationDepartment, setPreparationDepartment] = useState('');
   const [preparationTime, setPreparationTime] = useState('');
+  const [manageStock, setManageStock] = useState(true);
   const [isScanning, setIsScanning] = useState(false);
   const [formError, setFormError] = useState('');
   const [isDragOver, setIsDragOver] = useState(false);
@@ -86,6 +88,7 @@ const ProductFormDialog = memo(function ProductFormDialog({
     setRequiresKitchen(product?.requires_kitchen === 1 || product?.requires_kitchen === true);
     setPreparationDepartment(product?.preparation_department || '');
     setPreparationTime(product?.preparation_time?.toString() || '');
+    setManageStock(product?.manage_stock === 0 || product?.manage_stock === false ? false : true);
     setFormError('');
     imageFileRef.current = null;
   }, []);
@@ -97,7 +100,7 @@ const ProductFormDialog = memo(function ProductFormDialog({
     setImageSettings({ zoom: 1, posX: 50, posY: 50, fit: 'cover' });
     setVatRateId('none'); setPriceType('ttc');
     setRequiresKitchen(false); setPreparationDepartment('');
-    setPreparationTime(''); setFormError(''); setIsScanning(false);
+    setPreparationTime(''); setManageStock(true); setFormError(''); setIsScanning(false);
     setIsDragOver(false);
     imageFileRef.current = null;
   }, []);
@@ -222,14 +225,15 @@ const ProductFormDialog = memo(function ProductFormDialog({
         price_type: priceType,
         requires_kitchen: requiresKitchen,
         preparation_department: requiresKitchen ? (preparationDepartment || null) : null,
-        preparation_time: requiresKitchen && preparationTime ? parseInt(preparationTime) : null
+        preparation_time: requiresKitchen && preparationTime ? parseInt(preparationTime) : null,
+        manage_stock: manageStock
       };
       await onSubmit(productData);
       onOpenChange(false);
     } catch (error) {
       setFormError('Erreur lors de la sauvegarde: ' + error.message);
     }
-  }, [name, price, costPrice, family, barcode, stock, minStock, unit, supplier, imagePreview, imageSettings, description, vatRateId, priceType, requiresKitchen, preparationDepartment, preparationTime, onSubmit, onOpenChange]);
+  }, [name, price, costPrice, family, barcode, stock, minStock, unit, supplier, imagePreview, imageSettings, description, vatRateId, priceType, requiresKitchen, preparationDepartment, preparationTime, manageStock, onSubmit, onOpenChange]);
 
   return (
     <Dialog open={open} onOpenChange={handleDialogChange}>
@@ -335,6 +339,19 @@ const ProductFormDialog = memo(function ProductFormDialog({
 
               {/* INVENTORY */}
               <Section icon={Box} title="Inventaire">
+                <div className="flex items-center justify-between gap-3 rounded-lg border p-3">
+                  <div className="space-y-0.5 min-w-0">
+                    <Label className="text-sm font-medium cursor-pointer">Gérer en stock</Label>
+                    <p className="text-xs text-muted-foreground">
+                      {manageStock
+                        ? 'Quantité suivie : stock initial, stock minimum et alertes actifs.'
+                        : 'Produit vendu à la pièce : quantité en stock non suivie (affichée « — »), les ventes restent comptées.'}
+                    </p>
+                  </div>
+                  <Switch checked={manageStock} onCheckedChange={setManageStock} />
+                </div>
+
+                {manageStock && (
                 <div className="grid grid-cols-2 gap-3">
                   <div className="grid gap-2">
                     <Label htmlFor="stock">Stock initial</Label>
@@ -345,6 +362,7 @@ const ProductFormDialog = memo(function ProductFormDialog({
                     <Input id="min_stock" type="number" min="0" step="1" value={minStock} onChange={(e) => setMinStock(e.target.value)} placeholder="0" />
                   </div>
                 </div>
+                )}
                 <div className={`grid gap-3 ${showSupplier ? 'grid-cols-2' : 'grid-cols-1'}`}>
                   <div className="grid gap-2">
                     <Label>Unité</Label>

@@ -77,7 +77,7 @@ export default function LockScreen({ user, onUnlock, onLogout, config }) {
           <p className="font-semibold text-foreground text-sm">{user.full_name || user.username}</p>
           <p className="text-[11px] text-muted-foreground mt-0.5 mb-4 capitalize flex items-center justify-center gap-1">
             <Shield size={10} />
-            {user.role}
+            {user.role === 'superadmin' ? 'Super admin' : user.role === 'admin' ? 'Administrateur' : user.role}
           </p>
 
           <AuthKeyboard

@@ -12,7 +12,8 @@ export const usePOSGenerator = () => {
   const { isUserMode, currentUserId, currentUserProfile } = useAccessMode();
 
   const [showProgress, setShowProgress] = useState(false);
-  const [progressStep, setProgressStep] = useState(0);
+  const [progressSteps, setProgressSteps] = useState<Array<{ id: string; label: string; description: string }>>([]);
+  const [progressStepId, setProgressStepId] = useState<string | null>(null);
   const [progressPercentage, setProgressPercentage] = useState(0);
   const [currentAction, setCurrentAction] = useState('');
   const [progressError, setProgressError] = useState<string | null>(null);
@@ -41,6 +42,20 @@ export const usePOSGenerator = () => {
       await new Promise(resolve => setTimeout(resolve, progressDelayMs));
     }
   };
+
+  /**
+   * Ordered list of steps actually performed for this run. The USB step only
+   * exists when a USB target was selected (machine-bound licences skip it).
+   */
+  const buildGenerationSteps = (usesUSB: boolean) => [
+    { id: 'validate', label: 'Validation de la configuration', description: 'Vérification des paramètres et création de la licence' },
+    { id: 'license', label: 'Génération de la licence', description: 'Création du fichier de licence sécurisé' },
+    ...(usesUSB
+      ? [{ id: 'usb', label: 'Écriture sur la clé USB', description: 'Copie de la licence sur le support amovible' }]
+      : []),
+    { id: 'build', label: "Construction de l'application", description: 'Assemblage du POS personnalisé' },
+    { id: 'finalize', label: 'Finalisation', description: 'Optimisation et préparation du téléchargement' },
+  ];
 
   const nextStep = () => {
     if (step === 2) {
@@ -84,6 +99,8 @@ export const usePOSGenerator = () => {
   };
 
   const generatePOS = async (formData: any) => {
+    const usesUSB = Boolean(formData?.selectedUSB);
+
     try {
       const businessName = formData?.configuration?.businessName;
       if (typeof businessName !== 'string' || businessName.trim().length === 0) {
@@ -93,13 +110,14 @@ export const usePOSGenerator = () => {
       setLoading(true);
       setShowProgress(true);
       setProgressError(null);
-      setProgressStep(0);
+      setProgressSteps(buildGenerationSteps(usesUSB));
+      setProgressStepId('validate');
       setProgressPercentage(0);
       setCurrentAction('Initialisation...');
 
-      setProgressStep(0);
-      setCurrentAction('Validation des paramètres et création de la licence...');
-      setProgressPercentage(5);
+      setProgressStepId('validate');
+      setCurrentAction('Vérification des paramètres et création de la licence...');
+      setProgressPercentage(8);
 
       const licenseData = {
         clientId: formData.clientId,
@@ -118,44 +136,39 @@ export const usePOSGenerator = () => {
       };
 
       const license = await licenseService.createLicense(licenseData);
-      setProgressPercentage(20);
+      setProgressPercentage(22);
 
-      setProgressStep(1);
+      setProgressStepId('license');
       setCurrentAction('Génération du fichier de licence sécurisé...');
       await waitForProgress();
 
-      const licenseFile = {
-        filename: `license-${license.licenseKey}.key`,
-        content: `LICENSE-KEY=${license.licenseKey}\nCLIENT=${license.clientId}\nSIG=BYPASSED-FOR-WEB-DEPLOYMENT`,
-        licenseKey: license.licenseKey,
-      };
-      setProgressPercentage(40);
+      const licenseFile = await licenseService.generateLicenseFile(license.id);
+      setProgressPercentage(usesUSB ? 38 : 45);
 
-      if (formData.selectedUSB) {
-        setProgressStep(2);
-        setCurrentAction('Installation sur le support USB...');
+      if (usesUSB) {
+        setProgressStepId('usb');
+        setCurrentAction('Copie de la licence sur la clé USB...');
         await waitForProgress();
         await usbService.writeLicenseToUSB({
           drivePath: formData.selectedUSB,
           licenseContent: licenseFile.content,
           licenseKey: license.licenseKey,
         });
-        setProgressPercentage(60);
-      } else {
-        setProgressPercentage(60);
+        setProgressPercentage(55);
       }
 
-      setProgressStep(3);
+      setProgressStepId('build');
       setCurrentAction('Construction de votre application POS personnalisée...');
+      setProgressPercentage(65);
       await waitForProgress();
 
       const posApplication = await posService.generatePOS({
         licenseId: license.id,
         fastMode: import.meta.env.VITE_FAST_LOCAL_GENERATION === 'true',
       });
-      setProgressPercentage(90);
+      setProgressPercentage(92);
 
-      setProgressStep(4);
+      setProgressStepId('finalize');
       setCurrentAction('Optimisation et finalisation...');
       await waitForProgress();
 
@@ -183,11 +196,15 @@ export const usePOSGenerator = () => {
       setLoading(true);
       setShowProgress(true);
       setProgressError(null);
-      setProgressStep(0);
+      setProgressSteps([
+        { id: 'validate', label: 'Validation du preview', description: 'Vérification de la configuration' },
+        { id: 'build', label: "Création de l'application", description: 'Assemblage du POS depuis le preview' },
+      ]);
+      setProgressStepId('validate');
       setProgressPercentage(0);
       setCurrentAction('Conversion directe du preview...');
 
-      setProgressStep(0);
+      setProgressStepId('validate');
       setCurrentAction('Validation de la configuration du preview...');
       setProgressPercentage(10);
 
@@ -197,7 +214,7 @@ export const usePOSGenerator = () => {
       }
       setProgressPercentage(20);
 
-      setProgressStep(1);
+      setProgressStepId('build');
       setCurrentAction("Création de l'application Electron depuis le preview...");
       setProgressPercentage(30);
 
@@ -250,6 +267,9 @@ export const usePOSGenerator = () => {
     setSelectedTemplate(null);
     setShowProgress(false);
     setProgressError(null);
+    setProgressSteps([]);
+    setProgressStepId(null);
+    setProgressPercentage(0);
     setIsFormVisible(true);
     setShowCustomizer(false);
     setActiveLicenseId(null);
@@ -337,7 +357,8 @@ export const usePOSGenerator = () => {
     loading,
     generationResult,
     showProgress,
-    progressStep,
+    progressSteps,
+    progressStepId,
     progressPercentage,
     currentAction,
     progressError,

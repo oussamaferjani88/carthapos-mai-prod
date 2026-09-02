@@ -6,16 +6,14 @@ import {
   Calendar,
   Download,
   Eye,
-  Settings,
-  Code,
-  Cpu,
-  Rocket,
   Settings2,
   Copy,
 } from "lucide-react";
 import { Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { posStatusMeta } from "@/lib/posStatus";
 import {
   Dialog,
   DialogContent,
@@ -119,15 +117,6 @@ const getStatusLabel = (license: License) => {
   return license.isActive ? "active" : "inactive";
 };
 
-const statusBadgeClass = (status: string) =>
-  status === "active" || status === "ready"
-    ? "bg-green-500/10 text-green-500"
-    : status === "building"
-      ? "bg-blue-500/10 text-blue-500 animate-pulse"
-      : status === "failed"
-        ? "bg-red-500/10 text-red-500"
-        : "bg-yellow-500/10 text-yellow-500";
-
 const PosProjects = () => {
   const { t } = useTranslation();
   const { ref: headerRef, isVisible: headerVisible } = useScrollAnimation({ threshold: 0.2 });
@@ -138,7 +127,7 @@ const PosProjects = () => {
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [downloadFlow, setDownloadFlow] = useState<{ licenseId: string; projectName: string } | null>(null);
   const [dlProgress, setDlProgress] = useState(0);
-  const [dlStep, setDlStep] = useState(0);
+  const [dlStepId, setDlStepId] = useState<string>("preparing");
   const [dlAction, setDlAction] = useState("");
   const [dlError, setDlError] = useState<string | null>(null);
   const downloadLinkRef = useRef<HTMLAnchorElement>(null);
@@ -230,11 +219,11 @@ const PosProjects = () => {
   };
 
   const DL_STEPS = [
-    { id: "preparing", label: "Préparation du projet", icon: Settings, color: "text-blue-500", description: "Rechargement de la configuration enregistrée" },
-    { id: "generating", label: "Génération du POS", icon: Code, color: "text-green-500", description: "Création des fichiers du POS à partir de votre configuration" },
-    { id: "building", label: "Construction de l'exécutable", icon: Cpu, color: "text-orange-500", description: "Compilation de l'application Electron" },
-    { id: "packaging", label: "Packaging", icon: Rocket, color: "text-purple-500", description: "Préparation de l'exécutable Windows" },
-    { id: "downloading", label: "Téléchargement", icon: Download, color: "text-pink-500", description: "Récupération de l'exécutable généré" },
+    { id: "preparing", label: "Préparation du projet", description: "Rechargement de la configuration enregistrée" },
+    { id: "generating", label: "Génération du POS", description: "Création des fichiers à partir de la configuration" },
+    { id: "building", label: "Construction de l'exécutable", description: "Compilation de l'application Electron" },
+    { id: "packaging", label: "Packaging", description: "Préparation de l'exécutable Windows" },
+    { id: "downloading", label: "Téléchargement", description: "Récupération de l'installateur" },
   ];
 
   const DL_STAGE_TIMING = [
@@ -258,7 +247,7 @@ const PosProjects = () => {
 
     setDownloadFlow({ licenseId: project.licenseId, projectName: project.name });
     setDlProgress(0);
-    setDlStep(0);
+    setDlStepId(DL_STEPS[0].id);
     setDlAction(DL_STEPS[0].label);
     setDlError(null);
 
@@ -267,7 +256,7 @@ const PosProjects = () => {
       const elapsed = Date.now() - startedAt;
       const stage = [...DL_STAGE_TIMING].reverse().find((s) => elapsed >= s.after);
       if (stage) {
-        setDlStep(stage.step);
+        setDlStepId(DL_STEPS[stage.step].id);
         setDlProgress(stage.pct);
         setDlAction(DL_STEPS[stage.step].label);
       }
@@ -297,7 +286,7 @@ const PosProjects = () => {
         return;
       }
 
-      setDlStep(4);
+      setDlStepId(DL_STEPS[4].id);
       setDlProgress(100);
       setDlAction(DL_STEPS[4].label);
       setTimeout(() => {
@@ -360,8 +349,8 @@ const PosProjects = () => {
         }`}
       >
         <div>
-          <h1 className="text-2xl font-bold">Mes Projets POS</h1>
-          <p className="text-muted-foreground">
+          <h1 className="text-xl font-semibold tracking-tight sm:text-[22px]">Mes Projets POS</h1>
+          <p className="mt-1 text-[13px] text-muted-foreground">
             Retrouvez chaque POS que vous avez généré. Modifiez, téléchargez ou dupliquez vos
             projets à tout moment.
           </p>
@@ -402,16 +391,12 @@ const PosProjects = () => {
                   style={{ animationDelay: `${index * 100}ms` }}
                 >
                   <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-3 mb-2 flex-wrap">
+                    <div className="flex items-center gap-2 mb-2 flex-wrap">
                       <h3 className="text-lg font-semibold truncate">{project.name}</h3>
-                      <span className={`px-2 py-1 text-xs rounded-full ${statusBadgeClass(project.status)}`}>
-                        {project.status}
-                      </span>
-                      {project.version > 1 && (
-                        <span className="px-2 py-1 text-xs rounded-full bg-primary/10 text-primary">
-                          v{project.version}
-                        </span>
-                      )}
+                      <Badge variant={posStatusMeta(project.status).variant}>
+                        {posStatusMeta(project.status).label}
+                      </Badge>
+                      {project.version > 1 && <Badge variant="neutral">v{project.version}</Badge>}
                     </div>
                     <div className="flex flex-wrap gap-4 text-sm text-muted-foreground">
                       <span className="flex items-center gap-1">
@@ -499,7 +484,7 @@ const PosProjects = () => {
                 </div>
                 <div>
                   <div className="text-muted-foreground">Statut</div>
-                  <div className="font-medium">{getStatusLabel(selectedLicense)}</div>
+                  <div className="font-medium">{posStatusMeta(getStatusLabel(selectedLicense)).label}</div>
                 </div>
                 <div>
                   <div className="text-muted-foreground">Version</div>
@@ -572,7 +557,7 @@ const PosProjects = () => {
       <POSGenerationProgress
         isVisible={!!downloadFlow}
         steps={DL_STEPS}
-        currentStep={dlStep}
+        activeStepId={dlStepId}
         progress={dlProgress}
         currentAction={dlAction}
         error={dlError}

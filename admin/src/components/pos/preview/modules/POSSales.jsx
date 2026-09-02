@@ -39,6 +39,59 @@ export const POSSales = ({ config, modules = [] }) => {
   const currentConfig = config || defaultConfig;
   const posConfig = POSConfiguration.createConfig(currentConfig);
 
+  // Layout > Composants de page (Ventes > Panier) — options prédéfinies
+  // uniquement (visibilité/position/taille/densité), aucun positionnement
+  // pixel. Voir admin/src/config/POSConfiguration.js `pageLayout`.
+  const cartCfg = posConfig.pageLayout.sales.cart;
+  const CART_WIDTH = { small: 240, medium: 300, large: 380 };
+  const CART_HEIGHT_BOTTOM = { small: 140, medium: 190, large: 260 };
+  const CART_DENSITY = {
+    compact: { header: 'px-3 py-2', item: 'p-1.5', gap: 'space-y-1', totals: 'px-2.5 py-2' },
+    normal: { header: 'px-4 py-3', item: 'p-2.5', gap: 'space-y-1.5', totals: 'px-3 py-3' },
+    spacious: { header: 'px-5 py-4', item: 'p-3.5', gap: 'space-y-2.5', totals: 'px-4 py-4' },
+  };
+  const cartDensity = CART_DENSITY[cartCfg.density] || CART_DENSITY.normal;
+  const cartPosition = cartCfg.position || 'left';
+  const cartIsSide = cartPosition === 'left' || cartPosition === 'right';
+  const cartIsEdge = cartPosition === 'top' || cartPosition === 'bottom';
+
+  // Dimension du panier selon la position :
+  //  - gauche/droite : largeur (colonne)
+  //  - haut/bas      : hauteur (rangée)
+  const cartSize = cartIsSide
+    ? (CART_WIDTH[cartCfg.size] || CART_WIDTH.medium)
+    : (CART_HEIGHT_BOTTOM[cartCfg.size] || CART_HEIGHT_BOTTOM.medium);
+
+  // Grille 2D par position (CSS Grid, pas de positionnement absolu) :
+  //  - gauche : [panier | travail]
+  //  - droite : [travail | panier]
+  //  - haut   : [panier / travail]
+  //  - bas    : [travail / panier]
+  const cartHidden = !cartCfg.visible;
+  const gridAreas = cartHidden
+    ? '"work"'
+    : cartIsSide
+      ? (cartPosition === 'left' ? '"cart work"' : '"work cart"')
+      : (cartPosition === 'top' ? '"cart" "work"' : '"work" "cart"');
+
+  // Colonnes : une seule colonne pleine largeur pour haut/bas, deux colonnes
+  // pour gauche/droite. La colonne du panier reçoit la taille fixe et la zone
+  // de travail le reste, dans l'ordre correspondant à la position choisie.
+  const gridColumns = cartHidden || cartIsEdge
+    ? 'minmax(0, 1fr)'
+    : cartPosition === 'left'
+      ? `${cartSize}px minmax(0, 1fr)`
+      : `minmax(0, 1fr) ${cartSize}px`;
+
+  // Rangées : une seule rangée pleine hauteur pour gauche/droite, deux rangées
+  // pour haut/bas. La rangée du panier reçoit la taille fixe et la zone de
+  // travail le reste, dans l'ordre correspondant à la position choisie.
+  const gridRows = cartHidden || cartIsSide
+    ? 'minmax(0, 1fr)'
+    : cartPosition === 'top'
+      ? `${cartSize}px minmax(0, 1fr)`
+      : `minmax(0, 1fr) ${cartSize}px`;
+
   const [cart, setCart] = useState([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [animatingCard, setAnimatingCard] = useState(null);
@@ -293,13 +346,20 @@ export const POSSales = ({ config, modules = [] }) => {
         </div>
       )}
 
-      {/* Main Layout - 3 panneaux comme le POS réel */}
-      <div className="h-full w-full flex gap-2 p-2">
-        {/* Cart Panel - Left */}
-        <div className="w-[300px] min-w-[260px] flex flex-col h-full">
+      {/* Main Layout - panier + zone de travail positionnés par grille selon le
+          réglage Layout > Ventes > Panier (gauche/droite/haut/bas). */}
+      <div
+        className="h-full w-full overflow-hidden p-2"
+        style={{ display: 'grid', gridTemplateAreas: gridAreas, gridTemplateColumns: gridColumns, gridTemplateRows: gridRows, gap: '0.5rem' }}
+      >
+        {cartCfg.visible && (
+        <div
+          className="flex flex-col"
+          style={{ gridArea: 'cart', minHeight: 0, minWidth: 0, overflow: 'hidden' }}
+        >
           <div className="flex flex-col h-full bg-white rounded-2xl shadow-sm border border-gray-100">
             {/* Cart Header */}
-            <div className="px-4 py-3 flex-shrink-0 border-b border-gray-100">
+            <div className={cn(cartDensity.header, 'flex-shrink-0 border-b border-gray-100')}>
               <div className="flex items-center justify-between gap-2">
                 <span className="flex items-center gap-2 font-semibold text-gray-800">
                   <ShoppingCart className="w-4 h-4 text-gray-400" />
@@ -326,7 +386,7 @@ export const POSSales = ({ config, modules = [] }) => {
             </div>
 
             {/* Cart Items */}
-            <div className="flex-1 min-h-0 overflow-y-auto cart-scroll px-3 py-2 space-y-1.5">
+            <div className={cn('flex-1 min-h-0 overflow-y-auto cart-scroll px-3 py-2', cartDensity.gap)}>
               {cart.length === 0 ? (
                 <div className="flex flex-col items-center justify-center h-full text-gray-400">
                   <ShoppingCart className="w-10 h-10 mb-2 opacity-30" />
@@ -335,7 +395,7 @@ export const POSSales = ({ config, modules = [] }) => {
                 </div>
               ) : (
                 cart.map((item) => (
-                  <div key={item.id} className="p-2.5 bg-gray-50 rounded-xl border border-gray-100 hover:border-gray-200 transition-colors">
+                  <div key={item.id} className={cn(cartDensity.item, 'bg-gray-50 rounded-xl border border-gray-100 hover:border-gray-200 transition-colors')}>
                     <div className="flex items-center justify-between mb-1.5">
                       <div className="font-medium text-sm text-gray-800 truncate flex-1 mr-2">{item.name}</div>
                       <div className="text-sm font-semibold text-blue-600 whitespace-nowrap">
@@ -368,7 +428,7 @@ export const POSSales = ({ config, modules = [] }) => {
             </div>
 
             {/* Totals & Actions */}
-            <div className="border-t border-gray-100 px-3 py-3 space-y-2.5">
+            <div className={cn('border-t border-gray-100 space-y-2.5', cartDensity.totals)}>
               <div className="space-y-1 text-xs">
                 <div className="flex justify-between text-gray-500">
                   <span>Sous-total</span>
@@ -415,9 +475,14 @@ export const POSSales = ({ config, modules = [] }) => {
             </div>
           </div>
         </div>
+        )}
+
+        {/* Zone de travail (pavé numérique + produits) - reste toujours une
+            rangée horizontale, quelle que soit la position du panier. */}
+        <div className="flex gap-2 min-h-0 min-w-0" style={{ gridArea: 'work', overflow: 'hidden' }}>
 
         {/* Numeric Keypad - Middle */}
-        <div className="w-[220px] min-w-[200px] flex flex-col h-full">
+        <div className="w-[220px] min-w-[200px] flex flex-col h-full flex-shrink-0">
           <div className="h-full bg-white rounded-2xl shadow-sm border border-gray-100 flex flex-col">
             <div className="px-3 py-2.5 border-b border-gray-100">
               <span className="flex items-center gap-2 font-semibold text-gray-800 text-sm">
@@ -594,7 +659,7 @@ export const POSSales = ({ config, modules = [] }) => {
                   </p>
                 </div>
               ) : (
-                <div className="grid grid-cols-5 xl:grid-cols-6 gap-2 auto-rows-[minmax(90px,1fr)]">
+                <div className="pos-preview-grid grid grid-cols-5 xl:grid-cols-6 gap-2 auto-rows-[minmax(90px,1fr)]">
                   {filteredProducts.map((product) => (
                     <div
                       key={product.id}
@@ -637,6 +702,7 @@ export const POSSales = ({ config, modules = [] }) => {
               )}
             </div>
           </div>
+        </div>
         </div>
       </div>
 

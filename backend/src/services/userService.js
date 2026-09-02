@@ -30,7 +30,7 @@ class UserService {
    * Create a new user
    */
   async createUser(userData) {
-    const { username, email, password, role = 'CASHIER' } = userData;
+    const { username, email, password, role = 'MANAGER' } = userData;
 
     // Check if user already exists
     const existingUser = await userRepository.findByUsernameOrEmail(username, email);

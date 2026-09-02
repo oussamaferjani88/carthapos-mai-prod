@@ -213,7 +213,7 @@ export const ROLES = {
 // Classe pour gérer les permissions
 export class PermissionManager {
   constructor(userPermissions = []) {
-    this.userPermissions = userPermissions;
+    this.userPermissions = userPermissions || [];
   }
 
   // Vérifie si l'utilisateur a une permission spécifique
@@ -327,3 +327,173 @@ export class PermissionManager {
 }
 
 export default PermissionManager;
+
+// ============================================================================
+// ADMIN DASHBOARD RBAC — dot-notation permission catalog
+// Mirrors the server-side app_permissions catalog (backend/utils/permissionCatalog.js).
+// ============================================================================
+
+export const ADMIN_PERMISSIONS = {
+  DASHBOARD_VIEW: 'dashboard.view',
+
+  CLIENTS_VIEW: 'clients.view',
+  CLIENTS_CREATE: 'clients.create',
+  CLIENTS_UPDATE: 'clients.update',
+  CLIENTS_DELETE: 'clients.delete',
+
+  LICENSES_VIEW: 'licenses.view',
+  LICENSES_CREATE: 'licenses.create',
+  LICENSES_UPDATE: 'licenses.update',
+  LICENSES_SUSPEND: 'licenses.suspend',
+  LICENSES_REVOKE: 'licenses.revoke',
+  LICENSES_DELETE: 'licenses.delete',
+
+  MODULES_VIEW: 'modules.view',
+  MODULES_MANAGE: 'modules.manage',
+
+  POS_VIEW: 'pos.view',
+  POS_GENERATE: 'pos.generate',
+  POS_BUILD: 'pos.build',
+
+  USB_VIEW: 'usb.view',
+  USB_WRITE: 'usb.write',
+
+  USERS_VIEW: 'users.view',
+  USERS_CREATE: 'users.create',
+  USERS_UPDATE: 'users.update',
+  USERS_DELETE: 'users.delete',
+  USERS_PERMISSIONS: 'users.permissions',
+
+  REPORTS_VIEW: 'reports.view',
+  REPORTS_EXPORT: 'reports.export',
+
+  PRODUCTS_VIEW: 'products.view',
+  PRODUCTS_EDIT: 'products.edit',
+  INVENTORY_VIEW: 'inventory.view',
+  INVENTORY_EDIT: 'inventory.edit',
+
+  BI_VIEW: 'bi.view',
+  BI_REQUESTS: 'bi.requests',
+  BI_ASSIGNMENTS: 'bi.assignments',
+  BI_NOTIFICATIONS: 'bi.notifications',
+  BI_IMPORT: 'bi.import',
+  BI_HISTORY: 'bi.history',
+};
+
+export const ADMIN_PERMISSION_GROUPS = [
+  {
+    key: 'clients',
+    label: 'Clients',
+    description: 'Gestion de la base clients',
+    permissions: [ADMIN_PERMISSIONS.CLIENTS_VIEW, ADMIN_PERMISSIONS.CLIENTS_CREATE, ADMIN_PERMISSIONS.CLIENTS_UPDATE, ADMIN_PERMISSIONS.CLIENTS_DELETE],
+  },
+  {
+    key: 'licenses',
+    label: 'Licences',
+    description: 'Gestion du cycle de vie des licences',
+    permissions: [ADMIN_PERMISSIONS.LICENSES_VIEW, ADMIN_PERMISSIONS.LICENSES_CREATE, ADMIN_PERMISSIONS.LICENSES_UPDATE, ADMIN_PERMISSIONS.LICENSES_SUSPEND, ADMIN_PERMISSIONS.LICENSES_REVOKE, ADMIN_PERMISSIONS.LICENSES_DELETE],
+  },
+  {
+    key: 'modules',
+    label: 'Modules',
+    description: 'Catalogue des modules',
+    permissions: [ADMIN_PERMISSIONS.MODULES_VIEW, ADMIN_PERMISSIONS.MODULES_MANAGE],
+  },
+  {
+    key: 'pos',
+    label: 'Générateur POS',
+    description: 'Génération et compilation de POS',
+    permissions: [ADMIN_PERMISSIONS.POS_VIEW, ADMIN_PERMISSIONS.POS_GENERATE, ADMIN_PERMISSIONS.POS_BUILD],
+  },
+  {
+    key: 'usb',
+    label: 'Gestion USB',
+    description: 'Écriture et vérification de licences USB',
+    permissions: [ADMIN_PERMISSIONS.USB_VIEW, ADMIN_PERMISSIONS.USB_WRITE],
+  },
+  {
+    key: 'users',
+    label: 'Utilisateurs',
+    description: 'Comptes et permissions (réservé SUPER_ADMIN côté serveur)',
+    permissions: [ADMIN_PERMISSIONS.USERS_VIEW, ADMIN_PERMISSIONS.USERS_CREATE, ADMIN_PERMISSIONS.USERS_UPDATE, ADMIN_PERMISSIONS.USERS_DELETE, ADMIN_PERMISSIONS.USERS_PERMISSIONS],
+  },
+  {
+    key: 'reports',
+    label: 'Rapports',
+    description: 'Rapports et statistiques agrégées',
+    permissions: [ADMIN_PERMISSIONS.REPORTS_VIEW, ADMIN_PERMISSIONS.REPORTS_EXPORT],
+  },
+  {
+    key: 'products',
+    label: 'Produits',
+    description: 'Catalogue produits (POS)',
+    permissions: [ADMIN_PERMISSIONS.PRODUCTS_VIEW, ADMIN_PERMISSIONS.PRODUCTS_EDIT],
+  },
+  {
+    key: 'inventory',
+    label: 'Stock',
+    description: 'État et ajustements de stock (POS)',
+    permissions: [ADMIN_PERMISSIONS.INVENTORY_VIEW, ADMIN_PERMISSIONS.INVENTORY_EDIT],
+  },
+  {
+    key: 'bi',
+    label: 'BI Analytics',
+    description: 'Demandes, imports, tableaux de bord BI',
+    permissions: [ADMIN_PERMISSIONS.BI_VIEW, ADMIN_PERMISSIONS.BI_REQUESTS, ADMIN_PERMISSIONS.BI_ASSIGNMENTS, ADMIN_PERMISSIONS.BI_NOTIFICATIONS, ADMIN_PERMISSIONS.BI_IMPORT, ADMIN_PERMISSIONS.BI_HISTORY],
+  },
+];
+
+// href -> required permission for the admin sidebar
+const ADMIN_NAV_PERMISSION_MAP = {
+  '/': null,
+  '/clients': ADMIN_PERMISSIONS.CLIENTS_VIEW,
+  '/licenses': ADMIN_PERMISSIONS.LICENSES_VIEW,
+  '/modules': ADMIN_PERMISSIONS.MODULES_VIEW,
+  '/pos-generator': ADMIN_PERMISSIONS.POS_VIEW,
+  '/pos-projects': ADMIN_PERMISSIONS.POS_VIEW,
+  '/usb-manager': ADMIN_PERMISSIONS.USB_VIEW,
+  '/user-management': ADMIN_PERMISSIONS.USERS_VIEW,
+  '/bi-requests': ADMIN_PERMISSIONS.BI_REQUESTS,
+  '/bi-assignments': ADMIN_PERMISSIONS.BI_ASSIGNMENTS,
+  '/bi-notifications': ADMIN_PERMISSIONS.BI_NOTIFICATIONS,
+  '/bi-wizard': ADMIN_PERMISSIONS.BI_IMPORT,
+  '/bi-upload-portal': ADMIN_PERMISSIONS.BI_HISTORY,
+};
+
+// Required permission to open a route (used by route guards)
+export const ADMIN_ROUTE_PERMISSIONS = {
+  '/clients': ADMIN_PERMISSIONS.CLIENTS_VIEW,
+  '/licenses': ADMIN_PERMISSIONS.LICENSES_VIEW,
+  '/modules': ADMIN_PERMISSIONS.MODULES_VIEW,
+  '/pos-generator': ADMIN_PERMISSIONS.POS_VIEW,
+  '/pos-projects': ADMIN_PERMISSIONS.POS_VIEW,
+  '/usb-manager': ADMIN_PERMISSIONS.USB_VIEW,
+  '/user-management': ADMIN_PERMISSIONS.USERS_VIEW,
+  '/bi-requests': ADMIN_PERMISSIONS.BI_REQUESTS,
+  '/bi-assignments': ADMIN_PERMISSIONS.BI_ASSIGNMENTS,
+  '/bi-notifications': ADMIN_PERMISSIONS.BI_NOTIFICATIONS,
+  '/bi-wizard': ADMIN_PERMISSIONS.BI_IMPORT,
+  '/bi-upload-portal': ADMIN_PERMISSIONS.BI_HISTORY,
+};
+
+/**
+ * Filter the admin sidebar navigation groups by the current user's permissions.
+ * @param {Array} groups - navigationGroups from Layout.jsx
+ * @param {PermissionManager} pm
+ * @param {{isSuperAdmin?: boolean}} options
+ */
+export function filterAdminNavigation(groups, pm, options = {}) {
+  const { isSuperAdmin = false } = options;
+  const visible = (href) => {
+    if (href === '/') return true;
+    // User management is SUPER_ADMIN-only server-side — mirror that in the UI.
+    if (href === '/user-management') return isSuperAdmin;
+    const required = ADMIN_NAV_PERMISSION_MAP[href];
+    if (!required) return true;
+    return pm.hasPermission(required);
+  };
+
+  return groups
+    .map((g) => ({ ...g, items: g.items.filter((i) => visible(i.href)) }))
+    .filter((g) => g.items.length > 0);
+}

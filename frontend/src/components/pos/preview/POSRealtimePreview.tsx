@@ -57,13 +57,13 @@ export default function POSRealtimePreview({
 
   return (
     <div style={{
-      width: '100%', height: '100%', minHeight: '600px', background: '#f8fafc',
+      width: '100%', height: '100%', background: '#f8fafc',
       borderRadius: '12px', overflow: 'hidden', display: 'flex', flexDirection: 'column',
       boxShadow: '0 2px 12px rgba(0,0,0,0.1)', border: '1px solid #e5e7eb',
       position: 'relative', margin: 0, padding: 0, boxSizing: 'border-box',
     }}>
       <div style={{
-        flex: 1, minHeight: '100%', minWidth: 0, overflow: 'hidden', background: 'transparent',
+        flex: 1, minHeight: 0, minWidth: 0, overflow: 'hidden', background: 'transparent',
         transform: `scale(${scaleConfig.scale})`, transformOrigin: 'top left',
         width: scaleConfig.width, height: scaleConfig.height,
         transition: 'transform 0.3s ease-in-out', position: 'relative',

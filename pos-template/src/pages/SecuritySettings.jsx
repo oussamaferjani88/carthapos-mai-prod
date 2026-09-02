@@ -298,6 +298,7 @@ export default function SecuritySettings() {
                     variant="outline"
                     size="sm"
                     onClick={() => handleUserToggle(user.id)}
+                    disabled={user.id === 1} // Ne pas désactiver le super admin
                   >
                     {user.active ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                   </Button>
@@ -362,6 +363,7 @@ export default function SecuritySettings() {
                     id="role"
                     className="w-full p-2 border rounded"
                     value={editingUser.role || newUser.role}
+                    disabled={editingUser.id === 1} // Le rôle du super admin est fixe
                     onChange={(e) => {
                       if (editingUser.id) {
                         setEditingUser(prev => ({ ...prev, role: e.target.value }));

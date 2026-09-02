@@ -1,10 +1,12 @@
 const express = require('express');
 const { PrismaClient } = require('@prisma/client');
+const { requirePermissionForAdmin } = require('../middleware/permissions');
 const router = express.Router();
 const prisma = new PrismaClient();
 
 // GET /api/clients - Récupérer tous les clients
-router.get('/', async (req, res) => {
+// (admin sessions need `clients.view`; portal/POS requests pass through)
+router.get('/', requirePermissionForAdmin('clients.view'), async (req, res) => {
   try {
     const clients = await prisma.client.findMany({
       include: {
@@ -31,7 +33,7 @@ router.get('/', async (req, res) => {
 });
 
 // GET /api/clients/:id - Récupérer un client par ID
-router.get('/:id', async (req, res) => {
+router.get('/:id', requirePermissionForAdmin('clients.view'), async (req, res) => {
   try {
     const { id } = req.params;
     const client = await prisma.client.findUnique({
@@ -62,7 +64,8 @@ router.get('/:id', async (req, res) => {
 });
 
 // POST /api/clients - Créer un nouveau client
-router.post('/', async (req, res) => {
+// (admin sessions need `clients.create`)
+router.post('/', requirePermissionForAdmin('clients.create'), async (req, res) => {
   try {
     const { name, email, phone, address } = req.body;
 
@@ -95,7 +98,8 @@ router.post('/', async (req, res) => {
 });
 
 // PUT /api/clients/:id - Mettre à jour un client
-router.put('/:id', async (req, res) => {
+// (admin sessions need `clients.update`)
+router.put('/:id', requirePermissionForAdmin('clients.update'), async (req, res) => {
   try {
     const { id } = req.params;
     const { name, email, phone, address } = req.body;
@@ -137,7 +141,8 @@ router.put('/:id', async (req, res) => {
 });
 
 // DELETE /api/clients/:id - Supprimer un client
-router.delete('/:id', async (req, res) => {
+// (admin sessions need `clients.delete`)
+router.delete('/:id', requirePermissionForAdmin('clients.delete'), async (req, res) => {
   try {
     const { id } = req.params;
 

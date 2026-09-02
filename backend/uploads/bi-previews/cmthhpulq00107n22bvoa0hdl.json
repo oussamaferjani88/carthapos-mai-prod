@@ -1,0 +1,232 @@
+{
+  "metadata": {
+    "clientId": "cmthd5lje0011wj8t5l4nsah2",
+    "businessName": "THE NAME OF THE STE",
+    "businessType": "restaurant",
+    "biSchemaVersion": "2.2.0",
+    "enabledModules": [
+      "pos-core",
+      "user-management",
+      "reports",
+      "inventory",
+      "customers",
+      "reporting"
+    ],
+    "exportTimestamp": "2026-08-31T16:18:37.245Z"
+  },
+  "validation": {
+    "sales": {
+      "status": "OK",
+      "rows": 1,
+      "required": true,
+      "duplicateRows": 0
+    },
+    "products": {
+      "status": "OK",
+      "rows": 1,
+      "required": true,
+      "duplicateRows": 0
+    },
+    "customers": {
+      "status": "OK",
+      "rows": 0,
+      "required": true,
+      "duplicateRows": 0
+    },
+    "inventory": {
+      "status": "OK",
+      "rows": 1,
+      "required": true,
+      "duplicateRows": 0
+    },
+    "sale_items": {
+      "status": "OK",
+      "rows": 1,
+      "required": false,
+      "duplicateRows": 0
+    }
+  },
+  "rawDatasets": {
+    "sales": {
+      "header": [
+        "sale_id",
+        "total",
+        "tax",
+        "discount",
+        "subtotal",
+        "payment_method",
+        "customer_id",
+        "table_id",
+        "user_id",
+        "shift_id",
+        "status",
+        "receipt_number",
+        "kitchen_status",
+        "notes",
+        "customer_name",
+        "customer_email",
+        "cashier_name",
+        "cashier_full_name",
+        "created_at"
+      ],
+      "rows": [
+        {
+          "sale_id": "1",
+          "total": "48.04",
+          "tax": "0",
+          "discount": "0",
+          "subtotal": "48.04",
+          "payment_method": "Espèces",
+          "customer_id": null,
+          "table_id": null,
+          "user_id": "1",
+          "shift_id": "1",
+          "status": "paid",
+          "receipt_number": "R000001",
+          "kitchen_status": "pending",
+          "notes": null,
+          "customer_name": null,
+          "customer_email": null,
+          "cashier_name": "AHMED",
+          "cashier_full_name": "AHMED",
+          "created_at": "2026-08-31 15:10:44"
+        }
+      ]
+    },
+    "products": {
+      "header": [
+        "product_id",
+        "name",
+        "price",
+        "cost_price",
+        "category",
+        "family",
+        "barcode",
+        "stock",
+        "min_stock",
+        "unit",
+        "supplier",
+        "description",
+        "image",
+        "vat_rate_id",
+        "price_type",
+        "requires_kitchen",
+        "preparation_department",
+        "preparation_time",
+        "created_at",
+        "updated_at"
+      ],
+      "rows": [
+        {
+          "product_id": "1",
+          "name": "RRTTR",
+          "price": "12.01",
+          "cost_price": "0",
+          "category": "YYYY",
+          "family": "YYYY",
+          "barcode": null,
+          "stock": "996",
+          "min_stock": "0",
+          "unit": "pièce",
+          "supplier": null,
+          "description": null,
+          "image": null,
+          "vat_rate_id": null,
+          "price_type": "ttc",
+          "requires_kitchen": "0",
+          "preparation_department": null,
+          "preparation_time": null,
+          "created_at": "2026-08-31 15:10:30",
+          "updated_at": "2026-08-31 15:10:30"
+        }
+      ]
+    },
+    "customers": {
+      "header": [
+        "customer_id",
+        "name",
+        "email",
+        "phone",
+        "address",
+        "loyalty_points",
+        "total_spent",
+        "visit_count",
+        "last_visit_date",
+        "tags",
+        "is_active",
+        "created_at",
+        "updated_at"
+      ],
+      "rows": []
+    },
+    "inventory": {
+      "header": [
+        "product_id",
+        "product_name",
+        "stock",
+        "min_stock",
+        "category",
+        "family",
+        "price",
+        "cost_price",
+        "unit",
+        "supplier",
+        "times_sold",
+        "inventory_value",
+        "needs_reorder"
+      ],
+      "rows": [
+        {
+          "product_id": "1",
+          "product_name": "RRTTR",
+          "stock": "996",
+          "min_stock": "0",
+          "category": "YYYY",
+          "family": "YYYY",
+          "price": "12.01",
+          "cost_price": "0",
+          "unit": "pièce",
+          "supplier": null,
+          "times_sold": "4",
+          "inventory_value": "11961.96",
+          "needs_reorder": "0"
+        }
+      ]
+    },
+    "sale_items": {
+      "header": [
+        "sale_item_id",
+        "sale_id",
+        "product_id",
+        "quantity",
+        "unit_price",
+        "line_total",
+        "vat_rate",
+        "vat_amount",
+        "payment_method",
+        "product_name",
+        "category",
+        "family",
+        "sale_date"
+      ],
+      "rows": [
+        {
+          "sale_item_id": "1",
+          "sale_id": "1",
+          "product_id": "1",
+          "quantity": "4",
+          "unit_price": "12.01",
+          "line_total": "48.04",
+          "vat_rate": "0",
+          "vat_amount": "0",
+          "payment_method": "Espèces",
+          "product_name": "RRTTR",
+          "category": "YYYY",
+          "family": "YYYY",
+          "sale_date": "2026-08-31 15:10:44"
+        }
+      ]
+    }
+  },
+  "wizardStep": "validated"
+}

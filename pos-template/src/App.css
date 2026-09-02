@@ -118,3 +118,20 @@
     @apply bg-background text-foreground;
   }
 }
+
+/* Read-only (Lecture only, no Écriture) enforcement:
+   when a page is wrapped in .readonly-lock[data-readonly="true"],
+   every button and editable control becomes non-interactive. */
+.readonly-lock[data-readonly="true"] button,
+.readonly-lock[data-readonly="true"] [role="button"],
+.readonly-lock[data-readonly="true"] input,
+.readonly-lock[data-readonly="true"] select,
+.readonly-lock[data-readonly="true"] textarea,
+.readonly-lock[data-readonly="true"] [role="switch"],
+.readonly-lock[data-readonly="true"] [role="menuitem"] {
+  pointer-events: none !important;
+  cursor: not-allowed !important;
+}
+.readonly-lock[data-readonly="true"] button:not([disabled]) {
+  opacity: 0.55;
+}

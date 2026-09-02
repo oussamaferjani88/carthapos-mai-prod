@@ -141,7 +141,10 @@ class AssetManager {
       '.vscode',
       '.idea',
       'tmp',
-      'temp'
+      'temp',
+      '.shell-cache', // BuildSystemManager's cached-shell build scratch space - never a per-client file
+      'release',
+      'release-src'
     ];
     return skipDirs.includes(name);
   }
@@ -336,94 +339,14 @@ window.addEventListener('DOMContentLoaded', () => {
       fs.writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf8');
       
       logger.info(`✅ Resources config created at: ${configPath}`);
+      logger.info(`📝 Business name: ${businessName}`);
+      logger.info(`🗄️ Database filename: ${databaseFilename}`);
 
-      // 2. Create public/app-config.json (for Electron main process)
-      const publicDir = path.join(this.projectPath, 'public');
-      if (!fs.existsSync(publicDir)) {
-        fs.mkdirSync(publicDir, { recursive: true });
-        logger.debug('Created public directory');
-      }
-
-      // Check if this license should require USB (for security/anti-piracy)
-      // Default: true (USB required) unless explicitly set to false in license configuration
-      const requireUSB = license.configuration?.requireUSBLicense !== false;
-
-      // Filter to only include ENABLED modules
-      const enabledModules = (license.modules || []).filter(m => m.isEnabled === true);
-      
-      // ALWAYS merge with features if available (features is the authoritative source)
-      let modulesForConfig = [...enabledModules];
-      if (license.configuration?.features) {
-        const existingNames = modulesForConfig
-          .map(m => m.module?.name || m.name)
-          .filter(Boolean);
-
-        Object.entries(license.configuration.features)
-          .filter(([name, enabled]) => enabled === true && !existingNames.includes(name))
-          .forEach(([name]) => {
-            logger.info(`➕ Adding module from features: ${name}`);
-            modulesForConfig.push({ name, isEnabled: true });
-          });
-      }
-
-      // Create app config with embedded license data
-      const appConfig = {
-        license: {
-          id: license.id,
-          licenseKey: license.licenseKey,
-          clientId: license.clientId,
-          clientName: license.client?.name || businessName,
-          licenseType: license.licenseType,
-          bindingType: license.bindingType || 'MACHINE',
-          machineId: license.machineId || null,
-          expirationDate: license.expirationDate || null,
-          isActive: license.isActive,
-          isActivated: license.isActivated || false,
-          activatedAt: license.activatedAt || null,
-          lastValidatedAt: license.lastValidatedAt || null,
-          modules: modulesForConfig,
-          configuration: license.configuration || {}
-        },
-        modules: modulesForConfig,
-        features: license.configuration?.features || {},  // Include features for reference
-        theme: {
-          // Ensure businessName is prominently set in theme
-          businessName: businessName,
-          sector: license.sector || 'retail',
-          ...( license.configuration || {}), // Spread all theme settings from configuration
-          // Ensure these core properties exist
-          primaryColor: license.configuration?.primaryColor || '#3B82F6',
-          secondaryColor: license.configuration?.secondaryColor || '#1E40AF',
-          backgroundColor: license.configuration?.backgroundColor || '#FFFFFF',
-          textColor: license.configuration?.textColor || '#1F2937'
-        },
-        database: {
-          type: 'sqlite',
-          filename: databaseFilename  // Use the sanitized business name
-        },
-        security: {
-          requireUSBLicense: requireUSB, // Default: true (USB required for security)
-          licenseFileName: 'license.key'
-        }
-      };
-
-      // Write public/app-config.json
-      const appConfigPath = path.join(publicDir, 'app-config.json');
-      fs.writeFileSync(appConfigPath, JSON.stringify(appConfig, null, 2), 'utf8');
-      
-        logger.info(`✅ App config created at: ${appConfigPath}`);
-        logger.info(`📝 Business name: ${businessName}`);
-        logger.info(`🗄️ Database filename: ${databaseFilename}`);
-        logger.info(`🔑 License key: ${license.licenseKey}`);
-        logger.info(`📦 Enabled modules: ${modulesForConfig.length}/${license.modules?.length || '?'}`);
-        logger.info(`🎯 Portable mode: ${forcePortableMode ? 'FORCED' : 'AUTO (install dir if writable)'}`);
-        logger.info(`🔒 USB License required: ${requireUSB ? 'YES (anti-piracy protection)' : 'NO (trusted client)'}`);
-       
-        // Log the actual config being written
-        logger.info(`📋 App config content:`);
-        logger.info(JSON.stringify(appConfig, null, 2));
-
-      return appConfigPath;
+      // Note: public/app-config.json (the Electron runtime config, with theme/modules/
+      // license data) is written later by ThemeCustomizer.updateAppConfig(), which is
+      // the authoritative source for that file - writing it here too was redundant
+      // (immediately overwritten downstream in the same pipeline).
+      return configPath;
     } catch (error) {
       logger.error('❌ Failed to create config files:', error);
       throw error;

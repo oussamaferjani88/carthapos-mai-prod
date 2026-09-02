@@ -106,7 +106,7 @@ function Field({ label, helper, children }) {
 export default function HardwareSettings() {
   const { toast } = useToast();
   const { user } = useAuth();
-  const isAdminOrManager = user?.role === 'admin' || user?.role === 'manager';
+  const isAdminOrManager = user?.role === 'admin' || user?.role === 'superadmin' || user?.role === 'manager';
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
 

@@ -1,14 +1,23 @@
 const express = require('express');
 const fs = require('fs');
 const path = require('path');
+const crypto = require('crypto');
 const { exec } = require('child_process');
 const { promisify } = require('util');
+const { requirePermissionForAdmin } = require('../middleware/permissions');
 const router = express.Router();
 
 const execAsync = promisify(exec);
 
+function deviceIdOf(pnpDeviceId, serial) {
+  const material = `${pnpDeviceId || ''}|${serial || ''}`.trim();
+  if (!material || material === '|') return null;
+  return crypto.createHash('sha256').update(material, 'utf8').digest('hex').substring(0, 32);
+}
+
 // GET /api/usb/drives - Détecter les clés USB disponibles
-router.get('/drives', async (req, res) => {
+// (admin sessions need `usb.view`)
+router.get('/drives', requirePermissionForAdmin('usb.view'), async (req, res) => {
   try {
     const drives = await detectUSBDrives();
     res.json({ drives });
@@ -19,7 +28,8 @@ router.get('/drives', async (req, res) => {
 });
 
 // POST /api/usb/write-license - Écrire le fichier de licence sur la clé USB
-router.post('/write-license', async (req, res) => {
+// (admin sessions need `usb.write`)
+router.post('/write-license', requirePermissionForAdmin('usb.write'), async (req, res) => {
   try {
     const { drivePath, licenseContent, licenseKey } = req.body;
 
@@ -63,7 +73,8 @@ router.post('/write-license', async (req, res) => {
 });
 
 // GET /api/usb/verify-license/:drivePath - Vérifier la licence sur une clé USB
-router.get('/verify-license/:drivePath(*)', async (req, res) => {
+// (admin sessions need `usb.view`)
+router.get('/verify-license/:drivePath(*)', requirePermissionForAdmin('usb.view'), async (req, res) => {
   try {
     const drivePath = req.params.drivePath;
     const licenseFilePath = path.join(drivePath, 'license.key');
@@ -88,25 +99,62 @@ router.get('/verify-license/:drivePath(*)', async (req, res) => {
 // Fonction pour détecter les clés USB
 async function detectUSBDrives() {
   const drives = [];
-  
+
   try {
     if (process.platform === 'win32') {
-      // Windows - utiliser wmic pour détecter les lecteurs amovibles
-      const { stdout } = await execAsync('wmic logicaldisk where drivetype=2 get size,freespace,caption');
-      const lines = stdout.split('\n').filter(line => line.trim() && !line.includes('Caption'));
-      
-      for (const line of lines) {
-        const parts = line.trim().split(/\s+/);
-        if (parts.length >= 3) {
-          const caption = parts[0];
-          const freeSpace = parseInt(parts[1]) || 0;
-          const size = parseInt(parts[2]) || 0;
-          
+      // PowerShell CIM: USB disks + mount points + PNP device IDs + serial numbers.
+      // Mirrors the POS-side USBIdentityProvider.cjs so the backend can compute
+      // the same stable deviceId that the Electron app will use for binding.
+      const psScript = `
+        $disks = Get-CimInstance Win32_DiskDrive | Where-Object { $_.InterfaceType -eq 'USB' }
+        $diskToPart = @{}
+        Get-CimInstance Win32_DiskDriveToDiskPartition | ForEach-Object { $diskToPart[$_.Dependent.DeviceID] = $_.Antecedent.DeviceID }
+        $partToLogical = @{}
+        Get-CimInstance Win32_LogicalDiskToPartition | ForEach-Object { $partToLogical[$_.Dependent.DeviceID] = $_.Antecedent.DeviceID }
+        $out = @()
+        foreach ($d in $disks) {
+          $letters = @()
+          foreach ($part in $diskToPart.Keys) {
+            foreach ($lp in $partToLogical.Keys) {
+              if ($partToLogical[$lp] -eq $part -and $lp -match '^\\\\\\\\.\\\\[A-Z]:$') {
+                $letters += ($lp -replace '^\\\\\\\\.\\\\','')
+              }
+            }
+          }
+          foreach ($l in $letters) {
+            $out += [PSCustomObject]@{
+              Path = $l
+              PNPDeviceId = $d.PNPDeviceID
+              Serial = $d.SerialNumber.Trim()
+              SizeBytes = $d.Size
+            }
+          }
+        }
+        $out | ConvertTo-Json -Compress
+      `;
+      const { stdout } = await execAsync(
+        `powershell.exe -NoProfile -NonInteractive -Command "${psScript.replace(/"/g, '\\"')}"`
+      );
+
+      if (stdout.trim()) {
+        let parsed;
+        try { parsed = JSON.parse(stdout); } catch (e) { parsed = []; }
+        const list = Array.isArray(parsed) ? parsed : [parsed];
+
+        for (const d of list) {
+          if (!d || !d.Path) continue;
+          const pnp = d.PNPDeviceId || '';
+          const serial = (d.Serial || '').trim();
+          const drivePath = /^[A-Za-z]:$/.test(d.Path) ? `${d.Path}\\` : d.Path;
           drives.push({
-            path: caption,
-            label: `USB Drive (${caption})`,
-            size: size,
-            freeSpace: freeSpace,
+            path: drivePath,
+            driveLetter: d.Path,
+            label: `USB Drive (${d.Path})`,
+            serial,
+            pnpDeviceId: pnp,
+            deviceId: deviceIdOf(pnp, serial),
+            size: d.SizeBytes || 0,
+            freeSpace: 0,
             type: 'removable'
           });
         }
@@ -114,39 +162,39 @@ async function detectUSBDrives() {
     } else {
       // Linux/macOS - vérifier les points de montage communs
       const mountPoints = ['/media', '/mnt', '/Volumes'];
-      
+
       for (const mountPoint of mountPoints) {
         if (fs.existsSync(mountPoint)) {
           const subdirs = fs.readdirSync(mountPoint);
-          
+
           for (const subdir of subdirs) {
             const fullPath = path.join(mountPoint, subdir);
-            
+
             try {
               const stats = fs.statSync(fullPath);
               if (stats.isDirectory()) {
-                // Essayer d'obtenir des informations sur l'espace disque
                 try {
                   const { stdout } = await execAsync(`df "${fullPath}" | tail -1`);
                   const parts = stdout.trim().split(/\s+/);
-                  
+
                   if (parts.length >= 4) {
-                    const size = parseInt(parts[1]) * 1024; // Convertir de KB en bytes
+                    const size = parseInt(parts[1]) * 1024;
                     const available = parseInt(parts[3]) * 1024;
-                    
+
                     drives.push({
                       path: fullPath,
                       label: `USB Drive (${subdir})`,
-                      size: size,
+                      deviceId: deviceIdOf(fullPath, null),
+                      size,
                       freeSpace: available,
                       type: 'removable'
                     });
                   }
                 } catch (dfError) {
-                  // Si df échoue, ajouter quand même le lecteur sans informations de taille
                   drives.push({
                     path: fullPath,
                     label: `USB Drive (${subdir})`,
+                    deviceId: deviceIdOf(fullPath, null),
                     size: 0,
                     freeSpace: 0,
                     type: 'removable'
@@ -154,7 +202,6 @@ async function detectUSBDrives() {
                 }
               }
             } catch (statError) {
-              // Ignorer les erreurs de stat (permissions, etc.)
               continue;
             }
           }
@@ -164,7 +211,7 @@ async function detectUSBDrives() {
   } catch (error) {
     console.error('Error detecting USB drives:', error);
   }
-  
+
   return drives;
 }
 

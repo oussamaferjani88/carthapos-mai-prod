@@ -1,7 +1,5 @@
-import { Card, CardHeader, CardTitle, CardContent } from '../ui/card';
 import { Label } from '../ui/label';
 import { Input } from '../ui/input';
-import { Paintbrush } from 'lucide-react';
 
 interface ColorPaletteEditorProps {
   formData: any;
@@ -17,47 +15,40 @@ const colorFields = [
   { key: 'textColor', label: 'Texte principal', desc: 'Couleur du texte principal' },
 ];
 
+// Ported from admin/src/components/customizer/ColorPaletteEditor.jsx
 const ColorPaletteEditor = ({ formData, setFormData }: ColorPaletteEditorProps) => {
   const handleColorChange = (key: string, value: string) => {
-    setFormData({
-      ...formData,
-      configuration: { ...formData.configuration, [key]: value },
-    });
+    setFormData({ ...formData, configuration: { ...formData.configuration, [key]: value } });
   };
 
   return (
-    <Card className="border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 shadow-sm">
-      <CardHeader className="pb-1.5 pt-2.5 px-3">
-        <CardTitle className="text-xs flex items-center text-gray-900 dark:text-gray-100">
-          <Paintbrush className="w-3.5 h-3.5 mr-1.5" />
-          Palette de couleurs
-        </CardTitle>
-      </CardHeader>
-      <CardContent className="space-y-1.5 px-3 pb-3">
-        {colorFields.map((colorField) => (
-          <div key={colorField.key} className="group">
-            <div className="flex items-center space-x-2 p-1.5 rounded-lg border hover:bg-accent/50 transition-colors">
-              <input
-                type="color"
+    <div className="space-y-1.5">
+      {colorFields.map((colorField) => (
+        <div
+          key={colorField.key}
+          className="flex items-center gap-2.5 px-2 py-1.5 rounded-md border border-border bg-white hover:bg-accent/40 transition-colors"
+        >
+          <input
+            type="color"
+            value={formData.configuration[colorField.key] || '#3B82F6'}
+            onChange={(e) => handleColorChange(colorField.key, e.target.value)}
+            className="w-7 h-7 rounded border border-border shadow-sm cursor-pointer shrink-0 bg-transparent"
+          />
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center justify-between gap-2">
+              <Label className="text-xs font-medium truncate">{colorField.label}</Label>
+              <Input
                 value={formData.configuration[colorField.key] || '#3B82F6'}
                 onChange={(e) => handleColorChange(colorField.key, e.target.value)}
-                className="w-8 h-8 rounded-lg border-2 border-white shadow-sm cursor-pointer hover:scale-105 transition-transform flex-shrink-0"
+                className="h-6 w-[76px] text-[11px] font-mono px-1.5"
+                placeholder="#000000"
               />
-              <div className="flex-1 min-w-0">
-                <Label className="text-xs font-medium">{colorField.label}</Label>
-                <p className="text-[10px] text-muted-foreground leading-tight">{colorField.desc}</p>
-                <Input
-                  value={formData.configuration[colorField.key] || '#3B82F6'}
-                  onChange={(e) => handleColorChange(colorField.key, e.target.value)}
-                  className="h-6 text-xs mt-0.5 font-mono"
-                  placeholder="#000000"
-                />
-              </div>
             </div>
+            <p className="text-[10px] text-muted-foreground leading-tight mt-0.5">{colorField.desc}</p>
           </div>
-        ))}
-      </CardContent>
-    </Card>
+        </div>
+      ))}
+    </div>
   );
 };
 

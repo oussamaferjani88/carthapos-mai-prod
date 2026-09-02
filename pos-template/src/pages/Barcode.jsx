@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { getCurrencySymbol } from '../utils/currency';
+import { usePermissions } from '../contexts/PermissionsContext';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
@@ -33,6 +34,7 @@ import {
 } from 'lucide-react';
 
 export default function Barcode() {
+  const productPerms = usePermissions('products');
   const formatCurrency = (v) => `${(parseFloat(v) || 0).toFixed(2)} ${getCurrencySymbol('TND')}`;
   const [products, setProducts] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -82,6 +84,10 @@ export default function Barcode() {
   };
 
   const handleCreateProduct = async () => {
+    if (!productPerms.canCreate) {
+      alert("Action non autorisée : vous n'avez pas la permission de créer des produits.");
+      return;
+    }
     try {
       const productToCreate = {
         ...newProductData,
@@ -90,7 +96,7 @@ export default function Barcode() {
         barcode: scannedCode.trim()
       };
 
-      await window.electronAPI.addProduct(productToCreate);
+      await window.electronAPI.addProduct(productToCreate, { canCreate: productPerms.canCreate, canUpdate: productPerms.canUpdate, canDelete: productPerms.canDelete });
       await loadProducts();
       
       setShowProductDialog(false);
@@ -277,10 +283,12 @@ export default function Barcode() {
               <p className="text-sm text-yellow-700 mb-3">
                 Aucun produit trouvé avec le code-barres: <strong>{scannedCode}</strong>
               </p>
-              <Button onClick={() => setShowProductDialog(true)} size="sm">
-                <Plus className="h-4 w-4 mr-2" />
-                Créer un nouveau produit
-              </Button>
+              {productPerms.canCreate && (
+                <Button onClick={() => setShowProductDialog(true)} size="sm">
+                  <Plus className="h-4 w-4 mr-2" />
+                  Créer un nouveau produit
+                </Button>
+              )}
             </div>
           )}
         </CardContent>

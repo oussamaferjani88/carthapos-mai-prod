@@ -1,10 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { getCurrencySymbol } from '../utils/currency';
 import { CreditCard, Plus, Smartphone, Wifi, CheckCircle, XCircle, Clock, DollarSign } from 'lucide-react';
-import { useThemeApplier } from '../hooks/useThemeApplier';
 
 const PaymentAdvanced = () => {
-  useThemeApplier();
   const formatCurrency = (v) => `${(parseFloat(v) || 0).toFixed(2)} ${getCurrencySymbol('TND')}`;
   
   const [paymentMethods, setPaymentMethods] = useState([

@@ -1,31 +1,18 @@
 /**
  * API Utility for CarthaPos Admin Panel
- * Handles all HTTP requests with automatic JWT token injection
+ * Handles all HTTP requests. The session lives in an HttpOnly cookie, so
+ * requests use credentials: 'include' and no token is stored on the client.
  */
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 
 /**
- * Get JWT token from localStorage
- */
-const getToken = () => {
-  return localStorage.getItem('pos_admin_token');
-};
-
-/**
- * Get default headers with JWT token
+ * Get default headers
  */
 const getHeaders = () => {
-  const headers = {
+  return {
     'Content-Type': 'application/json'
   };
-
-  const token = getToken();
-  if (token) {
-    headers['Authorization'] = `Bearer ${token}`;
-  }
-
-  return headers;
 };
 
 /**
@@ -34,17 +21,15 @@ const getHeaders = () => {
 const handleError = async (response) => {
   if (!response.ok) {
     const error = await response.json().catch(() => ({ error: 'Unknown error' }));
-    
-    // If token expired or invalid, clear auth and redirect to login
-    if (response.status === 401 && (error.code === 'TOKEN_EXPIRED' || error.code === 'INVALID_TOKEN')) {
-      localStorage.removeItem('pos_admin_token');
-      localStorage.removeItem('pos_admin_user');
+
+    // Session expired or invalid — redirect to login
+    if (response.status === 401 && window.location.pathname !== '/login') {
       window.location.href = '/login';
     }
-    
+
     throw new Error(error.error || `HTTP ${response.status}: ${response.statusText}`);
   }
-  
+
   return response.json();
 };
 
@@ -59,6 +44,7 @@ const api = {
     try {
       const response = await fetch(`${API_BASE_URL}${endpoint}`, {
         method: 'GET',
+        credentials: 'include',
         headers: getHeaders()
       });
       
@@ -76,6 +62,7 @@ const api = {
     try {
       const response = await fetch(`${API_BASE_URL}${endpoint}`, {
         method: 'POST',
+        credentials: 'include',
         headers: getHeaders(),
         body: JSON.stringify(data)
       });
@@ -94,6 +81,7 @@ const api = {
     try {
       const response = await fetch(`${API_BASE_URL}${endpoint}`, {
         method: 'PUT',
+        credentials: 'include',
         headers: getHeaders(),
         body: JSON.stringify(data)
       });
@@ -112,6 +100,7 @@ const api = {
     try {
       const response = await fetch(`${API_BASE_URL}${endpoint}`, {
         method: 'DELETE',
+        credentials: 'include',
         headers: getHeaders()
       });
       
@@ -127,16 +116,11 @@ const api = {
    */
   postFormData: async (endpoint, formData) => {
     try {
-      const headers = {};
-      const token = getToken();
-      if (token) {
-        headers['Authorization'] = `Bearer ${token}`;
-      }
       // Don't set Content-Type for FormData - browser will set it with boundary
 
       const response = await fetch(`${API_BASE_URL}${endpoint}`, {
         method: 'POST',
-        headers,
+        credentials: 'include',
         body: formData
       });
       
@@ -148,12 +132,13 @@ const api = {
   },
 
   /**
-   * Login (no auth required)
+   * Login (no auth required — establishes the HttpOnly cookie session)
    */
   login: async (credentials) => {
     try {
-      const response = await fetch(`${API_BASE_URL}/api/users/login`, {
+      const response = await fetch(`${API_BASE_URL}/api/auth/login`, {
         method: 'POST',
+        credentials: 'include',
         headers: {
           'Content-Type': 'application/json'
         },

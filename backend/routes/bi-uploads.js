@@ -74,8 +74,8 @@ router.post('/', (req, res, next) => {
       return res.status(400).json({ error: 'No file uploaded' });
     }
 
-    const { clientId, businessType, requestId } = req.body;
-    console.log(`[UPLOAD] Request received  filename=${req.file.originalname} size=${req.file.size} clientId=${clientId} requestId=${requestId || '(none)'}`);
+    const { clientId, businessType, businessName, requestId } = req.body;
+    console.log(`[UPLOAD] Request received  filename=${req.file.originalname} size=${req.file.size} clientId=${clientId} businessName=${businessName || '(none)'} requestId=${requestId || '(none)'}`);
 
     if (!clientId) {
       fs.unlinkSync(req.file.path);
@@ -149,6 +149,7 @@ router.post('/', (req, res, next) => {
         clientId,
         requestId: requestId || null,
         businessType: businessType || client.name || 'unknown',
+        businessName: businessName || null,
         fileHash,
         fileName: req.file.originalname,
         fileSize,
@@ -177,6 +178,74 @@ router.post('/', (req, res, next) => {
   } catch (error) {
     console.error('[UPLOAD] FAILED:', error);
     if (req.file && fs.existsSync(req.file.path)) {
+      fs.unlinkSync(req.file.path);
+    }
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ─── POST /api/bi-uploads/peek-metadata — Detect client from ZIP metadata ──
+// Reads metadata.json (client_id, business_type, business_name) from the uploaded
+// ZIP and resolves the CarthaPOS client by client_id. Does NOT persist anything —
+// the temp file is deleted. Used by the wizard to auto-fill client + business
+// instead of manual selection. Always declared before /:id routes.
+
+router.post('/peek-metadata', (req, res, next) => {
+  upload.single('file')(req, res, (err) => {
+    if (err) return res.status(400).json({ error: `Invalid file: ${err.message}` });
+    next();
+  });
+}, async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ error: 'No file uploaded' });
+    }
+
+    let metadata = null;
+    let readError = null;
+    try {
+      const AdmZip = require('adm-zip');
+      const zip = new AdmZip(req.file.path);
+      const entry = zip.getEntry('metadata.json') || zip.getEntries().find(e => e.entryName === 'metadata.json');
+      if (entry) {
+        metadata = JSON.parse(entry.getData().toString('utf8'));
+      } else {
+        readError = 'metadata.json not found in ZIP archive';
+      }
+    } catch (err) {
+      readError = `Cannot read metadata.json: ${err.message}`;
+    }
+
+    let client = null;
+    let matched = false;
+    const metadataClientId = metadata && (metadata.client_id || null);
+    if (metadataClientId) {
+      client = await prisma.client.findUnique({ where: { id: metadataClientId } });
+      matched = !!client;
+    }
+
+    if (req.file.path && fs.existsSync(req.file.path)) {
+      fs.unlinkSync(req.file.path);
+    }
+
+    const businessType = metadata?.business_type || null;
+    const businessName = metadata?.business_name || null;
+
+    res.json({
+      success: true,
+      data: {
+        matched,
+        clientId: client ? client.id : (metadataClientId || null),
+        clientName: client ? client.name : null,
+        nameResolved: client ? client.name : (metadataClientId || null),
+        businessType,
+        businessName,
+        businessNameResolved: businessName || (client && client.name) || businessType,
+        metadataReadError: readError,
+      },
+    });
+  } catch (error) {
+    if (req.file && req.file.path && fs.existsSync(req.file.path)) {
       fs.unlinkSync(req.file.path);
     }
     res.status(500).json({ error: error.message });

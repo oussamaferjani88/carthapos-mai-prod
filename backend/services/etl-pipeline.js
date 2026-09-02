@@ -9,6 +9,7 @@ const { DATASET_RULES } = require('./data-preparation-service');
 
 const { PrismaClient } = require('@prisma/client');
 const prisma = new PrismaClient();
+const warehousePrisma = require('../prisma-warehouse/client');
 
 const DEBUG = process.env.BI_DEBUG === 'true';
 
@@ -102,16 +103,14 @@ class EtlPipeline {
       const preparedDatasets = this._rowsToDatasets(preparation.preparedDatasets, datasets);
       const errorSkip = this._errorSkipMap(preparation.changes);
 
-      /* ── STEP 5-6: DB transaction ───────────────────────────── */
+      /* ── STEP 5-6: Split across main DB + warehouse DB ──────── */
       step = 'transaction';
-      log(`STEP 5: Begin DB transaction`);
+      log(`STEP 5: Begin DB operations`);
       const t5 = Date.now();
 
-      const result = await prisma.$transaction(async (tx) => {
-        debug('[DB] Transaction started');
-
-        /* ── Create/update job ──────────────────────────────── */
-        log(`[DB] Find or create BiProcessingJob`);
+      /* ── Phase 1: Main DB — mark job PROCESSING ────────────── */
+      log(`[DB] Phase 1: Mark job PROCESSING`);
+      const job = await prisma.$transaction(async (tx) => {
         let job = await tx.biProcessingJob.findFirst({ where: { uploadId } });
         if (job) {
           job = await tx.biProcessingJob.update({
@@ -123,22 +122,38 @@ class EtlPipeline {
             data: { uploadId, status: 'PROCESSING', startedAt: new Date() },
           });
         }
-        log(`[DB] BiProcessingJob id=${job.id}`);
-
         await this._log(tx, job.id, 'INFO', 'EXTRACT', 'ETL started');
+        return job;
+      }, { timeout: 10000 });
+      log(`[DB] BiProcessingJob id=${job.id}`);
 
-        /* ── Load dimensions ─────────────────────────────────── */
-        log(`STEP 5a: Load dimensions`);
-        const dimStart = Date.now();
-        const dims = await this._loadDimensions(tx, preparedDatasets, metadata, uploadId, job, errorSkip);
-        log(`STEP 5a COMPLETE (${Date.now() - dimStart}ms)`);
+      /* ── Phase 2: Warehouse DB — load dimensions + facts ───── */
+      log(`STEP 5a: Load dimensions`);
+      const dimStart = Date.now();
+      const dims = await this._loadDimensions(prisma, warehousePrisma, preparedDatasets, metadata, uploadId, job, errorSkip);
+      log(`STEP 5a COMPLETE (${Date.now() - dimStart}ms)`);
 
-        /* ── Load facts ───────────────────────────────────────── */
-        log(`STEP 5b: Load facts`);
-        const factStart = Date.now();
-        const factResult = await this._loadFacts(tx, preparedDatasets, metadata, uploadId, job, dims, errorSkip);
-        const recordsLoaded = factResult.recordsLoaded;
-        log(`STEP 5b COMPLETE (${Date.now() - factStart}ms) — ${recordsLoaded} records loaded, ${factResult.skippedRows} skipped, ${factResult.orphanWarnings.length} orphan rows`);
+      log(`STEP 5b: Load facts`);
+      const factStart = Date.now();
+      const factResult = await this._loadFacts(prisma, warehousePrisma, preparedDatasets, metadata, uploadId, job, dims, errorSkip);
+      const recordsLoaded = factResult.recordsLoaded;
+      log(`STEP 5b COMPLETE (${Date.now() - factStart}ms) — ${recordsLoaded} records loaded, ${factResult.skippedRows} skipped, ${factResult.orphanWarnings.length} orphan rows`);
+
+      const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+
+      /* ── Phase 3: Main DB — mark COMPLETED + create analysis request ── */
+      log(`STEP 5c: Mark job COMPLETED`);
+      await prisma.$transaction(async (tx) => {
+        await tx.biProcessingJob.update({
+          where: { id: job.id },
+          data: { status: 'COMPLETED', completedAt: new Date(), recordsLoaded },
+        });
+
+        await tx.biUpload.update({
+          where: { id: uploadId },
+          data: { status: 'COMPLETED', totalRows: recordsLoaded },
+        });
+
         if (factResult.skippedRows > 0) {
           await this._log(tx, job.id, 'WARN', 'LOAD', `${factResult.skippedRows} invalid row(s) skipped`);
         }
@@ -146,25 +161,9 @@ class EtlPipeline {
           await this._log(tx, job.id, 'WARN', 'LOAD', `${factResult.orphanWarnings.length} orphan row(s) skipped`);
         }
 
-        const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
-
-        /* ── Mark COMPLETED ──────────────────────────────────── */
-        log(`STEP 5c: Mark job COMPLETED`);
-        await tx.biProcessingJob.update({
-          where: { id: job.id },
-          data: { status: 'COMPLETED', completedAt: new Date(), recordsLoaded },
-        });
-
-        log(`STEP 5d: Mark upload COMPLETED`);
-        await tx.biUpload.update({
-          where: { id: uploadId },
-          data: { status: 'COMPLETED', totalRows: recordsLoaded },
-        });
-
         await this._log(tx, job.id, 'INFO', 'LOAD', `Pipeline completed in ${elapsed}s — ${recordsLoaded} records`);
 
-        /* ── Phase 3: Auto-create BiAnalysisRequest ──────────── */
-        log(`STEP 5e: Create BiAnalysisRequest`);
+        log(`STEP 5d: Create BiAnalysisRequest`);
         try {
           const upload = await tx.biUpload.findUnique({ where: { id: uploadId }, select: { clientId: true, businessType: true } });
           if (upload) {
@@ -179,17 +178,15 @@ class EtlPipeline {
             log(`BiAnalysisRequest created for uploadId=${uploadId}`);
           }
         } catch (arErr) {
-          // Non-fatal: analysis request creation failure should not break ETL
           log(`WARN: Could not create BiAnalysisRequest: ${arErr.message}`);
         }
+      }, { timeout: 10000 });
 
-        debug('[DB] Transaction committed');
-        log(`STEP 6: Transaction COMMITTED (${Date.now() - t5}ms)`);
-        log(`FINISHED SUCCESSFULLY in ${elapsed}s`);
+      debug('[DB] All phases committed');
+      log(`STEP 6: All DB operations COMMITTED (${Date.now() - t5}ms)`);
+      log(`FINISHED SUCCESSFULLY in ${elapsed}s`);
 
-        return { success: true, recordsLoaded, elapsed };
-      }, { timeout: 120000 });
-
+      const result = { success: true, recordsLoaded, elapsed };
       return result;
 
     } catch (error) {
@@ -500,7 +497,7 @@ class EtlPipeline {
 
   // ─── Load dimensions (inside transaction) ───────────────────────
 
-  async _loadDimensions(tx, datasets, metadata, uploadId, job, skipMap = {}, overlays = null) {
+  async _loadDimensions(tx, wtx, datasets, metadata, uploadId, job, skipMap = {}, overlays = null) {
     await this._log(tx, job.id, 'INFO', 'LOAD', 'Loading dimension tables');
 
     // DimTime — auto-seeded from every date column across all datasets.
@@ -509,9 +506,9 @@ class EtlPipeline {
     for (const d of dates) {
       const dt = new Date(`${d}T00:00:00Z`);
       const dayOfWeek = dt.getUTCDay();
-      const existing = await tx.dimTime.findFirst({ where: { date: dt }, select: { id: true } });
+      const existing = await wtx.dimTime.findFirst({ where: { date: dt }, select: { id: true } });
       if (!existing) {
-        await tx.dimTime.create({
+        await wtx.dimTime.create({
           data: {
             id: this._dateToInt(dt),
             date: dt,
@@ -533,15 +530,15 @@ class EtlPipeline {
     debug('[DB] Inserting DimClient');
     const clientName = metadata.businessName || metadata.clientId;
     let dimClientId = null;
-    const existingClient = await tx.dimClient.findFirst({ where: { tenantId: metadata.clientId }, select: { id: true } });
+    const existingClient = await wtx.dimClient.findFirst({ where: { tenantId: metadata.clientId }, select: { id: true } });
     if (existingClient) {
       dimClientId = existingClient.id;
-      await tx.dimClient.update({
+      await wtx.dimClient.update({
         where: { id: existingClient.id },
         data: { name: clientName, businessType: metadata.businessType, exportId: uploadId },
       });
     } else {
-      const createdClient = await tx.dimClient.create({
+      const createdClient = await wtx.dimClient.create({
         data: { tenantId: metadata.clientId, exportId: uploadId, name: clientName, businessType: metadata.businessType },
       });
       dimClientId = createdClient.id;
@@ -560,7 +557,7 @@ class EtlPipeline {
         const overlay = overlayTable ? overlayTable[i] : null;
         const cid = `cust_${metadata.clientId}_${row.customer_id}`;
         const lastVisit = row.last_visit_date ? this._toDate(row.last_visit_date) : null;
-        const existing = await tx.dimCustomer.findFirst({ where: { id: cid }, select: { id: true } });
+        const existing = await wtx.dimCustomer.findFirst({ where: { id: cid }, select: { id: true } });
         const data = {
           tenantId: metadata.clientId,
           exportId: uploadId,
@@ -578,9 +575,9 @@ class EtlPipeline {
         };
         if (overlay) Object.assign(data, overlay);
         if (existing) {
-          await tx.dimCustomer.update({ where: { id: existing.id }, data });
+          await wtx.dimCustomer.update({ where: { id: existing.id }, data });
         } else {
-          await tx.dimCustomer.create({ data: { id: cid, ...data } });
+          await wtx.dimCustomer.create({ data: { id: cid, ...data } });
         }
         dimCustomerIds.set(String(row.customer_id), cid);
         custCount++;
@@ -598,7 +595,7 @@ class EtlPipeline {
         const row = datasets.products.rows[i];
         const overlay = overlayTable ? overlayTable[i] : null;
         const pid = `prod_${metadata.clientId}_${row.product_id}`;
-        const existing = await tx.dimProduct.findFirst({ where: { id: pid }, select: { id: true } });
+        const existing = await wtx.dimProduct.findFirst({ where: { id: pid }, select: { id: true } });
         const data = {
           tenantId: metadata.clientId,
           exportId: uploadId,
@@ -606,12 +603,13 @@ class EtlPipeline {
           category: row.category,
           family: row.family,
           barcode: row.barcode,
+          manageStock: row.manage_stock == null ? null : Number(row.manage_stock),
         };
         if (overlay) Object.assign(data, overlay);
         if (existing) {
-          await tx.dimProduct.update({ where: { id: existing.id }, data });
+          await wtx.dimProduct.update({ where: { id: existing.id }, data });
         } else {
-          await tx.dimProduct.create({
+          await wtx.dimProduct.create({
             data: {
               id: pid,
               tenantId: metadata.clientId,
@@ -636,7 +634,7 @@ class EtlPipeline {
         const row = datasets.suppliers.rows[i];
         const overlay = overlayTable ? overlayTable[i] : null;
         const sid = `supp_${metadata.clientId}_${row.supplier_id}`;
-        const existing = await tx.dimSupplier.findFirst({ where: { id: sid }, select: { id: true } });
+        const existing = await wtx.dimSupplier.findFirst({ where: { id: sid }, select: { id: true } });
         const data = {
           tenantId: metadata.clientId,
           exportId: uploadId,
@@ -647,9 +645,9 @@ class EtlPipeline {
         };
         if (overlay) Object.assign(data, overlay);
         if (existing) {
-          await tx.dimSupplier.update({ where: { id: existing.id }, data });
+          await wtx.dimSupplier.update({ where: { id: existing.id }, data });
         } else {
-          await tx.dimSupplier.create({
+          await wtx.dimSupplier.create({
             data: {
               id: sid,
               tenantId: metadata.clientId,
@@ -670,18 +668,18 @@ class EtlPipeline {
 
   // ─── Load facts (inside transaction) ────────────────────────────
 
-  async _loadFacts(tx, datasets, metadata, uploadId, job, dims = {}, skipMap = {}, overlays = null) {
+  async _loadFacts(tx, wtx, datasets, metadata, uploadId, job, dims = {}, skipMap = {}, overlays = null) {
     await this._log(tx, job.id, 'INFO', 'LOAD', 'Loading fact tables');
 
     // Replace this client's previous warehouse snapshot instead of
     // appending duplicate facts (wizard promises replacement, not accumulation).
     debug(`[DB] Replacing previous snapshot for tenantId=${metadata.clientId}`);
-    await tx.factSale.deleteMany({ where: { tenantId: metadata.clientId } });
-    await tx.factInventory.deleteMany({ where: { tenantId: metadata.clientId } });
-    await tx.factAppointment.deleteMany({ where: { tenantId: metadata.clientId } });
-    await tx.factKitchenOrder.deleteMany({ where: { tenantId: metadata.clientId } });
-    await tx.factSaleItem.deleteMany({ where: { tenantId: metadata.clientId } });
-    await tx.factKitchenOrderItem.deleteMany({ where: { tenantId: metadata.clientId } });
+    await wtx.factSale.deleteMany({ where: { tenantId: metadata.clientId } });
+    await wtx.factInventory.deleteMany({ where: { tenantId: metadata.clientId } });
+    await wtx.factAppointment.deleteMany({ where: { tenantId: metadata.clientId } });
+    await wtx.factKitchenOrder.deleteMany({ where: { tenantId: metadata.clientId } });
+    await wtx.factSaleItem.deleteMany({ where: { tenantId: metadata.clientId } });
+    await wtx.factKitchenOrderItem.deleteMany({ where: { tenantId: metadata.clientId } });
 
     const dimClientId = dims.dimClientId || null;
     const dimCustomerIds = dims.dimCustomerIds || new Map();
@@ -734,7 +732,7 @@ class EtlPipeline {
           orphanWarnings.push({ table: 'FactSale', key: r.saleId, reason: `customer_id ${r.customerId} not found in customers dataset` });
         }
       }
-      salesCount = await this._insertChunked(tx, 'factSale', rows);
+      salesCount = await this._insertChunked(wtx, 'factSale', rows);
     }
 
     // FactInventory
@@ -750,7 +748,7 @@ class EtlPipeline {
         price: row.price ?? null,
         timesSold: row.times_sold ?? 0,
       }));
-      invCount = await this._insertChunked(tx, 'factInventory', rows);
+      invCount = await this._insertChunked(wtx, 'factInventory', rows);
     }
 
     // FactAppointment
@@ -767,7 +765,7 @@ class EtlPipeline {
         duration: row.duration ?? null,
         status: row.status || 'scheduled',
       }));
-      aptCount = await this._insertChunked(tx, 'factAppointment', rows);
+      aptCount = await this._insertChunked(wtx, 'factAppointment', rows);
     }
 
     // FactKitchenOrder
@@ -788,7 +786,7 @@ class EtlPipeline {
         readyAt: row.ready_at ? this._toDate(row.ready_at) : null,
         completedAt: row.completed_at ? this._toDate(row.completed_at) : null,
       }));
-      kitCount = await this._insertChunked(tx, 'factKitchenOrder', rows);
+      kitCount = await this._insertChunked(wtx, 'factKitchenOrder', rows);
     }
 
     // FactSaleItem (item grain — enables true product performance analytics)
@@ -823,7 +821,7 @@ class EtlPipeline {
         family: row.family || null,
         transactionHour: this._extractHour(row.sale_date),
       }));
-      siCount = await this._insertChunked(tx, 'factSaleItem', factData);
+      siCount = await this._insertChunked(wtx, 'factSaleItem', factData);
     }
 
     // FactKitchenOrderItem (item grain for kitchen performance)
@@ -855,7 +853,7 @@ class EtlPipeline {
         preparationTime: row.preparation_time ?? null,
         transactionHour: this._extractHour(row.created_at),
       }));
-      koiCount = await this._insertChunked(tx, 'factKitchenOrderItem', factData);
+      koiCount = await this._insertChunked(wtx, 'factKitchenOrderItem', factData);
     }
 
     log(`  facts: sales=${salesCount} inventory=${invCount} appointments=${aptCount} kitchen=${kitCount} saleItems=${siCount} kitchenOrderItems=${koiCount}`);
@@ -868,11 +866,11 @@ class EtlPipeline {
 
   // ─── Helpers ──────────────────────────────────────────────────
 
-  async _insertChunked(tx, model, rows, chunkSize = 1000) {
+  async _insertChunked(wtx, model, rows, chunkSize = 1000) {
     let inserted = 0;
     for (let i = 0; i < rows.length; i += chunkSize) {
       const chunk = rows.slice(i, i + chunkSize);
-      const res = await tx[model].createMany({ data: chunk, skipDuplicates: true });
+      const res = await wtx[model].createMany({ data: chunk, skipDuplicates: true });
       inserted += res.count;
     }
     return inserted;
@@ -1110,6 +1108,7 @@ class EtlPipeline {
           category: row.category,
           family: row.family,
           barcode: row.barcode,
+          manageStock: row.manage_stock == null ? null : Number(row.manage_stock),
         });
       }
     }
@@ -1336,7 +1335,8 @@ class EtlPipeline {
 
     const startTime = Date.now();
 
-    const result = await prisma.$transaction(async (tx) => {
+    /* ── Phase 1: Main DB — mark job PROCESSING ────────────── */
+    const job = await prisma.$transaction(async (tx) => {
       let job = await tx.biProcessingJob.findFirst({ where: { uploadId } });
       if (job) {
         job = await tx.biProcessingJob.update({
@@ -1348,23 +1348,24 @@ class EtlPipeline {
           data: { uploadId, status: 'PROCESSING', startedAt: new Date() },
         });
       }
-
       await this._log(tx, job.id, 'INFO', 'LOAD', 'Loading dimensions from corrected data');
-      const dims = await this._loadDimensions(tx, datasets, metadata, uploadId, job, skipMap, overlays);
+      return job;
+    }, { timeout: 10000 });
 
-      await this._log(tx, job.id, 'INFO', 'LOAD', 'Loading facts from corrected data');
-      const factResult = await this._loadFacts(tx, datasets, metadata, uploadId, job, dims, skipMap, overlays);
+    /* ── Phase 2: Warehouse DB — load dimensions + facts ───── */
+    const dims = await this._loadDimensions(prisma, warehousePrisma, datasets, metadata, uploadId, job, skipMap, overlays);
+    const factResult = await this._loadFacts(prisma, warehousePrisma, datasets, metadata, uploadId, job, dims, skipMap, overlays);
 
-      const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
-      const recordsLoaded = factResult.recordsLoaded;
+    const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+    const recordsLoaded = factResult.recordsLoaded;
 
+    /* ── Phase 3: Main DB — mark COMPLETED ─────────────────── */
+    await prisma.$transaction(async (tx) => {
       await tx.biProcessingJob.update({
         where: { id: job.id },
         data: { status: 'COMPLETED', completedAt: new Date(), recordsLoaded },
       });
 
-      // Confirm-load marks the upload COMPLETED so the wizard can generate
-      // dashboards without manual database intervention (BUG #2).
       await tx.biUpload.update({
         where: { id: uploadId },
         data: { status: 'COMPLETED', totalRows: recordsLoaded },
@@ -1374,17 +1375,17 @@ class EtlPipeline {
       if (report.unresolvedIssues.length > 0) {
         await this._log(tx, job.id, 'WARN', 'LOAD', `${report.unresolvedIssues.length} unresolved corrected value(s) — rows skipped`);
       }
+    }, { timeout: 10000 });
 
-      return {
-        success: true,
-        recordsLoaded,
-        elapsed,
-        skippedRows: factResult.skippedRows,
-        orphanWarnings: factResult.orphanWarnings,
-        unresolvedIssues: report.unresolvedIssues,
-        appliedCorrections: report.appliedCorrections,
-      };
-    }, { timeout: 120000 });
+    const result = {
+      success: true,
+      recordsLoaded,
+      elapsed,
+      skippedRows: factResult.skippedRows,
+      orphanWarnings: factResult.orphanWarnings,
+      unresolvedIssues: report.unresolvedIssues,
+      appliedCorrections: report.appliedCorrections,
+    };
 
     log(`[WIZARD] loadIntoWarehouse COMPLETE: ${result.recordsLoaded} records, ${result.appliedCorrections} corrections applied, ${result.unresolvedIssues.length} unresolved`);
     return result;

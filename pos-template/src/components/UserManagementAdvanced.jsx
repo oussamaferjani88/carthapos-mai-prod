@@ -10,6 +10,8 @@ import { ScrollArea } from './ui/scroll-area';
 import { Switch } from './ui/switch';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
 import { useAppConfig } from '../hooks/useAppConfig';
+import { canonicalModule, roleModuleDefaults } from '../lib/permissions';
+import { usePermissions } from '../contexts/PermissionsContext';
 import {
   Plus, Edit2, Trash2, UserCheck, UserX, Shield, Users, X, FileText, RefreshCw,
   ChevronDown, ChevronUp, Clock, Lock, Search, Key, AlertTriangle, Check, Save,
@@ -17,15 +19,14 @@ import {
 } from 'lucide-react';
 
 const BASE_MODULES = [
-  { id: 'pos', label: 'Point de vente', icon: '💳', description: 'Interface de caisse principale' },
+  { id: 'sales', label: 'Point de vente', icon: '💳', description: 'Caisse, encaissement et gestion des ventes' },
   { id: 'dashboard', label: 'Tableau de bord', icon: '📊', description: 'Vue d\'ensemble des ventes et statistiques' },
-  { id: 'sales', label: 'Ventes', icon: '💰', description: 'Encaissement et gestion des ventes' },
   { id: 'products', label: 'Produits', icon: '📦', description: 'Gestion du catalogue de produits' },
   { id: 'customers', label: 'Clients', icon: '👥', description: 'Gestion de la base clients' },
   { id: 'reports', label: 'Rapports', icon: '📈', description: 'Rapports et analyses de ventes' },
-  { id: 'inventory', label: 'Gestion de stock', icon: '🏭', description: 'Suivi des mouvements de stock' },
+  { id: 'inventory', label: 'Gestion de stock', icon: '🏭', description: 'Accès à la page Produits et gestion des produits et du stock' },
   { id: 'settings', label: 'Paramètres', icon: '⚙️', description: 'Configuration du système' },
-  { id: 'caisse', label: 'Caisse', icon: '🏪', description: 'Ouverture/fermeture de caisse' },
+  { id: 'user-management', label: 'Gestion des utilisateurs', icon: '🛡️', description: 'Gestion des comptes utilisateurs et attributions de permissions' },
 ];
 
 const OPTIONAL_MODULES = [
@@ -41,9 +42,19 @@ const OPTIONAL_MODULES = [
   { id: 'prescription', label: 'Ordonnances', icon: '💊', description: 'Gestion des ordonnances', configModule: 'prescription' },
 ];
 
-const MODULE_PERMISSION_LABELS = { can_read: 'Lecture', can_create: 'Création', can_update: 'Modification', can_delete: 'Suppression' };
+// Permissions presented to the operator as two levels per module.
+// "Lecture" = view only (can_read). "Écriture" = create + modify + delete
+// (can_create / can_update / can_delete) and implies Lecture.
+const READ_PERMISSION_LABEL = 'Lecture';
+const WRITE_PERMISSION_LABEL = 'Écriture';
+
+// Modules that only expose read actions — there is nothing to write, so
+// "Écriture" is never offered and the module stays permanently in Lecture.
+const ALWAYS_READ_ONLY_MODULES = [];
+const isAlwaysReadOnly = (id) => ALWAYS_READ_ONLY_MODULES.includes(id);
 
 const ROLES = [
+  { value: 'superadmin', label: 'Super admin', color: 'bg-purple-100 text-purple-800' },
   { value: 'admin', label: 'Administrateur', color: 'bg-red-100 text-red-800' },
   { value: 'manager', label: 'Manager', color: 'bg-blue-100 text-blue-800' },
   { value: 'cashier', label: 'Caissier', color: 'bg-green-100 text-green-800' },
@@ -79,7 +90,9 @@ const UserManagementAdvanced = ({ config }) => {
   const [page, setPage] = useState(1);
 
   const [auditLogs, setAuditLogs] = useState([]);
-  const [auditSearch, setAuditSearch] = useState('');
+  const [auditDateFrom, setAuditDateFrom] = useState('');
+  const [auditDateTo, setAuditDateTo] = useState('');
+  const [auditUserFilter, setAuditUserFilter] = useState('all');
   const [auditActionFilter, setAuditActionFilter] = useState('all');
   const [expandedLogId, setExpandedLogId] = useState(null);
   const [auditPage, setAuditPage] = useState(1);
@@ -99,6 +112,10 @@ const UserManagementAdvanced = ({ config }) => {
   const [showPermissionsDialog, setShowPermissionsDialog] = useState(false);
   const [permTarget, setPermTarget] = useState(null);
   const [modulePerms, setModulePerms] = useState({});
+
+  // "Gestion des utilisateurs" page actions follow the user-management module
+  // permission. Admins get everything through the provider bypass.
+  const { canCreate: umCreate, canUpdate: umUpdate, canDelete: umDelete } = usePermissions('user-management');
 
   const loadUsers = useCallback(async () => {
     try {
@@ -124,6 +141,19 @@ const UserManagementAdvanced = ({ config }) => {
   }, [loadUsers, loadAudit]);
 
   const getRoleInfo = (role) => ROLES.find(r => r.value === role) || ROLES[2];
+  const isSuperAdmin = (u) => !!(u && Number(u.id) === 1);
+
+  // Who may assign permissions to whom:
+  // - super admin (id 1): every other user (never himself).
+  // - admin (created by the super admin): managers & cashiers only.
+  // - manager / cashier: nobody.
+  const canManagePermsOf = useCallback((target) => {
+    if (!currentUser?.id || !target) return false;
+    if (Number(target.id) === Number(currentUser.id)) return false;
+    if (Number(currentUser.id) === 1) return true;
+    if (currentUser.role !== 'admin' && currentUser.role !== 'superadmin') return false;
+    return target.role !== 'admin' && target.role !== 'superadmin';
+  }, [currentUser]);
 
   const POS_MODULES = useMemo(() => {
     const enabledNames = (appConfig?.modules || []).filter(m => m.isEnabled !== false).map(m => m.name);
@@ -217,20 +247,56 @@ const UserManagementAdvanced = ({ config }) => {
   // ── Module permissions ────────────────────────────────────────
   const openPermissions = async (user) => {
     setPermTarget(user);
+    // Start from the role defaults (pre-filled), then overlay any rows this
+    // user already has. The admin can change everything before saving.
+    // NOTE: roleModuleDefaults returns {read,create,update,delete}; the dialog
+    // uses {can_read,can_create,...} — translate so fresh users show checked.
+    const toCanKeys = (d) => ({
+      can_read: !!d.read,
+      can_create: !!d.create,
+      can_update: !!d.update,
+      can_delete: !!d.delete,
+    });
+    const roleDefaults = roleModuleDefaults(user?.role || 'cashier', POS_MODULES);
     const perms = {};
-    POS_MODULES.forEach(m => { perms[m.id] = { can_read: true, can_create: false, can_update: false, can_delete: false }; });
+    POS_MODULES.forEach(m => { perms[m.id] = { ...(roleDefaults[m.id] ? toCanKeys(roleDefaults[m.id]) : { can_read: false, can_create: false, can_update: false, can_delete: false }) }; });
     if (user && user.id) {
       try {
         const existing = await window.electronAPI.getUserModules(user.id);
         if (Array.isArray(existing)) {
+          const seen = new Set();
           existing.forEach(m => {
-            if (perms[m.module_name]) {
-              perms[m.module_name] = { can_read: !!m.can_read, can_create: !!m.can_create, can_update: !!m.can_update, can_delete: !!m.can_delete };
+            const key = canonicalModule(m.module_name);
+            if (!perms[key]) return;
+            const row = { can_read: !!m.can_read, can_create: !!m.can_create, can_update: !!m.can_update, can_delete: !!m.can_delete };
+            if (seen.has(key)) {
+              // Several legacy modules collapse into one entry — keep the union.
+              perms[key] = {
+                can_read: perms[key].can_read || row.can_read,
+                can_create: perms[key].can_create || row.can_create,
+                can_update: perms[key].can_update || row.can_update,
+                can_delete: perms[key].can_delete || row.can_delete,
+              };
+            } else {
+              perms[key] = row;
+              seen.add(key);
             }
           });
         }
       } catch {}
     }
+    // Read-only-by-nature modules (dashboard) are always exactly "Lecture".
+    ALWAYS_READ_ONLY_MODULES.forEach(id => {
+      if (perms[id]) perms[id] = { can_read: true, can_create: false, can_update: false, can_delete: false };
+    });
+    // Alias sync: "Produits" (products), "Menu" (menu-management), "Gestion de
+    // stock" (inventory) are one canonical feature (inventory). Make every row
+    // that canonicalizes to the same key show the same state, so permissions a
+    // user was granted under one spelling are pre-selected on the other too.
+    POS_MODULES.forEach(m => {
+      const c = canonicalModule(m.id);
+      if (c !== m.id && perms[c]) perms[m.id] = { ...perms[c] };
+    });
     setModulePerms(perms);
     setShowPermissionsDialog(true);
   };
@@ -239,24 +305,70 @@ const UserManagementAdvanced = ({ config }) => {
     if (!permTarget?.id) { setShowPermissionsDialog(false); return; }
     setSubmitting(true);
     try {
-      const modules = Object.entries(modulePerms).map(([key, val]) => ({
-        module_name: key, ...val,
-        can_read: val.can_read ? 1 : 0, can_create: val.can_create ? 1 : 0,
-        can_update: val.can_update ? 1 : 0, can_delete: val.can_delete ? 1 : 0,
-      }));
-      await window.electronAPI.setUserModules(permTarget.id, modules);
+      const modules = Object.entries(modulePerms).map(([key, val]) => {
+        const forced = isAlwaysReadOnly(key);
+        return {
+          // Store the canonical module name so "products"/"menu-management"
+          // rows collapse into "inventory" and runtime lookups stay aligned
+          // with what the dialog shows.
+          module_name: canonicalModule(key),
+          can_read: forced ? 1 : (val.can_read ? 1 : 0),
+          can_create: forced ? 0 : (val.can_create ? 1 : 0),
+          can_update: forced ? 0 : (val.can_update ? 1 : 0),
+          can_delete: forced ? 0 : (val.can_delete ? 1 : 0),
+        };
+      });
+      // Several dialog rows share one canonical module (e.g. products + inventory
+      // → "inventory"); dedupe so no UNIQUE(user_id, module_name) conflict occurs.
+      const deduped = Array.from(
+        new Map(modules.map(m => [m.module_name, m])).values()
+      );
+      await window.electronAPI.setUserModules(permTarget.id, deduped);
       setShowPermissionsDialog(false);
     } catch (e) { alert(e.message); } finally { setSubmitting(false); }
   };
 
   const setAllPerms = (value) => {
     const p = {};
-    POS_MODULES.forEach(m => { p[m.id] = { can_read: value, can_create: value, can_update: value, can_delete: value }; });
+    POS_MODULES.forEach(m => {
+      if (isAlwaysReadOnly(m.id)) {
+        p[m.id] = { can_read: true, can_create: false, can_update: false, can_delete: false };
+      } else if (m.id === 'user-management' && Number(currentUser.id) !== 1) {
+        // Only the super admin may change the "gestion des utilisateurs"
+        // permission. Other admins: preserve its current value untouched.
+        p[m.id] = { ...(modulePerms[m.id] || { can_read: false, can_create: false, can_update: false, can_delete: false }) };
+      } else {
+        p[m.id] = { can_read: value, can_create: value, can_update: value, can_delete: value };
+      }
+    });
     setModulePerms(p);
   };
 
+  const applyToAliases = (id, updater) => {
+    setModulePerms(prev => {
+      const next = { ...prev };
+      const c = canonicalModule(id);
+      // Apply to the row plus every row sharing the same canonical key.
+      POS_MODULES.forEach(m => {
+        if (canonicalModule(m.id) === c) next[m.id] = updater({ ...(prev[m.id] || {}) });
+      });
+      return next;
+    });
+  };
+
   const setModulePerm = (moduleId, action, value) => {
-    setModulePerms(prev => ({ ...prev, [moduleId]: { ...prev[moduleId], [action]: value } }));
+    applyToAliases(moduleId, (cur) => ({ ...cur, [action]: value }));
+  };
+
+  // "Écriture" = create + update + delete and always implies "Lecture" (read).
+  const setModuleWrite = (moduleId, checked) => {
+    if (isAlwaysReadOnly(moduleId)) return; // e.g. dashboard: no write actions exist
+    applyToAliases(moduleId, (cur) => ({
+      can_read: checked ? true : (cur.can_read ?? false),
+      can_create: !!checked,
+      can_update: !!checked,
+      can_delete: !!checked,
+    }));
   };
 
   // ── Sorting / Filtering ───────────────────────────────────────
@@ -280,15 +392,29 @@ const UserManagementAdvanced = ({ config }) => {
   const userTotalPages = Math.max(1, Math.ceil(filteredUsers.length / ITEMS_PER_PAGE));
   const pagedUsers = filteredUsers.slice((page - 1) * ITEMS_PER_PAGE, page * ITEMS_PER_PAGE);
 
+  const auditUsers = useMemo(() => {
+    const s = new Set();
+    auditLogs.forEach(l => { if (l.user_name) s.add(l.user_name); });
+    return [...s].sort((a, b) => a.localeCompare(b));
+  }, [auditLogs]);
+
   const filteredAudit = useMemo(() => {
     let list = [...auditLogs];
-    if (auditSearch) {
-      const s = auditSearch.toLowerCase();
-      list = list.filter(l => l.user_name?.toLowerCase().includes(s) || l.action_type?.toLowerCase().includes(s) || l.notes?.toLowerCase().includes(s));
-    }
+    if (auditUserFilter !== 'all') list = list.filter(l => l.user_name === auditUserFilter);
     if (auditActionFilter !== 'all') list = list.filter(l => l.action_type === auditActionFilter);
+    if (auditDateFrom || auditDateTo) {
+      const localKey = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+      list = list.filter(l => {
+        const t = new Date(l.timestamp);
+        if (isNaN(t.getTime())) return true; // keep entries with unparseable timestamps
+        const key = localKey(t);
+        if (auditDateFrom && key < auditDateFrom) return false;
+        if (auditDateTo && key > auditDateTo) return false;
+        return true;
+      });
+    }
     return list;
-  }, [auditLogs, auditSearch, auditActionFilter]);
+  }, [auditLogs, auditUserFilter, auditActionFilter, auditDateFrom, auditDateTo]);
 
   const auditTotalPages = Math.max(1, Math.ceil(filteredAudit.length / 50));
   const pagedAudit = filteredAudit.slice((auditPage - 1) * 50, auditPage * 50);
@@ -307,7 +433,7 @@ const UserManagementAdvanced = ({ config }) => {
   const stats = useMemo(() => ({
     total: users.length,
     active: users.filter(u => u.is_active).length,
-    admins: users.filter(u => u.role === 'admin').length,
+    admins: users.filter(u => u.role === 'admin' || u.role === 'superadmin').length,
     servers: users.filter(u => u.is_server).length,
   }), [users]);
 
@@ -331,7 +457,7 @@ const UserManagementAdvanced = ({ config }) => {
           <Button variant="outline" onClick={() => { loadUsers(); loadAudit(); }}>
             <RefreshCw className="mr-2 h-4 w-4" />Actualiser
           </Button>
-          {activeTab === 'users' && (
+          {activeTab === 'users' && umCreate && (
             <Button onClick={() => { setEditingUser(null); setUserForm({ username: '', full_name: '', email: '', phone: '', role: 'cashier', badge_id: '', pin: '', password: '', confirmPassword: '', is_server: false }); setFormErrors([]); setShowUserDialog(true); }}>
               <Plus className="mr-2 h-4 w-4" />Nouvel utilisateur
             </Button>
@@ -439,7 +565,7 @@ const UserManagementAdvanced = ({ config }) => {
                                 {(user.full_name || user.username || '?')[0].toUpperCase()}
                               </div>
                               <div>
-                                <div className="font-medium">@{user.username}</div>
+                                <div className="font-medium">@{user.role === 'superadmin' ? 'superadmin' : user.username}</div>
                                 {user.email && <div className="text-xs text-muted-foreground">{user.email}</div>}
                               </div>
                             </div>
@@ -461,12 +587,17 @@ const UserManagementAdvanced = ({ config }) => {
                           </td>
                           <td className="py-3 px-2">
                             <div className="flex items-center justify-end gap-1">
-                              <Button variant="ghost" size="sm" onClick={() => openPermissions(user)} title="Permissions">
-                                <Lock className="h-4 w-4" />
-                              </Button>
+                              {canManagePermsOf(user) && umUpdate && (
+                                <Button variant="ghost" size="sm" onClick={() => openPermissions(user)} title="Permissions">
+                                  <Lock className="h-4 w-4" />
+                                </Button>
+                              )}
+                              {umUpdate && (
                               <Button variant="ghost" size="sm" onClick={() => { setResetTarget(user); setResetPassword(''); setShowResetDialog(true); }} title="Réinitialiser MDP">
                                 <Key className="h-4 w-4" />
                               </Button>
+                              )}
+                              {umUpdate && (
                               <Button variant="ghost" size="sm" onClick={() => {
                                 setEditingUser(user);
                                 setUserForm({ username: user.username, full_name: user.full_name || '', email: user.email || '', phone: user.phone || '', role: user.role, badge_id: user.badge_id || '', pin: '', password: '', confirmPassword: '', is_server: !!user.is_server });
@@ -475,12 +606,17 @@ const UserManagementAdvanced = ({ config }) => {
                               }} title="Modifier">
                                 <Edit2 className="h-4 w-4" />
                               </Button>
-                              <Button variant="ghost" size="sm" onClick={() => handleToggleStatus(user)} title={user.is_active ? 'Désactiver' : 'Activer'}>
-                                {user.is_active ? <UserX className="h-4 w-4 text-orange-500" /> : <UserCheck className="h-4 w-4 text-green-500" />}
-                              </Button>
-                              <Button variant="ghost" size="sm" onClick={() => { setDeleteTarget(user); setFormErrors([]); setShowDeleteDialog(true); }} title="Supprimer" className="text-red-600 hover:text-red-700">
-                                <Trash2 className="h-4 w-4" />
-                              </Button>
+                              )}
+                              {!isSuperAdmin(user) && umUpdate && (
+                                <Button variant="ghost" size="sm" onClick={() => handleToggleStatus(user)} title={user.is_active ? 'Désactiver' : 'Activer'}>
+                                  {user.is_active ? <UserX className="h-4 w-4 text-orange-500" /> : <UserCheck className="h-4 w-4 text-green-500" />}
+                                </Button>
+                              )}
+                              {!isSuperAdmin(user) && umDelete && (
+                                <Button variant="ghost" size="sm" onClick={() => { setDeleteTarget(user); setFormErrors([]); setShowDeleteDialog(true); }} title="Supprimer" className="text-red-600 hover:text-red-700">
+                                  <Trash2 className="h-4 w-4" />
+                                </Button>
+                              )}
                             </div>
                           </td>
                         </tr>
@@ -509,10 +645,21 @@ const UserManagementAdvanced = ({ config }) => {
             <CardHeader>
               <div className="flex items-center justify-between">
                 <CardTitle>Journal d'activité</CardTitle>
-                <div className="flex gap-2">
-                  <div className="relative">
-                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
-                    <Input placeholder="Filtrer..." className="pl-10 w-64" value={auditSearch} onChange={(e) => { setAuditSearch(e.target.value); setAuditPage(1); }} />
+                <div className="flex flex-wrap items-center gap-2">
+                  <Select value={auditUserFilter} onValueChange={(v) => { setAuditUserFilter(v); setAuditPage(1); }}>
+                    <SelectTrigger className="w-48"><SelectValue placeholder="Utilisateur" /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">Tous les utilisateurs</SelectItem>
+                      {auditUsers.map(u => <SelectItem key={u} value={u}>{u}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                  <div className="flex items-center gap-1">
+                    <span className="text-xs text-muted-foreground">Du</span>
+                    <Input type="date" className="w-36" value={auditDateFrom} onChange={(e) => { setAuditDateFrom(e.target.value); setAuditPage(1); }} />
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <span className="text-xs text-muted-foreground">Au</span>
+                    <Input type="date" className="w-36" value={auditDateTo} onChange={(e) => { setAuditDateTo(e.target.value); setAuditPage(1); }} />
                   </div>
                   <Select value={auditActionFilter} onValueChange={(v) => { setAuditActionFilter(v); setAuditPage(1); }}>
                     <SelectTrigger className="w-48"><SelectValue placeholder="Type d'action" /></SelectTrigger>
@@ -523,6 +670,11 @@ const UserManagementAdvanced = ({ config }) => {
                       ))}
                     </SelectContent>
                   </Select>
+                  {(auditDateFrom || auditDateTo || auditUserFilter !== 'all' || auditActionFilter !== 'all') && (
+                    <Button variant="ghost" size="sm" onClick={() => { setAuditDateFrom(''); setAuditDateTo(''); setAuditUserFilter('all'); setAuditActionFilter('all'); setAuditPage(1); }}>
+                      Réinitialiser
+                    </Button>
+                  )}
                 </div>
               </div>
               <CardDescription>{filteredAudit.length} entrée(s)</CardDescription>
@@ -617,10 +769,10 @@ const UserManagementAdvanced = ({ config }) => {
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-2">
                 <Label>Rôle *</Label>
-                <Select value={userForm.role} onValueChange={(v) => setUserForm({ ...userForm, role: v })}>
-                  <SelectTrigger><SelectValue /></SelectTrigger>
+                <Select value={userForm.role} onValueChange={(v) => setUserForm({ ...userForm, role: v })} disabled={editingUser && isSuperAdmin(editingUser)}>
+                  <SelectTrigger disabled={editingUser && isSuperAdmin(editingUser)}><SelectValue /></SelectTrigger>
                   <SelectContent>
-                    {ROLES.map(r => <SelectItem key={r.value} value={r.value}>{r.label}</SelectItem>)}
+                    {ROLES.filter(r => r.value !== 'superadmin').map(r => <SelectItem key={r.value} value={r.value}>{r.label}</SelectItem>)}
                   </SelectContent>
                 </Select>
               </div>
@@ -629,10 +781,12 @@ const UserManagementAdvanced = ({ config }) => {
                 <Input value={userForm.badge_id} onChange={(e) => setUserForm({ ...userForm, badge_id: e.target.value })} />
               </div>
             </div>
-            <div className="flex items-center gap-3 py-1">
-              <Switch checked={!!userForm.is_server} onCheckedChange={(v) => setUserForm({ ...userForm, is_server: v })} />
-              <div><Label>C'est un serveur</Label><p className="text-xs text-muted-foreground">Peut être assigné aux tables et zones</p></div>
-            </div>
+            {userForm.role === 'cashier' && POS_MODULES.some(m => m.id === 'tables') && (
+              <div className="flex items-center gap-3 py-1">
+                <Switch checked={!!userForm.is_server} onCheckedChange={(v) => setUserForm({ ...userForm, is_server: v })} disabled={editingUser && isSuperAdmin(editingUser)} />
+                <div><Label>C'est un serveur</Label><p className="text-xs text-muted-foreground">Peut être assigné aux tables et zones</p></div>
+              </div>
+            )}
             {editingUser && (
               <div className="space-y-2">
                 <Label>Nouveau mot de passe (laisser vide pour conserver)</Label>
@@ -651,7 +805,7 @@ const UserManagementAdvanced = ({ config }) => {
                 </div>
               </>
             )}
-            {editingUser && (
+            {editingUser && canManagePermsOf(editingUser) && umUpdate && (
               <Button variant="outline" size="sm" className="w-full" onClick={() => openPermissions(editingUser)}>
                 <Lock className="mr-2 h-4 w-4" />Gérer les permissions modules
               </Button>
@@ -716,19 +870,24 @@ const UserManagementAdvanced = ({ config }) => {
       </Dialog>
 
       {/* ═══ MODULE PERMISSIONS ══════════════════════════════════ */}
-      <Dialog open={showPermissionsDialog} onOpenChange={setShowPermissionsDialog}>
+      {(() => {
+        // "Gestion des utilisateurs" only appears to the super admin (id 1);
+        // other admins don't see it and therefore can't grant it.
+        const visibleModules = POS_MODULES.filter(mod => !(mod.id === 'user-management' && Number(currentUser.id) !== 1));
+        return (
+        <Dialog open={showPermissionsDialog} onOpenChange={setShowPermissionsDialog}>
         <DialogContent className="max-w-2xl max-h-[85vh] flex flex-col p-0">
           <DialogHeader className="px-6 pt-6 pb-4">
             <DialogTitle className="flex items-center gap-2">
               <Lock className="h-5 w-5" />Permissions modules
             </DialogTitle>
             <DialogDescription>
-              Permissions de {permTarget?.username || 'l\'utilisateur'} — {POS_MODULES.length} modules disponibles
+              Permissions de {permTarget?.username || 'l\'utilisateur'} — {visibleModules.length} modules disponibles
             </DialogDescription>
           </DialogHeader>
           <div className="flex-1 overflow-y-auto px-6 pb-4" style={{ maxHeight: 'calc(85vh - 140px)' }}>
             <div className="space-y-2">
-              {POS_MODULES.map(mod => (
+              {visibleModules.map(mod => (
                 <div key={mod.id} className="border rounded-xl p-4 bg-card hover:bg-accent/30 transition-colors">
                   <div className="flex items-center gap-3 mb-3">
                     <span className="text-xl">{mod.icon}</span>
@@ -738,23 +897,35 @@ const UserManagementAdvanced = ({ config }) => {
                     </div>
                     <div className="flex items-center gap-1.5">
                       {modulePerms[mod.id]?.can_read && <Badge variant="outline" className="text-[10px] py-0">L</Badge>}
-                      {modulePerms[mod.id]?.can_create && <Badge variant="outline" className="text-[10px] py-0">C</Badge>}
-                      {modulePerms[mod.id]?.can_update && <Badge variant="outline" className="text-[10px] py-0">M</Badge>}
-                      {modulePerms[mod.id]?.can_delete && <Badge variant="outline" className="text-[10px] py-0 text-destructive">S</Badge>}
+                      {(modulePerms[mod.id]?.can_create || modulePerms[mod.id]?.can_update || modulePerms[mod.id]?.can_delete) && <Badge variant="outline" className="text-[10px] py-0 text-destructive">É</Badge>}
                     </div>
                   </div>
-                  <div className="grid grid-cols-4 gap-2">
-                    {Object.entries(MODULE_PERMISSION_LABELS).map(([key, label]) => (
-                      <label key={key} className="flex items-center gap-1.5 text-xs cursor-pointer p-1.5 rounded-lg hover:bg-muted/50 transition-colors">
-                        <input
-                          type="checkbox"
-                          checked={modulePerms[mod.id]?.[key] || false}
-                          onChange={(e) => setModulePerm(mod.id, key, e.target.checked)}
-                          className="rounded border-gray-300 h-3.5 w-3.5"
-                        />
-                        <span className="truncate">{label}</span>
-                      </label>
-                    ))}
+                  <div className="grid grid-cols-2 gap-2">
+                    <label className="flex items-center gap-2 text-sm cursor-pointer p-2 rounded-lg hover:bg-muted/50 transition-colors border border-border">
+                      <input
+                        type="checkbox"
+                        checked={modulePerms[mod.id]?.can_read || false}
+                        onChange={(e) => setModulePerm(mod.id, 'can_read', e.target.checked)}
+                        disabled={isAlwaysReadOnly(mod.id)}
+                        className="rounded border-gray-300 h-4 w-4"
+                      />
+                      <span>{READ_PERMISSION_LABEL}</span>
+                    </label>
+                    {isAlwaysReadOnly(mod.id) ? (
+                      <span className="flex items-center gap-2 text-sm text-muted-foreground p-2 rounded-lg border border-dashed">
+                        {WRITE_PERMISSION_LABEL} — Lecture seule
+                      </span>
+                    ) : (
+                    <label className="flex items-center gap-2 text-sm cursor-pointer p-2 rounded-lg hover:bg-muted/50 transition-colors border border-border">
+                      <input
+                        type="checkbox"
+                        checked={!!(modulePerms[mod.id] && (modulePerms[mod.id]?.can_create || modulePerms[mod.id]?.can_update || modulePerms[mod.id]?.can_delete))}
+                        onChange={(e) => setModuleWrite(mod.id, e.target.checked)}
+                        className="rounded border-gray-300 h-4 w-4"
+                      />
+                      <span>{WRITE_PERMISSION_LABEL}</span>
+                    </label>
+                    )}
                   </div>
                 </div>
               ))}
@@ -775,6 +946,8 @@ const UserManagementAdvanced = ({ config }) => {
           </div>
         </DialogContent>
       </Dialog>
+      );
+      })()}
     </div>
   );
 };

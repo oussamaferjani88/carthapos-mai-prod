@@ -51,7 +51,7 @@ const adminOnly = process.env.NODE_ENV === 'production' ? requireRole('ADMIN') :
  *                         MANAGER:
  *                           type: integer
  *                           example: 5
- *                         CASHIER:
+ *                         BI_SPECIALIST:
  *                           type: integer
  *                           example: 18
  *       500:
@@ -154,8 +154,8 @@ router.get('/:id', auth, adminOnly, validateParams(userIdSchema), userController
  *                 example: securePassword123
  *               role:
  *                 type: string
- *                 enum: [ADMIN, MANAGER, CASHIER]
- *                 default: CASHIER
+ *                 enum: [ADMIN, MANAGER, BI_SPECIALIST]
+ *                 default: MANAGER
  *     responses:
  *       201:
  *         description: User created successfully
@@ -271,7 +271,7 @@ router.post('/login', authLimiter, validate(loginSchema), userController.login);
  *                 minLength: 6
  *               role:
  *                 type: string
- *                 enum: [ADMIN, MANAGER, CASHIER]
+ *                 enum: [ADMIN, MANAGER, BI_SPECIALIST]
  *               isActive:
  *                 type: boolean
  *     responses:

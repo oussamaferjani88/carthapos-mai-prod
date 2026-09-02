@@ -14,12 +14,14 @@ export const usePOSGenerator = () => {
   const [customizationMode, setCustomizationMode] = useState(null);
   const [selectedTemplate, setSelectedTemplate] = useState(null);
   const [loading, setLoading] = useState(false);
+  const [loadingProject, setLoadingProject] = useState(false);
   const [generationResult, setGenerationResult] = useState(null);
   const { isUserMode, currentUserId, currentUserProfile } = useAccessMode();
 
   // Progress tracking state
   const [showProgress, setShowProgress] = useState(false);
-  const [progressStep, setProgressStep] = useState(0);
+  const [progressSteps, setProgressSteps] = useState([]);
+  const [progressStepId, setProgressStepId] = useState(null);
   const [progressPercentage, setProgressPercentage] = useState(0);
   const [currentAction, setCurrentAction] = useState('');
   const [progressError, setProgressError] = useState(null);
@@ -47,6 +49,21 @@ export const usePOSGenerator = () => {
       await new Promise(resolve => setTimeout(resolve, progressDelayMs));
     }
   };
+
+  /**
+   * Build the ordered list of steps actually performed for this run.
+   * The USB step only exists when a USB target was selected (machine-bound
+   * licenses without a USB target skip it entirely).
+   */
+  const buildGenerationSteps = (usesUSB) => [
+    { id: 'validate', label: 'Validation de la configuration', description: 'Vérification des paramètres et création de la licence' },
+    { id: 'license', label: 'Génération de la licence', description: 'Création du fichier de licence sécurisé' },
+    ...(usesUSB
+      ? [{ id: 'usb', label: 'Écriture sur la clé USB', description: 'Copie de la licence sur le support amovible' }]
+      : []),
+    { id: 'build', label: 'Construction de l\'application', description: 'Assemblage du POS personnalisé' },
+    { id: 'finalize', label: 'Finalisation', description: 'Optimisation et préparation du téléchargement' },
+  ];
 
   /**
    * Navigate to next step
@@ -113,6 +130,8 @@ export const usePOSGenerator = () => {
   const generatePOS = async (formData) => {
     console.log('Starting generatePOS with formData:', formData);
 
+    const usesUSB = Boolean(formData?.selectedUSB);
+
     try {
       const businessName = formData?.configuration?.businessName;
       if (typeof businessName !== 'string' || businessName.trim().length === 0) {
@@ -122,14 +141,15 @@ export const usePOSGenerator = () => {
       setLoading(true);
       setShowProgress(true);
       setProgressError(null);
-      setProgressStep(0);
+      setProgressSteps(buildGenerationSteps(usesUSB));
+      setProgressStepId('validate');
       setProgressPercentage(0);
       setCurrentAction('Initialisation...');
 
-      // Step 1: Create License (0-20%)
-      setProgressStep(0);
-      setCurrentAction('Validation des paramètres et création de la licence...');
-      setProgressPercentage(5);
+      // Step: Validation + license creation
+      setProgressStepId('validate');
+      setCurrentAction('Vérification des paramètres et création de la licence...');
+      setProgressPercentage(8);
 
       const licenseData = {
         clientId: formData.clientId,
@@ -150,29 +170,21 @@ export const usePOSGenerator = () => {
 
       console.log('Creating license with data:', licenseData);
       const license = await licenseService.createLicense(licenseData);
-      setProgressPercentage(20);
+      setProgressPercentage(22);
 
-      // Step 2: Generate License File (20-40%)
-      setProgressStep(1);
+      // Step: Secure license file
+      setProgressStepId('license');
       setCurrentAction('Génération du fichier de licence sécurisé...');
       await waitForProgress();
 
-      // MOCK: Bypass backend generation as requested
-      // const licenseFile = await licenseService.generateLicenseFile(license.id);
+      const licenseFile = await licenseService.generateLicenseFile(license.id);
+      console.log('License file generated:', licenseFile);
+      setProgressPercentage(usesUSB ? 38 : 45);
 
-      const licenseFile = {
-        filename: `license-${license.licenseKey}.key`,
-        content: `LICENSE-KEY=${license.licenseKey}\nCLIENT=${license.clientId}\nSIG=BYPASSED-FOR-WEB-DEPLOYMENT`,
-        licenseKey: license.licenseKey
-      };
-
-      console.log('License file generated (Mock):', licenseFile);
-      setProgressPercentage(40);
-
-      // Step 3: Write to USB (40-60%) - Optional
-      if (formData.selectedUSB) {
-        setProgressStep(2);
-        setCurrentAction('Installation sur le support USB...');
+      // Step: Write licence to USB (only when a USB target was selected)
+      if (usesUSB) {
+        setProgressStepId('usb');
+        setCurrentAction('Copie de la licence sur la clé USB...');
         await waitForProgress();
 
         await usbService.writeLicenseToUSB({
@@ -180,14 +192,13 @@ export const usePOSGenerator = () => {
           licenseContent: licenseFile.content,
           licenseKey: license.licenseKey
         });
-        setProgressPercentage(60);
-      } else {
-        setProgressPercentage(60);
+        setProgressPercentage(55);
       }
 
-      // Step 4: Generate POS Application (60-90%)
-      setProgressStep(3);
+      // Step: Build the POS application
+      setProgressStepId('build');
       setCurrentAction('Construction de votre application POS personnalisée...');
+      setProgressPercentage(65);
       await waitForProgress();
 
       const posApplication = await posService.generatePOS({
@@ -195,10 +206,10 @@ export const usePOSGenerator = () => {
         fastMode: import.meta.env.VITE_FAST_LOCAL_GENERATION === 'true'
       });
       console.log('POS application generated:', posApplication);
-      setProgressPercentage(90);
+      setProgressPercentage(92);
 
-      // Step 5: Finalization (90-100%)
-      setProgressStep(4);
+      // Step: Finalization
+      setProgressStepId('finalize');
       setCurrentAction('Optimisation et finalisation...');
       await waitForProgress();
 
@@ -243,12 +254,16 @@ export const usePOSGenerator = () => {
       setLoading(true);
       setShowProgress(true);
       setProgressError(null);
-      setProgressStep(0);
+      setProgressSteps([
+        { id: 'validate', label: 'Validation du preview', description: 'Vérification de la configuration' },
+        { id: 'build', label: 'Création de l\'application', description: 'Assemblage du POS depuis le preview' },
+      ]);
+      setProgressStepId('validate');
       setProgressPercentage(0);
       setCurrentAction('Conversion directe du preview...');
 
-      // Step 1: Validation (0-20%)
-      setProgressStep(0);
+      // Step: Validation
+      setProgressStepId('validate');
       setCurrentAction('Validation de la configuration du preview...');
       setProgressPercentage(10);
 
@@ -259,8 +274,8 @@ export const usePOSGenerator = () => {
 
       setProgressPercentage(20);
 
-      // Step 2: Direct Conversion (20-100%)
-      setProgressStep(1);
+      // Step: Direct conversion
+      setProgressStepId('build');
       setCurrentAction('Création de l\'application Electron depuis le preview...');
       setProgressPercentage(30);
 
@@ -325,6 +340,60 @@ export const usePOSGenerator = () => {
   };
 
   /**
+   * Load a saved POS project so the wizard can be restored from its
+   * configuration snapshot (rawConfig). Returns normalized project data for the
+   * page to seed formData / usePOSConfiguration / usePOSModules.
+   * Legacy projects without rawConfig fall back to the licence's typed columns.
+   */
+  const loadProject = async (licenseId) => {
+    setLoadingProject(true);
+    try {
+      const license = await licenseService.getLicenseById(licenseId);
+      const raw = license?.configuration?.rawConfig || {};
+      const snapshotConfig =
+        raw?.configuration && typeof raw.configuration === 'object'
+          ? raw.configuration
+          : license?.configuration || {};
+
+      // Module selection is keyed by module ID everywhere in the UI. rawConfig
+      // may store names or ids, so resolve every identifier to its module ID
+      // using the licence's own module relation.
+      const licenseModules = Array.isArray(license?.modules) ? license.modules : [];
+      const resolveModuleId = (identifier) => {
+        const match = licenseModules.find(
+          (m) =>
+            m?.module?.id === identifier ||
+            m?.module?.name === identifier ||
+            (identifier && m?.module?.code === identifier)
+        );
+        return match?.module?.id || identifier;
+      };
+      const rawModules = Array.isArray(raw?.modules) ? raw.modules : [];
+      const modules = rawModules.length
+        ? rawModules.map(resolveModuleId).filter(Boolean)
+        : licenseModules
+            .filter((m) => m && m.isEnabled !== false)
+            .map((m) => m?.module?.id)
+            .filter(Boolean);
+
+      return {
+        licenseId,
+        clientId: license?.clientId || '',
+        sector: raw?.sector || license?.sector || '',
+        licenseType: raw?.licenseType || license?.licenseType || 'LIFETIME',
+        bindingType: raw?.bindingType || license?.bindingType || 'MACHINE',
+        expirationDate: raw?.expirationDate || '',
+        modules,
+        configuration: snapshotConfig,
+        posConfigVersion:
+          raw?.posConfigVersion ?? license?.configuration?.posConfigVersion ?? 1,
+      };
+    } finally {
+      setLoadingProject(false);
+    }
+  };
+
+  /**
    * Reset generator to initial state
    */
   const resetGenerator = () => {
@@ -334,6 +403,9 @@ export const usePOSGenerator = () => {
     setSelectedTemplate(null);
     setShowProgress(false);
     setProgressError(null);
+    setProgressSteps([]);
+    setProgressStepId(null);
+    setProgressPercentage(0);
     setIsFormVisible(true);
     setShowCustomizer(false);
   };
@@ -381,9 +453,11 @@ export const usePOSGenerator = () => {
     customizationMode,
     selectedTemplate,
     loading,
+    loadingProject,
     generationResult,
     showProgress,
-    progressStep,
+    progressSteps,
+    progressStepId,
     progressPercentage,
     currentAction,
     progressError,
@@ -406,6 +480,7 @@ export const usePOSGenerator = () => {
     generatePOS,
     directConvert,
     quickTest,
+    loadProject,
     resetGenerator,
 
     // Template/Customization

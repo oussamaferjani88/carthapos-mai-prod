@@ -1,77 +1,169 @@
-import { Menu } from 'lucide-react';
+import { useState, useRef, useEffect } from 'react';
+import { Menu, LogOut, ChevronDown, UserCheck } from 'lucide-react';
 import { POSConfiguration } from '../../../config/POSConfiguration';
+import { cn } from '../../../lib/utils';
 
 interface POSHeaderProps {
   config: Record<string, any>;
-  isNavbarCollapsed: boolean;
-  setIsNavbarCollapsed: (collapsed: boolean) => void;
   onMobileMenuToggle?: () => void;
 }
 
-export const POSHeader = ({ config, isNavbarCollapsed, setIsNavbarCollapsed, onMobileMenuToggle }: POSHeaderProps) => {
-  const styles = POSConfiguration.getStyles(config);
-  const glassEffect = POSConfiguration.getGlassEffect(config);
+const ROLE_BADGE: Record<string, string> = {
+  admin: 'bg-red-500/10 text-red-600',
+  manager: 'bg-orange-500/10 text-orange-600',
+  cashier: 'bg-emerald-500/10 text-emerald-600',
+  server: 'bg-teal-500/10 text-teal-600',
+};
 
+const defaultLogo =
+  'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMzIiIGhlaWdodD0iMzIiIHZpZXdCb3g9IjAgMCAzMiAzMiIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPHJlY3Qgd2lkdGg9IjMyIiBoZWlnaHQ9IjMyIiByeD0iOCIgZmlsbD0iIzNiODJmNiIvPgo8cGF0aCBkPSJNOCAxMmg4djhoLTh2LTh6TTEyIDhoOHY4aC04di04eiIgZmlsbD0id2hpdGUiLz4KPHN2Zz4=';
+
+// Ported from admin/src/components/pos/preview/POSHeader.jsx: logo + business
+// name, system badges (date + "Système en ligne"), and a real interactive
+// user block (avatar, name, role badge, dropdown menu). Keeps the client-only
+// "Mode Prévisualisation" pill admin doesn't have.
+export const POSHeader = ({ config, onMobileMenuToggle }: POSHeaderProps) => {
+  const styles = POSConfiguration.getStyles(config);
+  const animationTypeClass = POSConfiguration.getAnimationTypeClass(config);
+  const animationSpeedClass = POSConfiguration.getAnimationSpeedClass(config);
+  const [showMenu, setShowMenu] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) setShowMenu(false);
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, []);
+
+  // Only shown when the navbar is in sidebar mode (not top)
   if (config.navbarPosition === 'top') return null;
+
+  const user = config.currentUser;
+  const getInitials = (name?: string) => {
+    if (!name) return '?';
+    return name.split(' ').map((w) => w[0]).join('').toUpperCase().slice(0, 2);
+  };
+
+  const primaryColor = config.primaryColor || '#3b82f6';
+  const textColor = config.textColor || '#1f2937';
+  const textMutedColor = config.textMutedColor || '#6b7280';
+  const businessName = config.businessName || 'POS System';
+  const businessLogo = config.logo || config.businessLogo || null;
+  const fontFamily = config.fontFamily || 'Inter';
+  const navbarHeight = config.navbarHeight || '48px';
+
+  const formatLongDate = () =>
+    new Date().toLocaleDateString('fr-FR', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
 
   return (
     <header
-      className="border-b"
+      className={cn('border-b flex-shrink-0', animationTypeClass, animationSpeedClass)}
       style={{
-        backgroundColor: config.cardBackgroundColor || '#ffffff',
+        backgroundColor: config.backgroundColor,
         borderColor: config.cardBorderColor || '#e5e7eb',
-        fontFamily: config.fontFamily || 'Inter, system-ui, sans-serif',
-        fontSize: config.fontSize || '14px',
-        fontWeight: config.fontWeight || '400',
-        boxShadow: styles.card.boxShadow,
+        fontFamily: fontFamily + ', system-ui, sans-serif',
+        height: navbarHeight,
         transition: styles.animation,
-        ...(config.gradientBackgrounds ? { background: POSConfiguration.getContainerGradient(config) } : {}),
-        ...(config.glassEffect ? glassEffect : {}),
       }}
     >
-      <div className="flex items-center justify-between px-6 py-3">
+      <div className="flex items-center justify-between px-6 py-1 h-full">
+        {/* Left — logo and business name */}
         <div className="flex items-center space-x-3">
           <button className="lg:hidden p-2 rounded-lg hover:bg-gray-100 transition-colors" onClick={onMobileMenuToggle}>
             <Menu className="w-5 h-5" />
           </button>
+
           <div className="flex items-center space-x-3">
             <img
-              src={config.logo || 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMzIiIGhlaWdodD0iMzIiIHZpZXdCb3g9IjAgMCAzMiAzMiIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cmVjdCB3aWR0aD0iMzIiIGhlaWdodD0iMzIiIHJ4PSI4IiBmaWxsPSIjM2I4MmY2Ii8+PHBhdGggZD0iTTggMTJoOHY4aC04di04ek0xMiA4aDh2OGgtOHYtOHoiIGZpbGw9IndoaXRlIi8+PC9zdmc+'}
-              alt={config.businessName || 'POS Logo'}
+              src={businessLogo || defaultLogo}
+              alt={businessName}
               className="w-8 h-8 rounded-lg object-cover border shadow-sm"
               style={{ borderColor: config.cardBorderColor || '#e5e7eb' }}
               onError={(e) => {
-                (e.target as HTMLImageElement).src = 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMzIiIGhlaWdodD0iMzIiIHZpZXdCb3g9IjAgMCAzMiAzMiIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cmVjdCB3aWR0aD0iMzIiIGhlaWdodD0iMzIiIHJ4PSI4IiBmaWxsPSIjM2I4MmY2Ii8+PHBhdGggZD0iTTggMTJoOHY4aC04di04ek0xMiA4aDh2OGgtOHYtOHoiIGZpbGw9IndoaXRlIi8+PC9zdmc+';
+                (e.target as HTMLImageElement).src = defaultLogo;
               }}
             />
-            <h1 className="text-lg font-bold" style={{ color: config.textColor || '#1f2937' }}>
-              {config.businessName || 'POS System'}
+            <h1 className="text-lg font-bold" style={{ color: textColor }}>
+              {businessName}
             </h1>
           </div>
         </div>
 
-        <div className="flex items-center space-x-6">
-          <div className="text-sm px-3 py-1.5 rounded-full" style={{ backgroundColor: config.textMutedColor + '20', color: config.textMutedColor }}>
-            📅 {new Date().toLocaleDateString('fr-FR', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
+        {/* Center — system badges */}
+        <div className="hidden md:flex items-center space-x-4">
+          <div
+            className="text-sm px-3 py-1.5 rounded-full"
+            style={{ backgroundColor: textMutedColor ? `${textMutedColor}20` : '#94a3b820', color: textMutedColor }}
+          >
+            📅 {formatLongDate()}
           </div>
-          <div className="text-sm bg-green-500/10 text-green-700 px-3 py-1.5 rounded-full">🟢 Système en ligne</div>
-          {config.isPreviewMode && <div className="text-sm bg-orange-500/10 text-orange-700 px-3 py-1.5 rounded-full">🎭 Mode Prévisualisation</div>}
+          <div className="text-sm bg-green-500/10 text-green-700 px-3 py-1.5 rounded-full font-medium">
+            🟢 Système en ligne
+          </div>
+          {config.isPreviewMode && (
+            <div className="text-sm bg-orange-500/10 text-orange-700 px-3 py-1.5 rounded-full font-medium">
+              🎭 Mode Prévisualisation
+            </div>
+          )}
         </div>
 
-        {config.currentUser && (
-          <div className="flex items-center space-x-4">
-            <div className="flex items-center space-x-3">
-              <div className="w-8 h-8 rounded-full flex items-center justify-center text-white text-sm font-medium" style={{ backgroundColor: config.primaryColor }}>
-                {config.currentUser.name?.charAt(0) || 'U'}
+        {/* Right — user info + dropdown menu */}
+        {user && (
+          <div className="relative" ref={menuRef}>
+            <button
+              onClick={() => setShowMenu(!showMenu)}
+              className="flex items-center space-x-3 p-1.5 rounded-xl hover:bg-muted/40 transition-all"
+            >
+              <div
+                className="w-8 h-8 rounded-full flex items-center justify-center text-white text-sm font-bold"
+                style={{ backgroundColor: primaryColor }}
+              >
+                {getInitials(user.name || user.fullName || user.username)}
               </div>
-              <div className="hidden md:block">
-                <p className="text-sm font-medium" style={{ color: config.textColor }}>{config.currentUser.name}</p>
-                <p className="text-xs" style={{ color: config.textMutedColor }}>
-                  {config.currentUser.role}
-                  {config.isPreviewMode && <span className="ml-2 text-orange-600 font-medium">• DÉMO</span>}
+              <div className="hidden md:block text-left">
+                <p className="text-sm font-medium" style={{ color: textColor }}>
+                  {user.name || user.fullName || user.username || 'Admin Principal'}
+                  {config.isPreviewMode && <span className="ml-1.5 text-orange-600 font-medium text-xs">• DÉMO</span>}
+                </p>
+                <p
+                  className={cn(
+                    'text-[10px] font-medium px-1.5 py-0.5 rounded-full inline-block',
+                    ROLE_BADGE[user.role] || 'bg-muted text-muted-foreground'
+                  )}
+                >
+                  {user.role || 'admin'}
                 </p>
               </div>
-            </div>
+              <ChevronDown size={14} className={cn('text-muted-foreground transition-transform', showMenu ? 'rotate-180' : '')} />
+            </button>
+
+            {showMenu && (
+              <div className="absolute right-0 top-full mt-2 w-56 bg-white border border-border/50 rounded-xl shadow-xl shadow-black/5 py-1.5 z-50">
+                <div className="px-3 py-2 border-b border-border/30">
+                  <p className="text-sm font-semibold">{user.name || user.fullName || user.username}</p>
+                  <p className="text-[11px] text-muted-foreground">{user.email || user.username || 'admin@pos.demo'}</p>
+                </div>
+                <button
+                  onClick={() => setShowMenu(false)}
+                  className="w-full flex items-center gap-2.5 px-3 py-2.5 text-sm text-muted-foreground hover:bg-muted/50 hover:text-foreground transition-colors"
+                >
+                  <UserCheck size={15} />
+                  Changer d'utilisateur
+                </button>
+                <button
+                  onClick={() => {
+                    setShowMenu(false);
+                    config.onLogout?.();
+                  }}
+                  className="w-full flex items-center gap-2.5 px-3 py-2.5 text-sm text-red-600 hover:bg-red-50 transition-colors"
+                >
+                  <LogOut size={15} />
+                  Se déconnecter
+                </button>
+              </div>
+            )}
           </div>
         )}
       </div>

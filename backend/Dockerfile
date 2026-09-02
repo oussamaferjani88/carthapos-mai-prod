@@ -27,11 +27,20 @@ WORKDIR /app/backend
 # Create generated-pos directory with proper permissions
 RUN mkdir -p /app/generated-pos && chmod 777 /app/generated-pos
 
-# Ensure Prisma client is generated
+# Ensure main Prisma client is generated
 RUN npx prisma generate
+
+# Ensure the BI warehouse Prisma client is generated. The schema outputs to
+# backend/prisma-warehouse-generated (a gitignored sibling), which
+# prisma-warehouse/client.js requires — so it must be built here.
+RUN npx prisma generate --schema=prisma-warehouse/schema.prisma
 
 # Expose the application port
 EXPOSE 10000
 
-# Start command
-CMD ["sh", "-c", "npx prisma migrate deploy && node server.js"]
+# Start command:
+#  1) apply the main Prisma migrations to the app database
+#  2) sync the BI warehouse schema (prisma-warehouse has no committed migrations,
+#     so use `db push` — non-destructive, creates missing Dim/Fact tables)
+#  3) boot the server
+CMD ["sh", "-c", "npx prisma migrate deploy && npx prisma db push --schema=prisma-warehouse/schema.prisma && node server.js"]

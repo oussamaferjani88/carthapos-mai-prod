@@ -1,5 +1,28 @@
-import { Button } from '../ui/button';
-import { Palette, Paintbrush, Layout, Settings, Type, Sparkles, Grid3X3, MousePointer } from 'lucide-react';
+import { Palette, Paintbrush, Type, Sparkles, Store, LayoutGrid, Settings, MousePointer, type LucideIcon } from 'lucide-react';
+
+interface Section {
+  id: string;
+  label: string;
+  icon: LucideIcon;
+  tab: string;
+  subTab: string | null;
+}
+
+const SECTIONS: Section[] = [
+  { id: 'brand', label: 'Marque', icon: Store, tab: 'design', subTab: 'brand' },
+  { id: 'themes', label: 'Thème', icon: Palette, tab: 'design', subTab: 'themes' },
+  { id: 'colors', label: 'Couleurs', icon: Paintbrush, tab: 'design', subTab: 'colors' },
+  { id: 'typography', label: 'Typo', icon: Type, tab: 'design', subTab: 'typography' },
+  { id: 'effects', label: 'Effets', icon: Sparkles, tab: 'design', subTab: 'effects' },
+  { id: 'layout', label: 'Layout', icon: LayoutGrid, tab: 'layout', subTab: 'components' },
+  // No admin equivalent (admin has no drag-and-drop rearranging feature) -
+  // kept as its own section so this existing client-only functionality
+  // stays reachable. Without it, inline mode (used in the wizard's Step 3)
+  // would have no way to reach DragDropManager, since POSCustomizer's own
+  // preview toolbar toggle only renders in mode="full".
+  { id: 'drag', label: 'Drag&Drop', icon: MousePointer, tab: 'layout', subTab: 'drag' },
+  { id: 'advanced', label: 'Avancé', icon: Settings, tab: 'advanced', subTab: null },
+];
 
 interface CustomizerNavigationProps {
   selectedTab: string;
@@ -9,118 +32,62 @@ interface CustomizerNavigationProps {
   mode?: string;
 }
 
+// Vertical icon-rail nav ported from the admin panel
+// (admin/src/components/customizer/CustomizerNavigation.jsx) - replaces the
+// previous 3-tab-pill + contextual-sub-tabs layout. Same selectedTab/
+// selectedSubTab state contract POSCustomizer.tsx already provides, so no
+// other file needs to change for this swap besides wiring the 'brand' and
+// 'drag' subTab content cases in POSCustomizer.tsx.
 const CustomizerNavigation = ({
-  selectedTab, setSelectedTab, selectedSubTab, setSelectedSubTab, mode = 'inline',
+  selectedTab,
+  setSelectedTab,
+  selectedSubTab,
+  setSelectedSubTab,
+  mode = 'inline',
 }: CustomizerNavigationProps) => {
-  const mainTabs = [
-    { id: 'design', label: 'Design', icon: Paintbrush },
-    { id: 'layout', label: 'Layout', icon: Layout },
-    { id: 'advanced', label: 'Avancé', icon: Settings },
-  ];
+  const activeSection = SECTIONS.find(
+    (section) => section.tab === selectedTab && (section.subTab === null || section.subTab === selectedSubTab),
+  )?.id;
 
-  const designSubTabs = [
-    { id: 'themes', label: 'Thèmes', icon: Palette },
-    { id: 'colors', label: 'Couleurs', icon: Paintbrush },
-    { id: 'typography', label: 'Typo', icon: Type },
-    { id: 'effects', label: 'Effets', icon: Sparkles },
-  ];
-
-  const layoutSubTabs = [
-    { id: 'components', label: 'Composants', icon: Grid3X3 },
-    { id: 'drag', label: 'Drag & Drop', icon: MousePointer },
-  ];
+  const handleSectionClick = (section: Section) => {
+    setSelectedTab(section.tab);
+    setSelectedSubTab(section.subTab || section.id);
+  };
 
   return (
-    <div className="overflow-hidden bg-transparent">
-      <div className="h-auto flex flex-col bg-transparent pb-1">
-        <div className={`grid grid-cols-3 ${mode === 'full' ? 'm-3 mb-2' : 'm-2 mb-2'} bg-gradient-to-r from-gray-100 to-gray-50 dark:from-gray-800 dark:to-gray-900 rounded-lg p-1 shadow-sm border border-gray-200 dark:border-gray-700`}>
-          {mainTabs.map((tab) => {
-            const TabIcon = tab.icon;
-            return (
-              <Button
-                key={tab.id}
-                variant={selectedTab === tab.id ? 'default' : 'ghost'}
-                onClick={() => setSelectedTab(tab.id)}
-                className={`${mode === 'inline' ? 'text-xs' : 'text-sm'} flex flex-col ${mode === 'inline' ? 'p-1.5 h-10' : 'p-2 h-12'} transition-all duration-200 ${
-                  selectedTab === tab.id
-                    ? 'shadow-md scale-105 bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-600 !text-gray-900 dark:!text-gray-100'
-                    : 'hover:bg-white/50 dark:hover:bg-gray-700/50 !text-gray-700 dark:!text-gray-300 hover:!text-gray-900 dark:hover:!text-gray-100'
-                }`}
-              >
-                <TabIcon className={`${mode === 'inline' ? 'w-3.5 h-3.5 mb-0.5' : 'w-5 h-5 mb-1'}`} />
-                <span className={`${mode === 'inline' ? 'text-[10px]' : ''} font-medium`}>{tab.label}</span>
-              </Button>
-            );
-          })}
-        </div>
-
-        {selectedTab === 'design' && (
-          <div className={`${mode === 'full' ? 'mx-3 mb-2' : 'mx-2 mb-2'}`}>
-            {mode === 'full' && (
-              <div className="mb-1">
-                <h3 className="text-[10px] font-semibold text-gray-600 dark:text-gray-400 uppercase tracking-wide px-2">
-                  Options de Design
-                </h3>
-              </div>
+    <nav
+      className={`w-14 h-full bg-background border-r border-border flex flex-col items-stretch py-2 gap-1 shrink-0 ${mode === 'inline' ? 'hidden sm:flex' : 'flex'}`}
+      aria-label="Sections de personnalisation"
+    >
+      {SECTIONS.map((section) => {
+        const Icon = section.icon;
+        const isActive = activeSection === section.id;
+        return (
+          <button
+            key={section.id}
+            onClick={() => handleSectionClick(section)}
+            title={section.label}
+            className={`
+              relative w-full flex flex-col items-center justify-center gap-1 py-2.5 rounded-md
+              transition-colors duration-150 group
+              ${isActive
+                ? 'bg-blue-50 text-blue-600'
+                : 'text-muted-foreground hover:bg-accent hover:text-foreground'
+              }
+            `}
+          >
+            {isActive && (
+              <span className="absolute left-0 top-1/2 -translate-y-1/2 h-6 w-[3px] rounded-r-full bg-blue-600" />
             )}
-            <div className={`flex space-x-0.5 ${mode === 'inline' ? 'p-1' : 'p-1.5'} bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700`}>
-              {designSubTabs.map((subTab) => {
-                const SubIcon = subTab.icon;
-                return (
-                  <Button
-                    key={subTab.id}
-                    variant={selectedSubTab === subTab.id ? 'default' : 'ghost'}
-                    size="sm"
-                    onClick={() => setSelectedSubTab(subTab.id)}
-                    className={`flex-1 ${mode === 'inline' ? 'text-[10px] py-1 h-7' : 'text-xs py-2'} transition-all duration-200 ${
-                      selectedSubTab === subTab.id
-                        ? 'shadow-sm bg-blue-50 dark:bg-blue-900/20 !text-blue-700 dark:!text-blue-300 border border-blue-200 dark:border-blue-700'
-                        : 'hover:bg-gray-50 dark:hover:bg-gray-700 !text-gray-700 dark:!text-gray-300 hover:!text-gray-900 dark:hover:!text-gray-100'
-                    }`}
-                  >
-                    <SubIcon className={`${mode === 'inline' ? 'w-2.5 h-2.5 mr-0.5' : 'w-3 h-3 mr-1'}`} />
-                    {subTab.label}
-                  </Button>
-                );
-              })}
-            </div>
-          </div>
-        )}
-
-        {selectedTab === 'layout' && (
-          <div className={`${mode === 'full' ? 'mx-3 mb-2' : 'mx-2 mb-2'}`}>
-            {mode === 'full' && (
-              <div className="mb-1">
-                <h3 className="text-[10px] font-semibold text-gray-600 dark:text-gray-400 uppercase tracking-wide px-2">
-                  Options de Layout
-                </h3>
-              </div>
-            )}
-            <div className={`flex space-x-0.5 ${mode === 'inline' ? 'p-1' : 'p-1.5'} bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700`}>
-              {layoutSubTabs.map((subTab) => {
-                const SubIcon = subTab.icon;
-                return (
-                  <Button
-                    key={subTab.id}
-                    variant={selectedSubTab === subTab.id ? 'default' : 'ghost'}
-                    size="sm"
-                    onClick={() => setSelectedSubTab(subTab.id)}
-                    className={`flex-1 ${mode === 'inline' ? 'text-[10px] py-1 h-7' : 'text-xs py-2'} transition-all duration-200 ${
-                      selectedSubTab === subTab.id
-                        ? 'shadow-sm bg-green-50 dark:bg-green-900/20 !text-green-700 dark:!text-green-300 border border-green-200 dark:border-green-700'
-                        : 'hover:bg-gray-50 dark:hover:bg-gray-700 !text-gray-700 dark:!text-gray-300 hover:!text-gray-900 dark:hover:!text-gray-100'
-                    }`}
-                  >
-                    <SubIcon className={`${mode === 'inline' ? 'w-2.5 h-2.5 mr-0.5' : 'w-3 h-3 mr-1'}`} />
-                    {subTab.label}
-                  </Button>
-                );
-              })}
-            </div>
-          </div>
-        )}
-      </div>
-    </div>
+            <Icon
+              className="w-[18px] h-[18px]"
+              strokeWidth={isActive ? 2.4 : 2}
+            />
+            <span className="text-[9px] font-medium leading-none tracking-tight">{section.label}</span>
+          </button>
+        );
+      })}
+    </nav>
   );
 };
 

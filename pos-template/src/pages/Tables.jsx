@@ -8,6 +8,7 @@ import {
 } from 'lucide-react';
 import { POSConfiguration } from '../lib/POSConfiguration';
 import { useAppConfig } from '../hooks/useAppConfig';
+import { usePermissions } from '../contexts/PermissionsContext';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Textarea } from '../components/ui/textarea';
@@ -36,6 +37,15 @@ const STATUS_CONFIG = {
 };
 
 export default function Tables() {
+  const { canCreate, canUpdate, canDelete } = usePermissions('tables');
+  const permsRef = useRef({ canCreate, canUpdate, canDelete });
+  permsRef.current = { canCreate, canUpdate, canDelete };
+  const permGuard = useCallback((action) => {
+    const p = permsRef.current;
+    const ok = action === 'create' ? p.canCreate : action === 'delete' ? p.canDelete : p.canUpdate;
+    if (!ok) alert("Action non autorisée : vous avez un accès en lecture seule sur les tables.");
+    return ok;
+  }, []);
   const [tables, setTables] = useState([]);
   const [loading, setLoading] = useState(true);
   const [zones, setZones] = useState([]);
@@ -174,6 +184,7 @@ export default function Tables() {
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!formData.table_number.trim()) return;
+    if (!permGuard(editingTable ? 'update' : 'create')) return;
     try {
       if (editingTable) {
         if (window.electronAPI) await window.electronAPI.updateTable(editingTable.id, formData);
@@ -196,6 +207,7 @@ export default function Tables() {
 
   const handleBulkSubmit = async (e) => {
     e.preventDefault();
+    if (!permGuard('create')) return;
     const { prefix, start, end, capacity, zone, waiter, shape, notes } = bulkFormData;
     if (start > end) return;
     const count = end - start + 1;
@@ -222,6 +234,7 @@ export default function Tables() {
 
   const handleDeleteTable = async () => {
     if (!tableToDelete) return;
+    if (!permGuard('delete')) return;
     try {
       if (window.electronAPI) await window.electronAPI.deleteTable(tableToDelete.id);
       setTables(prev => prev.filter(t => t.id !== tableToDelete.id));
@@ -235,6 +248,7 @@ export default function Tables() {
 
   const updateTableStatus = async (tableId, newStatus) => {
     if (!VALID_STATUSES.includes(newStatus)) return;
+    if (!permGuard('update')) return;
     try {
       if (window.electronAPI) await window.electronAPI.updateTableStatus(tableId, newStatus);
       setTables(prev => prev.map(t => t.id === tableId ? { ...t, status: newStatus } : t));
@@ -245,6 +259,7 @@ export default function Tables() {
   };
 
   const updateTablePosition = async (tableId, x, y) => {
+    if (!permsRef.current.canUpdate) return;
     setTables(prev => prev.map(t => t.id === tableId ? { ...t, x, y } : t));
     if (window.electronAPI) {
       try { await window.electronAPI.updateTable(tableId, { x, y }); }
@@ -253,6 +268,7 @@ export default function Tables() {
   };
 
   const updateTableWaiter = async (tableId, waiter) => {
+    if (!permGuard('update')) return;
     try {
       if (window.electronAPI) await window.electronAPI.updateTable(tableId, { waiter });
       setTables(prev => prev.map(t => t.id === tableId ? { ...t, waiter } : t));
@@ -263,6 +279,7 @@ export default function Tables() {
   };
 
   const updateTableZone = async (tableId, zone) => {
+    if (!permGuard('update')) return;
     try {
       if (window.electronAPI) await window.electronAPI.updateTable(tableId, { zone });
       setTables(prev => prev.map(t => t.id === tableId ? { ...t, zone } : t));
@@ -280,6 +297,7 @@ export default function Tables() {
 
   const executeMerge = async () => {
     if (selectedForMerge.length < 2) return;
+    if (!permGuard('update')) return;
     const primary = tables.find(t => t.id === selectedForMerge[0]);
     const others = tables.filter(t => selectedForMerge.includes(t.id) && t.id !== primary.id);
     const mergedCapacity = tables.filter(t => selectedForMerge.includes(t.id)).reduce((sum, t) => sum + t.capacity, 0);
@@ -309,6 +327,7 @@ export default function Tables() {
   const executeSplit = async (tableId) => {
     const table = tables.find(t => t.id === tableId);
     if (!table || !table.merged_tables) return;
+    if (!permGuard('update')) return;
     const ids = table.merged_tables.split(',').map(Number);
     try {
       if (window.electronAPI) {
@@ -554,12 +573,16 @@ export default function Tables() {
             <p className="text-muted-foreground text-sm">Plan de salle, réservations et zones</p>
           </div>
           <div className="flex gap-2 flex-wrap">
-            <Button variant="outline" size="sm" onClick={() => setBulkDialogOpen(true)}>
-              <Layers className="mr-1.5 h-3.5 w-3.5" /> Bulk
-            </Button>
-            <Button size="sm" onClick={openCreateDialog}>
-              <Plus className="mr-1.5 h-3.5 w-3.5" /> Table
-            </Button>
+            {canCreate && (
+              <Button variant="outline" size="sm" onClick={() => setBulkDialogOpen(true)}>
+                <Layers className="mr-1.5 h-3.5 w-3.5" /> Bulk
+              </Button>
+            )}
+            {canCreate && (
+              <Button size="sm" onClick={openCreateDialog}>
+                <Plus className="mr-1.5 h-3.5 w-3.5" /> Table
+              </Button>
+            )}
           </div>
         </div>
 

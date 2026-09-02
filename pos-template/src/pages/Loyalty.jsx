@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { Plus, Heart, Gift, Star, TrendingUp, Users, Award, Percent, Search, X } from 'lucide-react';
-import { useThemeApplier } from '../hooks/useThemeApplier';
 import { getCurrencySymbol } from '../utils/currency';
+import { usePermissions } from '../contexts/PermissionsContext';
 
 const LEVELS = [
   { name: 'Bronze', min: 0, color: 'bg-amber-100 text-amber-800', icon: Award },
@@ -18,8 +18,7 @@ function getLevel(points) {
 }
 
 const Loyalty = () => {
-  useThemeApplier();
-
+  const { canCreate, canUpdate, canDelete } = usePermissions('loyalty');
   const formatCurrency = (amount) => {
     const val = parseFloat(amount) || 0;
     return `${val.toFixed(2)} ${getCurrencySymbol('TND')}`;
@@ -100,15 +99,18 @@ const Loyalty = () => {
 
   const handleAddReward = () => {
     if (!newReward.name || !newReward.pointsCost) return;
+    if (!canCreate) { alert("Action non autorisée : accès en lecture seule sur la fidélité."); return; }
     setRewards([...rewards, { id: Date.now(), ...newReward, pointsCost: parseInt(newReward.pointsCost), active: true }]);
     setNewReward({ name: '', description: '', pointsCost: '', type: 'product' });
   };
 
   const handleToggleReward = (id) => {
+    if (!canUpdate) { alert("Action non autorisée : accès en lecture seule sur la fidélité."); return; }
     setRewards(prev => prev.map(r => r.id === id ? { ...r, active: !r.active } : r));
   };
 
   const handleDeleteReward = (id) => {
+    if (!canDelete) { alert("Action non autorisée : accès en lecture seule sur la fidélité."); return; }
     setRewards(prev => prev.filter(r => r.id !== id));
   };
 
@@ -246,7 +248,9 @@ const Loyalty = () => {
                         <td className="px-4 py-3 text-sm">{customer.visit_count || 0}</td>
                         <td className="px-4 py-3">
                           <select
+                            disabled={!canUpdate}
                             onChange={(e) => {
+                              if (!canUpdate) return;
                               if (e.target.value) {
                                 const reward = rewards.find(r => r.id === parseInt(e.target.value));
                                 if (reward && (customer.loyalty_points || 0) >= reward.pointsCost) {
@@ -279,6 +283,7 @@ const Loyalty = () => {
       {/* Rewards Tab */}
       {activeTab === 'rewards' && (
         <div className="space-y-6">
+          {canCreate && (
           <div className="bg-card border border-border rounded-lg p-4">
             <h3 className="text-sm font-semibold mb-3">Nouvelle récompense</h3>
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-3">
@@ -293,6 +298,7 @@ const Loyalty = () => {
               <button onClick={handleAddReward} disabled={!newReward.name || !newReward.pointsCost} className="px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 disabled:opacity-50 flex items-center justify-center gap-2 text-sm"><Plus className="w-4 h-4" /> Ajouter</button>
             </div>
           </div>
+          )}
 
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             {rewards.map((reward) => {

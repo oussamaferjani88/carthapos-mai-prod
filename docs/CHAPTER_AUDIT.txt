@@ -1,0 +1,691 @@
+================================================================================
+  CarthaPOS PFE Report — Chapter Audit
+  Generated: 2026-08-18
+  Purpose: Complete inventory of every chapter's current contents
+================================================================================
+
+================================================================================
+1. RAPPORTEX — Main Document
+================================================================================
+
+Total lines: 458
+
+Packages loaded:
+  - extreport (document class, a4paper, oneside, 12pt)
+  - graphicx (line 6) — DUPLICATE at line 125, plus redundant 'graphics' at 124
+  - tabularx (line 7)
+  - longtable (line 8)
+  - makeidx (line 12)
+  - url (line 13)
+  - tcolorbox (line 14) — loaded but NEVER USED
+  - algorithm2e (line 17) — loaded but NEVER USED
+  - amsthm (line 18)
+  - etoolbox (line 30)
+  - tocbibind with nottoc (line 39)
+  - ifxetex / fontspec / fontenc / inputenc (lines 47-53)
+  - inputenc [utf8] (line 137) — DUPLICATE of line 52
+  - graphics (line 124) — REDUNDANT (graphicx already loaded)
+  - glossaries (line 128)
+
+Custom commands:
+  - \reportTitle = "Graduation Project"
+  - \reportAuthor = "Oussama Ferjani"
+  - \reportSubject = CarthaPOS full title
+  - \studyDepartment = Maktabi -- Hammamet, Tunisia
+  - \figureplaceholder (line 143) — custom placeholder command
+
+Chapter structure (rapport.tex defines chapters, content in separate files):
+  Line 335: \input{abstract.tex}
+  Line 340: \tableofcontents
+  Line 343: \listoffigures
+  Line 345: \listoftables
+  Line 353: \chapter*{Introduction} — content in introduction.tex
+  Line 358: \chapter{Project Study} — content in chapitre1.tex
+  Line 362: \chapter{State of the Art} — content in chapitre2.tex
+  Line 367: \chapter{Analysis and Specification} — content in chapitre3.tex
+  Line 372: \chapter{Release 1: Foundation and POS Core} — content in chapitre4.tex
+  Line 377: \chapter{Release 2: Generation Engine and Administration Platform} — content in chapitre5.tex
+  Line 382: \chapter{Release 3: Security, RBAC and Business Intelligence} — content in chapitre6.tex
+  Line 387: \chapter{DevOps: Continuous Integration, Testing and Deployment} — content in chapitre7.tex
+  Line 392: \chapter{Conclusion and Perspectives} — content in chapitre8.tex
+  Line 401: \chapter{Repository Structure} — Appendix
+  Line 450: \bibliography{Biblio.bib}
+
+Labels defined: chap:general_intorduction (TYPO), chap:chapterone, chap:2,
+chap:3, chap:release-1, chap:release-2, chap:release-3, chap:testing,
+chap:conclusion, chap:appendix
+
+Issues:
+  [!] TYPO: chap:general_intorduction (should be chap:introduction)
+  [!] DUPLICATE: graphicx loaded 3 times (lines 6, 124, 125)
+  [!] DUPLICATE: inputenc loaded 2 times (lines 52, 137)
+  [!] UNUSED: tcolorbox, algorithm2e
+  [!] REDUNDANT: graphics package (line 124) when graphicx already loaded
+
+================================================================================
+2. ABSTRACT.TEX
+================================================================================
+
+Total lines: 24
+
+Content: Abstract environment describing CarthaPOS as an integrated
+platform for POS generation with BI workflow. Keywords: point-of-sale
+generation; business intelligence; data warehouse; GIMSI; Scrum; RBAC;
+multi-tenancy.
+
+Figures: 0
+Tables: 0
+Labels: 0
+Refs: 0
+
+Issues: None
+
+================================================================================
+3. INTRODUCTION.TEX
+================================================================================
+
+Total lines: 45
+
+Content: Document roadmap describing all chapters. References chapters
+1-8 and the three releases.
+
+Figures: 0
+Tables: 0
+Labels: 0 (label chap:general_intorduction is in rapport.tex)
+Refs: 8 cross-chapter references (chap:chapterone, chap:2, chap:3,
+chap:release-1, chap:release-2, chap:release-3, chap:testing)
+
+Issues: None in this file
+
+================================================================================
+4. CHAPITRE1.TEX — Chapter 1: Project Study
+================================================================================
+
+Total lines: 537
+
+Sections (16 total):
+  Line   7: \section{Introduction}
+  Line  38: \section{Host Organization: Maktabi}
+  Line  81: \section{Project Context}
+  Line 122: \section{Existing Situation and Problem Statement}
+    Line 129: \subsection{Operational Problem}
+    Line 148: \subsection{Business Intelligence Problem}
+    Line 171: \subsection{Problem Statement}
+    Line 193: \subsection{Internal vs. External Solutions}
+  Line 222: \section{Project Objectives}
+    Line 225: \subsection{General Objective}
+    Line 238: \subsection{Specific Objectives}
+  Line 293: \section{Proposed Solution: CarthaPOS}
+  Line 357: \section{Project Scope}
+  Line 395: \section{Project Methodology}
+  Line 468: \section{Project Development Approach}
+  Line 503: \section{Chapter Conclusion}
+
+Figures: 3 (all \figureplaceholder)
+  fig:host-organization (line 72)
+  fig:global-architecture (line 348)
+  fig:gimsi-mapping (line 459)
+
+Tables: 1
+  tab:internal-vs-external (line 201) — Comparison of existing approaches vs CarthaPOS
+
+Labels defined: 16
+Refs used: 15
+Citations: none
+
+Key content:
+  - Host organization (Maktabi)
+  - Problem statement (operational + BI dimensions)
+  - 11 specific objectives
+  - Proposed solution with 9-layer architecture
+  - Project scope
+  - Scrum (6 sprints) + GIMSI methodology
+  - Incremental development approach
+
+Issues:
+  [!] STRAY MARKDOWN: Lines 249, 251, 305, 411, 429 contain triple
+      backticks inside \begin{enumerate} — will cause compilation errors
+
+================================================================================
+5. CHAPITRE2.TEX — Chapter 2: State of the Art
+================================================================================
+
+Total lines: 1,025
+
+Sections (31 total):
+  Line   7: \section{Introduction}
+  Line  52: \section{Overview of the POS and Business Software Market}
+  Line 119: \section{Representative POS Solutions}
+    Line 135: \subsection{Square}
+    Line 159: \subsection{Lightspeed}
+    Line 181: \subsection{Shopify POS}
+    Line 204: \subsection{Toast}
+    Line 228: \subsection{Loyverse}
+  Line 249: \section{ERP and Integrated Business Management Solutions}
+    Line 260: \subsection{Odoo}
+    Line 283: \subsection{ERPNext}
+    Line 304: \subsection{Microsoft Dynamics 365}
+    Line 327: \subsection{SAP Business One}
+  Line 352: \section{Business Intelligence and Analytics Solutions}
+    Line 379: \subsection{Microsoft Power BI}
+    Line 400: \subsection{Tableau}
+    Line 420: \subsection{Metabase}
+    Line 444: \subsection{Apache Superset}
+  Line 464: \section{Comparative Analysis of Existing Solutions}
+  Line 661: \section{Licensing and POS Distribution Approaches}
+  Line 689: \section{Lessons Learned and Inspiration for CarthaPOS}
+    Line 697: \subsection{Modular Application Composition} (no label)
+    Line 709: \subsection{Sector Adaptation} (no label)
+    Line 720: \subsection{Centralized Administration} (no label)
+    Line 736: \subsection{Flexible Licensing} (no label)
+    Line 747: \subsection{Separation Between Operational and Analytical Processing} (no label)
+    Line 759: \subsection{Business Intelligence as an On-Demand Service} (no label)
+    Line 784: \subsection{Human Interpretation of BI Results} (no label)
+  Line 802: \section{Identified Gap and Positioning of CarthaPOS}
+    Line 806: \subsection{Identified Gap}
+    Line 869: \subsection{Positioning of CarthaPOS}
+  Line 947: \section{Current and Future Architectural Position}
+  Line 978: \section{Chapter Conclusion}
+
+Figures: 1 (figureplaceholder)
+  fig:market-solution-landscape (line 105)
+
+Tables: 2 (both tabularx)
+  tab:pos-market-comparison (line 474) — POS solutions comparison
+  tab:erp-bi-comparison (line 559) — ERP/BI comparison
+
+Labels defined: 28
+Refs used: ~6
+Citations: ~30 (Biblio.bib references)
+
+Key content:
+  - Survey of 5 POS solutions (Square, Lightspeed, Shopify, Toast, Loyverse)
+  - Survey of 4 ERP solutions (Odoo, ERPNext, Dynamics 365, SAP B1)
+  - Survey of 4 BI tools (Power BI, Tableau, Metabase, Superset)
+  - Comparative analysis tables
+  - Licensing approaches
+  - Gap identification and CarthaPOS positioning
+
+Issues:
+  [!] 7 unlabeled subsections (lines 697-798) — Lessons Learned subsections
+
+================================================================================
+6. CHAPITRE3.TEX — Chapter 3: Analysis and Specification
+================================================================================
+
+Total lines: 2,148
+
+Sections (64 total):
+  Line   17: \section{Introduction}
+  Line   72: \section{System Context and Problem Analysis}
+    Line   75: \subsection{Problem Statement}
+    Line  116: \subsection{CarthaPOS System Boundary}
+    Line  183: \subsection{Main Design Constraints}
+      Line 189: \subsubsection{Heterogeneous Business Sectors}
+      Line 200: \subsubsection{Customization Without Independent Development}
+      Line 207: \subsubsection{Local Operational Storage}
+      Line 218: \subsubsection{Future Cloud Evolution}
+      Line 228: \subsubsection{Different Levels of Technical Expertise}
+  Line  247: \section{Functional Architecture of the Platform}
+  Line  282: \section{Stakeholder Analysis}
+  Line  335: \section{System Actors}
+  Line  396: \section{Functional Requirements}
+    Line  403: \subsection{Client Account Management} (FR-ACC-01 to FR-ACC-04)
+    Line  426: \subsection{POS Configuration} (FR-CONF-01 to FR-CONF-05)
+    Line  453: \subsection{POS Generation} (FR-GEN-01 to FR-GEN-08)
+    Line  503: \subsection{License Management} (FR-LIC-01 to FR-LIC-09)
+    Line  560: \subsection{POS Operational Requirements} (FR-OPS-01 to FR-OPS-10)
+    Line  610: \subsection{BI Data Export} (FR-BI-EXP-01 to FR-BI-EXP-05)
+    Line  641: \subsection{BI Request Management} (FR-BI-REQ-01 to FR-BI-REQ-07)
+    Line  676: \subsection{ETL and Analytical Data Preparation} (FR-BI-ETL-01 to FR-BI-ETL-07)
+    Line  714: \subsection{Business-Type-Specific Dashboards} (FR-BI-DASH-01 to FR-BI-DASH-06)
+    Line  750: \subsection{BI Decision-Support Service} (FR-BI-SUP-01 to FR-BI-SUP-06)
+    Line  788: \subsection{Administration Requirements} (FR-ADM-01 to FR-ADM-07)
+  Line  819: \section{Non-Functional Requirements}
+    Line  826: \subsection{Security} (NFR-SEC-01 to NFR-SEC-06)
+    Line  852: \subsection{Performance} (NFR-PERF-01 to NFR-PERF-03)
+    Line  870: \subsection{Reliability} (NFR-REL-01 to NFR-REL-04)
+    Line  892: \subsection{Portability} (NFR-PORT-01 to NFR-PORT-03)
+    Line  909: \subsection{Maintainability} (NFR-MAIN-01 to NFR-MAIN-04)
+    Line  929: \subsection{Scalability} (NFR-SCAL-01 to NFR-SCAL-03)
+    Line  947: \subsection{Data Isolation and Security Considerations}
+  Line  998: \section{Development Technologies, Frameworks and Tools}
+    Line 1007: \subsection{Frontend Technologies}
+    Line 1032: \subsection{Backend Technologies}
+    Line 1056: \subsection{Desktop POS Technologies}
+    Line 1074: \subsection{Database Technologies}
+    Line 1093: \subsection{Business Intelligence and Data Processing Technologies}
+    Line 1115: \subsection{Development and Deployment Tools}
+  Line 1139: \section{Use-Case Analysis}
+    Line 1174: \subsection{Global Class Diagram}
+    Line 1225: \subsection{Client POS Generation Use Case}
+    Line 1256: \subsection{Administrator-Assisted POS Generation}
+    Line 1280: \subsection{BI Service Use Case}
+  Line 1322: \section{Principal Business Workflows}
+    Line 1328: \subsection{Workflow 1: Client Registration and POS Configuration}
+    Line 1351: \subsection{Workflow 2: License and POS Generation}
+    Line 1371: \subsection{Workflow 3: POS Operation and Local Data Production}
+    Line 1391: \subsection{Workflow 4: BI Request and Payment}
+    Line 1413: \subsection{Workflow 5: ETL and Dashboard Publication}
+    Line 1436: \subsection{Workflow 6: Analytical Interpretation and Decision Support}
+  Line 1464: \section{Data Lifecycle Analysis}
+  Line 1518: \section{BI Requirements and GIMSI Positioning}
+    Line 1521: \subsection{Why a BI Methodology Is Required}
+    Line 1547: \subsection{Relevant GIMSI Phases}
+  Line 1627: \section{Software Development Methodology --- Scrum}
+    Line 1630: \subsection{Justification of Scrum}
+    Line 1650: \subsection{Product Backlog}
+    Line 1796: \subsection{Sprint Organization}
+  Line 1859: \section{Requirements Traceability}
+  Line 1985: \section{Analysis of Current and Future Capabilities}
+    Line 1991: \subsection{Current Architecture}
+    Line 2010: \subsection{Future Evolution}
+  Line 2042: \section{Overall Project Organization}
+  Line 2086: \section{Chapter Conclusion}
+
+Figures: 11 (all \figureplaceholder)
+  fig:system-context (line 172)
+  fig:functional-decomposition (line 271)
+  fig:pos-generation-process (line 492)
+  fig:usecase-global (line 1163)
+  fig:global-class-diagram (line 1214)
+  fig:usecase-client-generation (line 1245)
+  fig:bi-service-workflow (line 1311)
+  fig:data-lifecycle (line 1507)
+  fig:gimsi-carthapos (line 1616)
+  fig:scrum-cycle (line 1841)
+  fig:overall-methodology (line 2075)
+
+Tables: 6 (2 longtable + 4 tabularx)
+  tab:stakeholders (line 288) — Main stakeholders
+  tab:actors (line 343) — Actors and responsibilities (5 actors)
+  tab:gimsi-mapping (line 1571) — GIMSI methodology positioning
+  tab:product-backlog (line 1660) — Product Backlog (51 user stories, longtable)
+  tab:scrum-sprints (line 1803) — Sprint organization (6 sprints)
+  tab:requirements-traceability (line 1872) — Requirements traceability (longtable)
+
+Labels defined: ~50
+Refs used: many
+Citations: multiple
+
+Requirements defined:
+  - 57 functional requirements (FR-ACC-01 to FR-ADM-07)
+  - 22 non-functional requirements (NFR-SEC-01 to NFR-SCAL-03)
+
+Key content:
+  - System context (9 components)
+  - 5 actors (System Administrator, Administrator, Client, BI Specialist, POS Manager)
+  - 57 functional requirements across 11 domains
+  - 22 non-functional requirements across 6 categories
+  - Technologies section (React, Node.js, Prisma, PostgreSQL, Electron, SQLite, Metabase)
+  - Global use-case diagram + Global class diagram
+  - 6 business workflows
+  - Data lifecycle (10 stages)
+  - GIMSI methodology mapping
+  - Scrum Product Backlog (51 user stories across 6 sprints)
+  - Requirements traceability (16 rows)
+
+Issues:
+  [!] STRAY MARKDOWN: Multiple triple backticks inside \begin{enumerate}
+      (lines 129, 410, 433, 460, 514, 549, 573, 621, 651, 686, 724,
+       760, 795, 833, 859, 877, 899, 916, 936, 2021, 2032) — will
+      cause compilation errors
+  [!] 5 subsubsections without labels (lines 189-228)
+
+================================================================================
+7. CHAPITRE4.TEX — Chapter 4: Release 1 (Foundation and POS Core)
+================================================================================
+
+Total lines: 690
+
+Sections (27 total):
+  Line   6: \section{Introduction}
+  Line  29: \section{Global Architecture and Technology Stack}
+    Line  43: \subsection{Platform Decomposition}
+    Line  86: \subsection{Communication Architecture}
+    Line 107: \subsection{Technology Choices}
+    Line 140: \subsection{Backend Layered Architecture}
+  Line 166: \section{Data and Persistence Design}
+    Line 169: \subsection{Persistence Strategy}
+    Line 179: \subsection{Platform Database Model}
+    Line 222: \subsection{Conceptual Domain Model}
+    Line 245: \subsection{POS Operational Data Model}
+  Line 271: \section{Sprint 1 --- Project Foundation and Architecture}
+    Line 274: \subsection{Sprint Backlog}
+    Line 316: \subsection{Refined Use-Case Diagram}
+    Line 334: \subsection{Sequence Diagram --- Application Startup}
+    Line 379: \subsection{Class Diagram of the Sprint}
+    Line 405: \subsection{Application Interfaces}
+    Line 434: \subsection{Sprint Conclusion}
+  Line 449: \section{Sprint 2 --- POS Core and Business Modules}
+    Line 452: \subsection{Sprint Backlog}
+    Line 505: \subsection{Refined Use-Case Diagram}
+    Line 523: \subsection{Sequence Diagram --- Atomic Sale Transaction}
+    Line 575: \subsection{Sequence Diagram --- Kitchen Order Processing}
+    Line 618: \subsection{Class Diagram of the Sprint}
+    Line 642: \subsection{Application Interfaces}
+    Line 665: \subsection{Sprint Conclusion}
+  Line 679: \section{Release Conclusion}
+
+Figures: 15 (12 figureplaceholder + 3 fbox)
+  fig:global-architecture-design (line 71)
+  fig:communication-architecture (line 95)
+  fig:backend-layered-architecture (line 151)
+  fig:conceptual-domain-model (line 231)
+  fig:pos-erd (line 254)
+  fig:usecase-sprint1 (line 325)
+  fig:s1-startup-sequence (line 370)
+  fig:classdiagram-sprint1 (line 396)
+  fig:s1-user-select (line 414) [fbox]
+  fig:s1-setup-wizard (line 424) [fbox]
+  fig:usecase-sprint2 (line 514)
+  fig:sale-transaction-sequence (line 566)
+  fig:kitchen-order-sequence (line 609)
+  fig:classdiagram-sprint2 (line 633)
+  fig:pos-operational-screenshot (line 649) [fbox]
+
+Tables: 8 (all tabularx)
+  tab:application-decomposition (line 49)
+  tab:technology-choices (line 114)
+  tab:platform-database-domains (line 185)
+  tab:sprint1-backlog (line 281)
+  tab:s1-startup-usecase (line 337)
+  tab:sprint2-backlog (line 459)
+  tab:s2-sale-usecase (line 529)
+  tab:s2-kitchen-usecase (line 578)
+
+Labels defined: ~38
+Refs used: ~5
+
+Key content:
+  - Platform decomposition (4 interfaces)
+  - Communication architecture (backend/frontend/POS)
+  - Technology choices table
+  - Backend layered architecture
+  - Persistence strategy (PostgreSQL + SQLite)
+  - Platform database model (43 Prisma models)
+  - Conceptual domain model
+  - Sprint 1 backlog (6 stories) + startup sequence
+  - Sprint 2 backlog (11 stories) + sale transaction + kitchen order sequences
+  - 15 figures, 8 tables
+
+Issues: None (clean file)
+
+================================================================================
+8. CHAPITRE5.TEX — Chapter 5: Release 2 (Generation Engine and Admin)
+================================================================================
+
+Total lines: 421
+
+Sections (16 total):
+  Line   6: \section{Introduction}
+  Line  55: \section{Sprint 3 --- POS Generator and Configuration}
+    Line  58: \subsection{Sprint Backlog}
+    Line  97: \subsection{Refined Use-Case Diagram}
+    Line 114: \subsection{Sequence Diagram --- POS Generation Pipeline}
+    Line 159: \subsection{Class Diagram of the Sprint}
+    Line 183: \subsection{Application Interfaces}
+    Line 206: \subsection{Sprint Conclusion}
+  Line 223: \section{Sprint 4 --- Administration Dashboard}
+    Line 226: \subsection{Sprint Backlog}
+    Line 266: \subsection{Refined Use-Case Diagram}
+    Line 284: \subsection{Sequence Diagram --- Client Management}
+    Line 330: \subsection{Class Diagram of the Sprint}
+    Line 368: \subsection{Application Interfaces}
+    Line 391: \subsection{Sprint Conclusion}
+  Line 408: \section{Release Conclusion}
+
+Figures: 9 (7 figureplaceholder + 2 fbox)
+  fig:usecase-sprint3 (line 105)
+  fig:pos-generation-pipeline (line 150)
+  fig:classdiagram-sprint3 (line 174)
+  fig:pos-generator-screenshot (line 190) [fbox]
+  fig:usecase-sprint4 (line 275)
+  fig:admin-client-sequence (line 321)
+  fig:classdiagram-sprint4 (line 346)
+  fig:admin-navigation (line 355)
+  fig:admin-interface-screenshot (line 375) [fbox]
+
+Tables: 5 (all tabularx)
+  tab:implementation-environment (line 25)
+  tab:sprint3-backlog (line 65)
+  tab:s3-generation-usecase (line 117)
+  tab:sprint4-backlog (line 233)
+  tab:s4-client-usecase (line 287)
+
+Labels defined: ~22
+Refs used: ~3
+
+Key content:
+  - Sprint 3 backlog (6 stories) + 8-stage generation pipeline sequence
+  - Sprint 4 backlog (7 stories) + client management CRUD sequence
+  - 17 protected admin routes
+  - 35 permission keys across 11 modules
+
+Issues: None (clean file)
+
+================================================================================
+9. CHAPITRE6.TEX — Chapter 6: Release 3 (Security, RBAC and BI)
+================================================================================
+
+Total lines: 925
+
+Sections (30 total):
+  Line   6: \section{Introduction}
+  Line  27: \section{Multi-Tenant Data Design}
+  Line  49: \section{Sprint 5 --- Authentication, Security and RBAC}
+    Line  52: \subsection{Sprint Backlog}
+    Line  92: \subsection{Refined Use-Case Diagram}
+    Line 110: \subsection{Sequence Diagram --- Authentication and Authorization}
+    Line 155: \subsection{Permission Catalog}
+    Line 208: \subsection{Class Diagram of the Sprint}
+    Line 231: \subsection{Application Interfaces}
+    Line 258: \subsection{Sprint Conclusion}
+  Line 276: \section{Sprint 6 --- Integration, Testing and Deployment}
+    Line 279: \subsection{Sprint Backlog}
+    Line 324: \subsection{Refined Use-Case Diagram}
+    Line 343: \subsection{Sequence Diagram --- Deployment Pipeline}
+    Line 393: \subsection{Class Diagram of the Sprint}
+    Line 412: \subsection{Application Interfaces}
+    Line 430: \subsection{Sprint Conclusion}
+  Line 445: \section{Business Intelligence: Design and Implementation}
+    Line 455: \subsection{BI Scope and Decision-Making Framework}
+    Line 471: \subsection{Data Sources and Export Contract}
+    Line 563: \subsection{Data Preparation and Quality}
+    Line 587: \subsection{Extract, Transform and Load}
+    Line 618: \subsection{Data Warehouse}
+    Line 670: \subsection{Class Diagram of the BI Component}
+    Line 698: \subsection{Indicator Design and Analytical Layer}
+    Line 718: \subsection{Dashboard Design and Provisioning}
+    Line 808: \subsection{BI Workflow and Client Consumption}
+    Line 846: \subsection{BI Results}
+    Line 893: \subsection{BI Validation}
+  Line 909: \section{Release Conclusion}
+
+Figures: 19 (14 figureplaceholder + 5 fbox)
+  fig:usecase-sprint5 (line 101)
+  fig:auth-sequence (line 146)
+  fig:rbac-model (line 196)
+  fig:classdiagram-sprint5 (line 222)
+  fig:s5-admin-login (line 238) [fbox]
+  fig:s5-user-management (line 248) [fbox]
+  fig:usecase-sprint6 (line 334)
+  fig:deployment-architecture (line 377)
+  fig:classdiagram-sprint6 (line 403)
+  fig:s6-system-diagnostics (line 420) [fbox]
+  fig:bi-validation-flow (line 574)
+  fig:etl-pipeline (line 598)
+  fig:warehouse-star-schema (line 654)
+  fig:classdiagram-bi (line 689)
+  fig:dashboard-provisioning (line 760)
+  fig:metabase-template-screenshot (line 773) [fbox]
+  fig:metabase-client-dashboard-screenshot (line 789) [fbox]
+  fig:bi-workflow-sequence (line 813)
+
+Tables: 9 (all tabularx)
+  tab:sprint5-backlog (line 59)
+  tab:s5-auth-usecase (line 113)
+  tab:permission-catalog (line 162) — 35 permissions, 11 modules
+  tab:sprint6-backlog (line 286)
+  tab:s6-deployment-usecase (line 346)
+  tab:bi-export-contract (line 480)
+  tab:bi-datasets (line 511) — 20 datasets
+  tab:analytical-warehouse-model (line 629) — 5 dimensions + 6 facts
+  tab:bi-qa-results (line 853) — 40/0 QA, 27/0 workflow, 100 runs
+
+Labels defined: ~47
+Refs used: ~8
+
+Key content:
+  - Multi-tenant data design
+  - Sprint 5 backlog (6 stories) + auth sequence + 35-key permission catalog
+  - Sprint 6 backlog (7 stories) + deployment pipeline
+  - BI component: scope, 20 datasets, data preparation, ETL pipeline,
+    warehouse (5 dims + 6 facts), dashboard provisioning (template-copy
+    strategy), BI workflow, results (40/0 QA, 27/0 workflow, 100 runs)
+
+Issues: None (clean file)
+
+================================================================================
+10. CHAPITRE7.TEX — Chapter 7: DevOps
+================================================================================
+
+Total lines: 322
+
+Sections (8 total):
+  Line   6: \section{Introduction}
+  Line  23: \section{Architecture Overview}
+  Line  51: \section{Source Code Management}
+  Line  80: \section{Continuous Integration Pipeline}
+  Line 122: \section{Containerization}
+  Line 164: \section{Testing and Validation}
+  Line 254: \section{Deployment}
+  Line 300: \section{Chapter Conclusion}
+
+Figures: 2 (both figureplaceholder)
+  fig:devops-pipeline (line 40)
+  fig:docker-build-evidence (line 153)
+
+Tables: 2 (both tabularx)
+  tab:test-evidence (line 177) — 12 test entries (T1-T12)
+  tab:test-summary (line 226) — Compact summary
+
+Labels defined: 12
+Refs used: 2
+
+Key content:
+  - Monorepo structure (backend/, admin/, frontend/, pos-template/, scripts/)
+  - Makefile with 16 targets
+  - Source code management (no .github/workflows — corrected from earlier audit)
+  - CI pipeline (local Makefile-driven, GitHub Actions for POS build)
+  - Docker containerization (node:18-bullseye, port 10000)
+  - 12-entry test evidence table (T1-T12)
+  - Render deployment blueprint (3 services + PostgreSQL)
+
+Issues: None (clean file)
+
+================================================================================
+11. CHAPITRE8.TEX — Chapter 8: Conclusion and Perspectives
+================================================================================
+
+Total lines: 345
+
+Sections (7 total):
+  Line   6: \section{System Integration}
+  Line  46: \section{Results and Evaluation}
+  Line 177: \section*{Synthesis of the Project} (unnumbered)
+  Line 206: \section*{Summary of the Contributions} (unnumbered)
+  Line 247: \section*{Evaluation Against the Objectives} (unnumbered)
+  Line 281: \section*{Methodological Assessment} (unnumbered)
+  Line 308: \section*{Perspectives and Future Work} (unnumbered)
+
+Figures: 2 (1 figureplaceholder + 1 fbox)
+  fig:integration-flow (line 35)
+  fig:pos-interface-screenshot (line 119) [fbox]
+
+Tables: 1
+  tab:implementation-status (line 54) — Status of all features
+
+Labels defined: 4
+Refs used: 4
+
+Key content:
+  - End-to-end integration description
+  - Results evaluation (10 areas)
+  - Project synthesis
+  - Contribution summary (POS generation platform + BI workflow)
+  - Evaluation against objectives
+  - Scrum + GIMSI methodological assessment
+  - Perspectives (deployment, BI completion, engineering improvements)
+
+Issues: None (clean file)
+
+================================================================================
+12. BIBLIO.BIB — Bibliography
+================================================================================
+
+Total lines: 264
+
+Entries: 30 (all @misc type)
+
+Categories:
+  POS Systems: square2026, square2026pricing, square2026inventory,
+    lightspeed2026, lightspeed2026retail, shopify2026pos,
+    shopify2026features, shopify2026pricing, toast2026platform,
+    toast2026, loyverse2026, loyverse2026pricing, loyverse2026inventory
+  ERP Systems: odoo2026, odoo2026pos, erpnext2026, erpnext2026github,
+    dynamics2026, dynamics2026learn, sapb12026
+  BI Tools: powerbi2026, powerbi2026learn, tableau2026,
+    tableau2026cloud, metabase2026, metabase2026docs, superset2026,
+    superset2026docs
+  Project: carthapos2026
+  Methodology: gimsi2026
+
+Issues:
+  [!] 5 uncited entries: shopify2026pricing, square2026inventory,
+      loyverse2026inventory, erpnext2026github, carthapos2026
+  [!] All entries are @misc (web references only)
+
+================================================================================
+GLOBAL SUMMARY
+================================================================================
+
+| File              | Lines  | Sections | Figures | Tables | Labels |
+|-------------------|--------|----------|---------|--------|--------|
+| rapport.tex       |    458 |    10 ch |       0 |      1 |     10 |
+| abstract.tex      |     24 |        0 |       0 |      0 |      0 |
+| introduction.tex  |     45 |        0 |       0 |      0 |      0 |
+| chapitre1.tex     |    537 |       16 |       3 |      1 |     16 |
+| chapitre2.tex     |  1,025 |       31 |       1 |      2 |     28 |
+| chapitre3.tex     |  2,148 |       64 |      11 |      6 |     50 |
+| chapitre4.tex     |    690 |       27 |      15 |      8 |     38 |
+| chapitre5.tex     |    421 |       16 |       9 |      5 |     22 |
+| chapitre6.tex     |    925 |       30 |      19 |      9 |     47 |
+| chapitre7.tex     |    322 |        8 |       2 |      2 |     12 |
+| chapitre8.tex     |    345 |        7 |       2 |      1 |      4 |
+| Biblio.bib        |    264 |      --- |     --- |    --- |    --- |
+|-------------------|--------|----------|---------|--------|--------|
+| TOTAL             |  7,204 |      209 |      62 |     44 |    227 |
+
+Figures breakdown:
+  - 49 \figureplaceholder (UML/diagram placeholders)
+  - 11 \fbox (screenshot placeholders)
+  - 2 \figureplaceholder + 1 \fbox in chapitre8
+  - Total: 62 figure environments
+
+Tables breakdown:
+  - 40 tabularx tables
+  - 2 longtable tables (chapitre3)
+  - 2 additional tables (rapport.tex title, chapitre1)
+
+Compilation issues requiring fix:
+  [1] STRAY MARKDOWN: ~26 triple backticks (```) inside \begin{enumerate}
+      in chapitre1.tex (5) and chapitre3.tex (21+) — WILL FAIL COMPILATION
+  [2] DUPLICATE PACKAGES in rapport.tex: graphicx (3x), inputenc (2x)
+  [3] LABEL TYPO: chap:general_intorduction in rapport.tex
+  [4] UNUSED PACKAGES: tcolorbox, algorithm2e in rapport.tex
+  [5] UNCITED BIB: 5 bibliography entries never referenced
+
+================================================================================
+END OF AUDIT
+================================================================================

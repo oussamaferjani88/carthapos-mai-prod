@@ -10,81 +10,65 @@ export function useLicense() {
     validateLicense();
   }, []);
 
+  const normalize = (result) => ({
+    isValid: result?.isValid === true,
+    status: result?.status || null,
+    reason: result?.reason || null,
+    license: result?.license || null
+  });
+
   const validateLicense = async () => {
     try {
-      console.log('validateLicense: Starting license validation');
       setLoading(true);
       setError(null);
-      
-      // Vérifier si nous sommes dans Electron
+
       if (window.electronAPI) {
-        console.log('validateLicense: Using Electron API');
-        const validation = await window.electronAPI.validateLicense();
-        console.log('validateLicense: Received validation result:', validation);
-        
-        if (validation.isValid) {
-          console.log('validateLicense: License validation data:', validation.data);
-          // Handle both cases: when license data is in validation.data or when it's a simple valid license
-          const licenseData = validation.data || {
-            licenseKey: 'VALID-LICENSE',
-            clientName: 'Licensed User',
-            sector: 'retail',
-            licenseType: 'LIFETIME',
-            modules: [
-              { name: 'pos-core', displayName: 'Caisse de base', isEnabled: true },
-              { name: 'inventory', displayName: 'Gestion des stocks', isEnabled: true },
-              { name: 'reports', displayName: 'Rapports', isEnabled: true }
-            ]
-          };
-          setLicense(licenseData);
+        let result = normalize(await window.electronAPI.validateLicense());
+
+        // License present but not yet bound to this machine/USB -> activate.
+        if (!result.isValid && result.reason === 'ACTIVATION_REQUIRED') {
+          console.log('validateLicense: Activation required, attempting activation...');
+          result = normalize(await window.electronAPI.activateLicense());
+        }
+
+        if (result.isValid) {
+          setLicense(result.license);
           setIsValid(true);
-          console.log('validateLicense: License is valid, set license data:', licenseData);
+          setError(null);
         } else {
-          console.log('validateLicense: License is invalid:', validation.error || validation.message);
-          setError(validation.error || validation.message);
+          setError(
+            result.reason || result.status || 'License is not valid'
+          );
           setIsValid(false);
+          setLicense(result.license || null);
         }
       } else {
-        console.log('validateLicense: Using fallback (web mode)');
-        // En mode développement web, simuler une licence valide
-        // Try reading from embedded app-config.json first
+        // Web mode: honor an embedded license block (if the generated
+        // app-config provides one). No synthetic DEV-LICENSE is granted.
         let embeddedLicense = null;
         try {
           if (window.__POS_CONFIG__ && window.__POS_CONFIG__.license) {
             embeddedLicense = window.__POS_CONFIG__.license;
           }
         } catch (e) {
-          // ignore
+          console.error('Failed to read embedded license', e);
         }
 
-        const devLicense = embeddedLicense || {
-          licenseKey: 'DEV-LICENSE',
-          clientName: 'Development Mode',
-          sector: 'development',
-          licenseType: 'LIFETIME',
-          bindingType: 'MACHINE',
-          machineId: null,
-          expirationDate: null,
-          isActivated: false,
-          activatedAt: null,
-          lastValidatedAt: null,
-          modules: [
-            { name: 'pos-core', displayName: 'Caisse de base', isEnabled: true },
-            { name: 'inventory', displayName: 'Gestion des stocks', isEnabled: true },
-            { name: 'reports', displayName: 'Rapports', isEnabled: true }
-          ]
-        };
-        setLicense(devLicense);
-        setIsValid(true);
-        console.log('validateLicense: Set development license', devLicense);
+        if (embeddedLicense) {
+          setLicense(embeddedLicense);
+          setIsValid(true);
+          setError(null);
+        } else {
+          setLicense(null);
+          setIsValid(false);
+          setError('No license configured');
+        }
       }
-      console.log('validateLicense: License validation completed successfully');
     } catch (err) {
       console.error('validateLicense: Error validating license:', err);
-      setError(err.message);
+      setError(err.message || 'License validation failed');
       setIsValid(false);
     } finally {
-      console.log('validateLicense: Setting loading to false');
       setLoading(false);
     }
   };
@@ -101,4 +85,3 @@ export function useLicense() {
     retry: retryValidation
   };
 }
-

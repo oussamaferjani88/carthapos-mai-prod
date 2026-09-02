@@ -51,11 +51,14 @@ const CashRegister = lazy(() => import('./pages/CashRegister'));
 // Hooks
 import { useAppConfig } from './hooks/useAppConfig';
 import { useLicense } from './hooks/useLicense';
+import { requiredModulesByHref, isModuleSetEnabled } from './config/moduleRoutes';
 
 // Contexts
 import { AuthProvider, useAuth } from './contexts/AuthContext';
+import { PermissionsProvider } from './contexts/PermissionsContext';
 import ProtectedRoute from './components/ProtectedRoute';
 import AdminOnlyRoute from './components/AdminOnlyRoute';
+import PermissionRoute from './components/PermissionRoute';
 import { isPreviewMode } from './utils/environment';
 
 // Loading component for lazy-loaded pages
@@ -65,10 +68,46 @@ const PageLoadingFallback = () => (
   </div>
 );
 
+// Route table: module gating mirrors `requiredModulesByHref` (built from
+// POSNavbar's navigationConfig, see src/config/moduleRoutes.js) so a route
+// is never reachable when its nav item is hidden, or vice versa.
+const ROUTE_TABLE = [
+  { path: '/', Component: Dashboard, admin: false, module: 'dashboard' },
+  { path: '/sales', Component: Sales, admin: false, module: 'sales' },
+  { path: '/products', Component: Products, admin: false, module: 'products' },
+  { path: '/inventory', Component: Inventory, admin: false, module: 'inventory' },
+  { path: '/barcode', Component: Barcode, admin: false, module: 'barcode' },
+  { path: '/quick-service', Component: QuickService, admin: false, module: 'sales' },
+  { path: '/customers', Component: Customers, admin: false, module: 'customers' },
+  { path: '/tables', Component: Tables, admin: false, module: 'tables' },
+  { path: '/kitchen', Component: Kitchen, admin: false, module: 'kitchen' },
+  { path: '/menu-management', Component: MenuManagement, admin: false, module: 'products' },
+  { path: '/takeaway', Component: Takeaway, admin: false, module: 'sales' },
+  { path: '/loyalty', Component: Loyalty, admin: false, module: 'loyalty' },
+  { path: '/payment-advanced', Component: PaymentAdvanced, admin: false, module: 'sales' },
+  { path: '/gift-cards', Component: GiftCards, admin: false, module: 'gift_cards' },
+  { path: '/prescription', Component: Prescription, admin: false, module: 'prescription' },
+  { path: '/production', Component: Production, admin: false, module: 'production' },
+  { path: '/appointments', Component: Appointments, admin: false, module: 'appointments' },
+  { path: '/services', Component: Services, admin: false, module: 'services' },
+  { path: '/suppliers', Component: Suppliers, admin: false, module: 'suppliers' },
+  { path: '/reports', Component: Reports, admin: false, module: 'reports' },
+  { path: '/settings', Component: Settings, admin: false, module: 'settings' },
+  { path: '/hardware-settings', Component: HardwareSettings, admin: false },
+  { path: '/receipt-designer', Component: ReceiptDesigner, admin: false },
+  { path: '/caisse', Component: CashRegister, admin: false, module: 'sales' },
+  { path: '/user-admin', Component: UserAdmin, admin: true },
+  { path: '/user-management', Component: UserAdmin, admin: true },
+];
+
 // MainPOSApp extracted outside AppContent to prevent infinite re-mount cycles.
 // Defining it inside the render body created a NEW component type on every render,
 // causing React to unmount/remount the entire Router tree (error #300).
 function MainPOSApp({ config, license }) {
+  const enabledModules = (config?.modules || [])
+    .filter(m => m.isEnabled !== false)
+    .map(m => m.name);
+
   return (
     <Router>
       <div className="pos-app pos-application min-h-screen bg-gradient-to-br from-background via-muted/20 to-background">
@@ -76,44 +115,26 @@ function MainPOSApp({ config, license }) {
           <main className="transition-all duration-300 ease-in-out">
             <Suspense fallback={<PageLoadingFallback />}>
               <Routes>
-                <Route path="/" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
-                <Route path="/sales" element={<ProtectedRoute><Sales /></ProtectedRoute>} />
-                <Route path="/products" element={<ProtectedRoute><Products /></ProtectedRoute>} />
-                {/* DEBUG: Inventory route below - should be commented out for disabled inventory */}
-                {config?.modules?.some(m => m.name === 'inventory' && m.isEnabled !== false) && (
-                  <Route path="/inventory" element={<ProtectedRoute><Inventory /></ProtectedRoute>} />
-                )}
-                <Route path="/barcode" element={<ProtectedRoute><Barcode /></ProtectedRoute>} />
-                <Route path="/quick-service" element={<ProtectedRoute><QuickService /></ProtectedRoute>} />
-                <Route path="/customers" element={<ProtectedRoute><Customers /></ProtectedRoute>} />
-                {config?.modules?.some(m => m.name === 'tables' && m.isEnabled !== false) && (
-                  <Route path="/tables" element={<ProtectedRoute><Tables /></ProtectedRoute>} />
-                )}
-                {config?.modules?.some(m => m.name === 'kitchen' && m.isEnabled !== false) && (
-                  <Route path="/kitchen" element={<ProtectedRoute><Kitchen /></ProtectedRoute>} />
-                )}
-                <Route path="/menu-management" element={<ProtectedRoute><MenuManagement /></ProtectedRoute>} />
-                <Route path="/takeaway" element={<ProtectedRoute><Takeaway /></ProtectedRoute>} />
-                {config?.modules?.some(m => m.name === 'loyalty' && m.isEnabled !== false) && (
-                  <Route path="/loyalty" element={<ProtectedRoute><Loyalty /></ProtectedRoute>} />
-                )}
-                <Route path="/payment-advanced" element={<ProtectedRoute><PaymentAdvanced /></ProtectedRoute>} />
-                <Route path="/gift-cards" element={<ProtectedRoute><GiftCards /></ProtectedRoute>} />
-                <Route path="/prescription" element={<ProtectedRoute><Prescription /></ProtectedRoute>} />
-                <Route path="/production" element={<ProtectedRoute><Production /></ProtectedRoute>} />
-                <Route path="/appointments" element={<ProtectedRoute><Appointments /></ProtectedRoute>} />
-                <Route path="/services" element={<ProtectedRoute><Services /></ProtectedRoute>} />
-                {config?.modules?.some(m => m.name === 'suppliers' && m.isEnabled !== false) && (
-                  <Route path="/suppliers" element={<ProtectedRoute><Suppliers /></ProtectedRoute>} />
-                )}
-                <Route path="/reports" element={<ProtectedRoute><Reports /></ProtectedRoute>} />
-                <Route path="/settings" element={<ProtectedRoute><Settings /></ProtectedRoute>} />
-                <Route path="/hardware-settings" element={<ProtectedRoute><HardwareSettings /></ProtectedRoute>} />
-                <Route path="/receipt-designer" element={<ProtectedRoute><ReceiptDesigner /></ProtectedRoute>} />
-                <Route path="/caisse" element={<ProtectedRoute><CashRegister /></ProtectedRoute>} />
-                {/* Admin Only Routes */}
-                <Route path="/user-admin" element={<AdminOnlyRoute><UserAdmin /></AdminOnlyRoute>} />
-                <Route path="/user-management" element={<AdminOnlyRoute><UserAdmin /></AdminOnlyRoute>} />
+                {ROUTE_TABLE.filter(({ path }) =>
+                  isModuleSetEnabled(requiredModulesByHref[path], enabledModules)
+                ).map((route) => {
+                  const RouteComponent = route.Component;
+                  const Guard = route.admin ? AdminOnlyRoute : ProtectedRoute;
+                  const mod = route.admin ? undefined : route.module;
+                  return (
+                    <Route
+                      key={route.path}
+                      path={route.path}
+                      element={(
+                        <Guard>
+                          <PermissionRoute module={mod}>
+                            <RouteComponent />
+                          </PermissionRoute>
+                        </Guard>
+                      )}
+                    />
+                  );
+                })}
                 <Route path="*" element={<Navigate to="/" replace />} />
               </Routes>
             </Suspense>
@@ -128,7 +149,9 @@ function App() {
   return (
     <ErrorBoundary>
       <AuthProvider>
-        <AppContent />
+        <PermissionsProvider>
+          <AppContent />
+        </PermissionsProvider>
       </AuthProvider>
       <DebugPanel />
     </ErrorBoundary>
@@ -251,7 +274,7 @@ function AppContent() {
           fullName: userObj.fullName || userObj.full_name || userObj.username,
           full_name: userObj.fullName || userObj.full_name || userObj.username,
           email: `${userObj.username}@pos.com`,
-          permissions: userObj.role === 'admin' ? ['all'] : userObj.role === 'manager' ? ['sales', 'products', 'customers', 'reports', 'inventory'] : ['sales', 'customers'],
+          permissions: (userObj.role === 'admin' || userObj.role === 'superadmin') ? ['all'] : userObj.role === 'manager' ? ['sales', 'products', 'customers', 'reports', 'inventory'] : ['sales', 'reports'],
         });
         return;
       }
@@ -323,8 +346,8 @@ function AppContent() {
     );
   }
 
-  // Check USB license if required
-  if (config?.security?.requireUSBLicense && !licenseValid) {
+  // Enforce license in production (Electron). Preview/browser mode is demo-only.
+  if (!isPreviewMode() && !licenseValid) {
     return <LicenseCheck />;
   }
 

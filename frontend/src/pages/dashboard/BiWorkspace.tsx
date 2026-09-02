@@ -118,11 +118,11 @@ export default function BiWorkspace() {
   };
 
   return (
-    <div className="p-6 max-w-6xl mx-auto space-y-6">
+    <div className="space-y-6">
       <div className="flex items-center justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-bold">Mon espace BI</h1>
-          <p className="text-sm text-muted-foreground">
+          <h1 className="text-xl font-semibold tracking-tight sm:text-[22px]">Mon espace BI</h1>
+          <p className="mt-1 text-[13px] text-muted-foreground">
             Suivez vos demandes de tableaux de bord, consultez vos dashboards publiés et vos notifications.
           </p>
         </div>

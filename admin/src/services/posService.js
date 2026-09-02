@@ -51,6 +51,36 @@ class POSService {
   }
 
   /**
+   * Regenerate an existing POS project from its saved configuration.
+   * @param {string} licenseId - License ID of the project
+   * @returns {Promise<Object>} Generation result (incl. `path`)
+   */
+  async generateAgain(licenseId) {
+    return this.generatePOS({ licenseId });
+  }
+
+  /**
+   * Verify that an installer actually exists behind a download URL. A build can
+   * report "completed" without producing an .exe, in which case a plain
+   * navigation would surface a raw backend JSON error. The timeout avoids
+   * hanging while the backend is busy with another build.
+   * @param {string} url - Download URL
+   * @returns {Promise<boolean>} true when the installer is downloadable
+   */
+  async checkInstaller(url) {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 20000);
+    try {
+      const res = await fetch(url, { method: 'HEAD', signal: controller.signal });
+      return res.ok;
+    } catch {
+      return false;
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
+
+  /**
    * Build POS application
    * @param {Object} data - Build data
    * @returns {Promise<Object>} Build result

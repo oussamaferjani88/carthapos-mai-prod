@@ -4,7 +4,8 @@
  * Reduced from 1,742 lines to ~350 lines using clean architecture
  */
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { Button } from '../../components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../../components/ui/card';
 import { Badge } from '../../components/ui/badge';
@@ -76,6 +77,48 @@ export default function POSGenerator() {
       setFormData(prev => ({ ...prev, clientId: currentUserId }));
     }
   }, [isUserMode, currentUserId, formData.clientId]);
+
+  // Restore a saved POS project into the wizard (?licenseId=<id>), used by the
+  // "Modifier" action on the Projets POS page. Applied only once the module
+  // catalog is loaded so the seeded selection isn't clobbered by default-loading.
+  const [searchParams] = useSearchParams();
+  const licenseIdParam = searchParams.get('licenseId');
+  const projectRestoredRef = useRef(false);
+
+  useEffect(() => {
+    if (!licenseIdParam || projectRestoredRef.current) return;
+    if (Object.keys(modulesHook.modulesByCategory).length === 0) return;
+    projectRestoredRef.current = true;
+
+    (async () => {
+      try {
+        const project = await generatorHook.loadProject(licenseIdParam);
+        if (!project) return;
+
+        setFormData(prev => ({
+          ...prev,
+          clientId: project.clientId || prev.clientId,
+          sector: project.sector || prev.sector,
+          licenseType: project.licenseType || prev.licenseType,
+          bindingType: project.bindingType || prev.bindingType,
+          expirationDate: project.expirationDate || prev.expirationDate,
+        }));
+
+        if (project.configuration && Object.keys(project.configuration).length > 0) {
+          configHook.setConfiguration(project.configuration);
+        }
+        if (project.modules && project.modules.length > 0) {
+          modulesHook.setSelectedModules(project.modules);
+        }
+
+        generatorHook.goToStep(2);
+        toast.success('Configuration du projet restaurée');
+      } catch (err) {
+        toast.error(err?.message || 'Impossible de restaurer la configuration du projet');
+      }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [licenseIdParam, modulesHook.modulesByCategory]);
 
   // Handlers
   const handleClientChange = (clientId) => {
@@ -535,6 +578,7 @@ export default function POSGenerator() {
           <Step5Results
             generationResult={generatorHook.generationResult}
             selectedUSB={formData.selectedUSB}
+            bindingType={formData.bindingType}
             onNewPOS={generatorHook.resetGenerator}
           />
         )}
@@ -583,14 +627,14 @@ export default function POSGenerator() {
         </div>
       )}
 
-      {/* Progress Bar */}
+      {/* Generation progress */}
       <POSGenerationProgress
         isVisible={generatorHook.showProgress}
-        currentStep={generatorHook.progressStep}
+        steps={generatorHook.progressSteps}
+        activeStepId={generatorHook.progressStepId}
         progress={generatorHook.progressPercentage}
         currentAction={generatorHook.currentAction}
         error={generatorHook.progressError}
-        variant="modern"
         onComplete={() => { }}
       />
     </div>

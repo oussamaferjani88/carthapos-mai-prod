@@ -126,8 +126,8 @@ const options = {
             },
             role: {
               type: 'string',
-              enum: ['ADMIN', 'MANAGER', 'CASHIER'],
-              example: 'CASHIER'
+              enum: ['ADMIN', 'MANAGER', 'BI_SPECIALIST'],
+              example: 'MANAGER'
             },
             isActive: {
               type: 'boolean',

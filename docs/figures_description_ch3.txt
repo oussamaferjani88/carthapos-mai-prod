@@ -1,0 +1,647 @@
+===========================================================================
+CHAPTER 3 - Analysis and Specification (chapitre3.tex)
+Figures to create: 8
+===========================================================================
+
+
+FIGURE 1: fig:system-context
+-----------------------------------------------------------
+Type: System Context Diagram
+Filename: figures/ch3-system-context.png
+Caption: System context and main components of the CarthaPOS ecosystem.
+
+Description:
+Draw a system context diagram (C4 Level 1 style) showing CarthaPOS as the
+central system box, surrounded by external actors/systems that interact
+with it.
+
+CENTRAL BOX: CarthaPOS Platform
+
+EXTERNAL ACTORS (as stick figures or labeled boxes around the center):
+
+  1. Client Organization (top-left)
+     - Creates account, configures POS, manages license
+     - Triggers POS generation for their business (same generator as admin)
+     - Uploads BI data exports
+
+  2. Administrator / Operator (top-right)
+     - Manages clients, licenses, modules, sectors
+     - Monitors generation builds
+     - Handles BI requests and assignments
+
+  3. BI Specialist (right)
+     - Reviews BI requests
+     - Provisions Metabase dashboards
+     - Conducts online BI support meetings
+
+  4. POS End Users (bottom-left)
+     - Cashier, Manager, Kitchen Staff, Server
+     - Use the generated POS for daily operations
+     - Sales, inventory, kitchen, tables, reporting
+
+  5. Client Portal User (bottom-right)
+     - Views Metabase dashboards
+     - Receives BI notifications
+     - Consults analytical insights
+
+EXTERNAL SYSTEMS:
+  - PostgreSQL (database, managed on Render)
+  - Metabase (dashboard visualization, separate service)
+  - Render.com (deployment platform)
+  - GitHub Actions (POS installer builds)
+
+CONNECTIONS: labeled arrows between each actor/system and CarthaPOS.
+Use different line styles: solid for direct users, dashed for external systems.
+
+
+===========================================================================
+
+
+FIGURE 2: fig:functional-decomposition
+-----------------------------------------------------------
+Type: Functional Decomposition Tree
+Filename: figures/ch3-functional-decomposition.png
+Caption: Functional decomposition of the CarthaPOS platform.
+
+Description:
+Draw a hierarchical tree diagram decomposing CarthaPOS into its main
+functional domains.
+
+ROOT: CarthaPOS Platform
+
+BRANCH 1 - Client Portal:
+  - Dashboard viewing (embedded Metabase)
+  - BI notifications
+  - BI request submission
+  - Dashboard consultation
+  - POS Generation (same generator as admin: select sector, modules,
+    configure theme, generate and download POS installer)
+
+BRANCH 2 - Administration Portal:
+  - Client management (CRUD)
+  - License management (create, activate, transfer, revoke)
+  - Module management (catalog, enable/disable)
+  - User management (roles, permissions, 35-key RBAC)
+  - POS generation wizard (sector, modules, build, download)
+  - BI operations (requests, assignments, imports, history)
+  - USB management
+  - Reports
+
+BRANCH 3 - POS Generation and Licensing:
+  - 8-stage generation pipeline
+  - Sector profile selection (6 sectors)
+  - Module filtering (enable/disable per license)
+  - Theme customization (colors, logo)
+  - Ed25519 license signing
+  - Machine fingerprint binding
+  - Electron packaging (asar, installer)
+
+BRANCH 4 - Generated POS Operations:
+  - Sales (atomic transactions, multiple order types)
+  - Products and inventory
+  - Kitchen orders (status machine, priorities)
+  - Tables and reservations
+  - Customers and loyalty
+  - Cash register and shifts
+  - Reports and Z-reports
+  - User management (local roles + user_modules)
+  - Settings
+
+BRANCH 5 - Business Intelligence:
+  - Export contract (20 datasets, 246 columns)
+  - Data validation and preparation
+  - ETL pipeline (extract, transform, load)
+  - Analytical warehouse (5 dimensions, 6 facts)
+  - Metabase provisioning (deep-copy + tenant filter)
+  - Dashboard assignment and consultation
+
+Use colored boxes for each branch. Show the hierarchy clearly with
+connecting lines from root to branches to sub-items.
+
+
+===========================================================================
+
+
+FIGURE 3 (REVISED): fig:usecase-global
+-----------------------------------------------------------
+Type: UML Use-Case Diagram
+Filename: figures/ch3-usecase-global.png
+Caption: Global use-case diagram of the CarthaPOS platform.
+
+Description:
+Draw a GLOBAL, MACRO-LEVEL UML use-case diagram. This diagram gives an
+overview of platform capabilities — detailed/refined use cases for each
+domain already exist as separate diagrams per sprint elsewhere in the
+report. Do NOT recreate that granularity here. Target ~12-16 use cases
+total, each representing a functional domain, not an individual CRUD
+action.
+
+ACTORS:
+
+  Left side (Platform level):
+    1. System Administrator
+       Highest-privilege platform operator. Unrestricted access.
+    2. Administrator
+       Delegated admin managed by System Administrator.
+       -> Add a UML GENERALIZATION arrow: System Administrator
+          generalizes Administrator (hollow triangle arrowhead
+          pointing from Administrator to System Administrator, OR
+          model System Administrator as the more general actor per
+          your convention — pick one and be consistent). This lets
+          System Administrator inherit every use case Administrator
+          connects to, without drawing duplicate association lines.
+    3. Client
+       Business owner. Dual role: platform user + POS owner.
+
+  Right side (POS / BI level):
+    4. BI Specialist
+       Analytical expert. ETL, dashboards, client meetings.
+    5. POS Operational User (base actor)
+       -> Specialized via generalization into: Manager, Cashier,
+          Kitchen Staff, Server (small stick figures branching off
+          the base actor with hollow-triangle generalization arrows).
+          This keeps the diagram accurate to the RBAC model instead
+          of silently merging all four roles into "POS Manager."
+          Shared use cases (e.g. Create Sale, View Reports) connect
+          only to the base actor; role-specific ones (e.g. Manage
+          Shifts, Manage Inventory) connect only to Manager.
+          NOTE: This is a deliberate change from the previous version
+          of this diagram — Table 3.1 in the report text should be
+          updated to match this actor model if it currently states
+          otherwise.
+
+SYSTEM BOUNDARY: CarthaPOS Platform
+
+MACRO USE CASES (grouped by domain, dashed package rectangles):
+
+  ACCOUNT & ACCESS:
+    - UC1: Manage Account & Authentication
+      (covers register, login, profile, password reset)
+
+  CLIENT & LICENSE MANAGEMENT:
+    - UC2: Manage Clients & Licenses
+      (covers create client, create/activate/transfer/revoke license)
+
+  MODULE MANAGEMENT:
+    - UC3: Manage Module Catalogue
+      (covers browse, enable/disable modules)
+
+  POS GENERATION:
+    - UC4: Generate POS Application
+      (covers sector selection, module selection, theme config, build,
+       download — the detailed 8-stage pipeline is shown separately
+       in the activity diagram, Figure 5)
+
+  POS OPERATIONS:
+    - UC5: Operate Point of Sale
+      (covers sales, products, inventory, customers, tables, shifts,
+       operational reports as one macro use case)
+    - UC6: Process Kitchen Order
+      (kept SEPARATE from UC5 because it is conditional — see extend
+       relationship below)
+
+  ADMINISTRATIVE USER MANAGEMENT:
+    - UC7: Manage Administrative Users & Permissions
+      (covers user CRUD + 35-key RBAC assignment)
+
+  BUSINESS INTELLIGENCE:
+    - UC8: Request BI Service
+      (covers submitting a BI request with objectives/KPIs/payment)
+    - UC9: Upload Data Export
+    - UC10: Process ETL & Provision Dashboard
+      (covers validation, ETL, warehouse load, Metabase provisioning
+       as one internal/system-facing macro use case)
+    - UC11: View Dashboards & Insights
+      (covers dashboard consultation + BI meetings)
+    - UC12: Receive Notifications
+
+  PLATFORM OPERATIONS:
+    - UC13: Deploy & Test Platform
+      (covers Docker/Render deployment + integration testing)
+
+ACTOR-TO-USE-CASE ASSOCIATIONS:
+  - System Administrator: UC1-UC13 (all, via generalization from
+    Administrator plus its own exclusive scope on UC7, UC13)
+  - Administrator: UC1, UC2, UC3, UC4
+  - Client: UC1, UC2 (own account/license only), UC4, UC8, UC9,
+    UC11, UC12
+  - POS Operational User (+ specializations): UC5, UC6
+    (UC6 only reachable via extend from UC5, not directly associated)
+  - BI Specialist: UC8, UC10, UC11
+
+INCLUDE / EXTEND RELATIONSHIPS (keep only the ones that matter at
+macro level — this is still useful even in the global diagram):
+
+  <<include>> (mandatory, always executed):
+    - UC10 (Process ETL & Provision Dashboard) <<include>> UC9
+      (Upload Data Export)
+      Rationale: ETL always requires an uploaded data export first.
+
+  <<extend>> (optional, conditional — remember: arrow points FROM
+  the extension TOWARD the base use case):
+    - UC6 (Process Kitchen Order) <<extend>> UC5 (Operate POS)
+      Rationale: a kitchen order is created only if the kitchen
+      module is enabled for this POS instance (e.g. not in retail
+      sector). CORRECTED DIRECTION from the previous draft, where
+      this was reversed.
+    - UC12 (Receive Notifications) <<extend>> UC11 (View Dashboards)
+      Rationale: notifications are sent when dashboards are ready,
+      but viewing dashboards can happen independently of a
+      notification trigger.
+
+  Do NOT add an extend/include between UC8 (Request BI Service) and
+  UC9 (Upload Data Export) — these remain independent client actions
+  at this level too.
+
+LAYOUT NOTES:
+  - Platform-level actors (System Administrator, Administrator,
+    Client) on the left; POS/BI-level actors (BI Specialist, POS
+    Operational User + specializations) on the right.
+  - Show the two generalization relationships with hollow-triangle
+    arrowheads, clearly distinguished from association lines (plain)
+    and include/extend arrows (dashed with stereotype label).
+    Group use cases with dashed rectangles (packages) by domain.
+  - Use solid lines for associations, dashed arrows for
+    include/extend, labeled with the stereotype in guillemets
+    (<<include>>, <<extend>>).
+  - Keep this diagram to a single page/slide — if it still feels
+    crowded, drop UC12/UC13 associations to Administrator (implied
+    via generalization) and rely on the generalization arrow instead.
+
+CROSS-REFERENCE FOR REPORT TEXT:
+  Add a sentence near this figure noting that refined, sprint-level
+  use-case diagrams with full UC1-UC35 granularity (as originally
+  detailed) appear in their respective sections/sprints later in the
+  report, and that this figure is intentionally a macro-level
+  overview.
+
+
+ ===========================================================================
+
+
+FIGURE 4 (REVISED): fig:global-class-diagram-ch3
+-----------------------------------------------------------
+Type: UML Class Diagram (Analysis Level)
+Filename: figures/ch3-global-class-diagram.png
+Caption: Global class diagram of the CarthaPOS domain model.
+
+Description:
+Draw a GLOBAL, ANALYSIS-LEVEL UML class diagram. This shows the
+conceptual domain model only — NOT the full Prisma schema. Each class
+shows only 3-5 KEY attributes (id + identifying/conceptually-important
+fields + enum-typed fields), not the complete attribute list. Full
+attribute tables belong in an appendix or the data-dictionary section,
+not this diagram. Join tables and audit/log tables are EXCLUDED from
+this diagram (see exclusion rules below) — represent them as plain
+multiplicity associations instead.
+
+═══════════════════════════════════════════════════════════════
+PLATFORM LEVEL (top section) — Backend / Admin / Client Portal
+═══════════════════════════════════════════════════════════════
+
+  Client
+    Key attributes: id, name, email
+    Relationships:
+      - 1 ←→ 0..* License (has many)
+      - 1 ←→ 0..* BiRequest (has many)
+      - 1 ←→ 0..* BiDashboard (has many)
+      - 1 ←→ 0..* BiNotification (has many)
+
+  License
+    Key attributes: id, licenseKey, sector, licenseType, status
+    Relationships:
+      - 1 ←→ 1 Client (belongs to)
+      - 1 ←→ 0..1 LicenseConfiguration (has one)
+      - 1 ←→ 0..1 UserPosConfiguration (has one)
+      - 0..* ←→ 0..* Module (enabled modules — plain association,
+        NOT a LicenseModule class; label the association
+        "enabled modules" and optionally note "isEnabled" as an
+        association-end note if needed)
+      - 1 ←→ 0..* LicenseActivationHistory (has many)
+      - 1 ←→ 0..* LicenseValidationLog (has many)
+      - 1 ←→ 0..* LicenseTransferHistory (has many)
+      - 0..1 ←→ 0..* BiDashboard (has many)
+        NOTE: corrected multiplicity — License side is 0..1
+        (a BiDashboard may or may not be tied to a license), matching
+        BiDashboard.licenseId being nullable. Both class boxes must
+        show this consistently.
+
+  Module
+    Key attributes: id, name, category
+    Relationships:
+      - 0..* ←→ 0..* License (see above — plain association, no
+        join-table class shown)
+
+  LicenseConfiguration
+    Key attributes: id, businessName, primaryColor
+    (note in diagram: "+30 additional theme/UI fields, see appendix")
+    Relationships:
+      - 1 ←→ 1 License (belongs to)
+
+  User (platform admin)
+    Key attributes: id, username, email, role, accountType
+    (rename displayed attribute to "passwordHash" if that's what the
+     schema actually stores — do not show a raw "password" field)
+    Relationships:
+      - 0..* ←→ 0..* Permission (via RBAC — plain association,
+        NOT a UserPermission class; label "granted permissions")
+      - 1 ←→ 0..1 Client (optional, for client-type users)
+      - 1 ←→ 0..* UserPosConfiguration (has many)
+      - 1 ←→ 0..* Referral (as affiliate owner)
+      - 1 ←→ 0..* Referral (as referred user)
+
+  Permission
+    Key attributes: id, key, module
+    Relationships:
+      - 0..* ←→ 0..* User (see above)
+
+  Referral
+    Key attributes: id, purchaseAmount, commissionAmount, status
+    Relationships:
+      - many ←→ 1 User (affiliate owner)
+      - many ←→ 1 User (referred user)
+
+  UserPosConfiguration
+    Key attributes: id, businessName, sector, buildStatus
+    Relationships:
+      - 1 ←→ 1 License (belongs to)
+      - 1 ←→ 1 User (belongs to)
+
+═══════════════════════════════════════════════════════════════
+POS OPERATIONAL LEVEL (middle section) — Generated POS / SQLite
+═══════════════════════════════════════════════════════════════
+
+  Product
+    Key attributes: id, name, price, stock
+    Relationships:
+      - 1 ←→ 0..* OrderItem (appears in)
+
+  Order (Sale)
+    Key attributes: id, orderType, status, total
+    Relationships:
+      - 1 ←→ 0..* OrderItem (has many)
+      - many ←→ 0..1 Customer (optional)
+      - many ←→ 0..1 User (optional, the cashier)
+
+  OrderItem
+    Key attributes: id, quantity, unitPrice
+    Relationships:
+      - many ←→ 1 Order
+      - many ←→ 1 Product
+
+  Customer
+    Key attributes: id, name, loyaltyPoints
+    Relationships:
+      - 1 ←→ 0..* Order (has many)
+      - 1 ←→ 0..* LoyaltyTransaction (has many)
+      - 1 ←→ 0..* Appointment (has many)
+
+  LoyaltyTransaction
+    Key attributes: id, points, type
+    Relationships:
+      - many ←→ 1 Customer
+
+  Table
+    Key attributes: id, number, capacity
+    (standalone — referenced informally by Order.tableNumber, no FK
+     relationship in current schema; keep unconnected unless this is
+     confirmed to be wrong)
+
+  Appointment
+    Key attributes: id, serviceType, appointmentDate, status
+    Relationships:
+      - many ←→ 0..1 Customer (optional)
+
+  GiftCard
+    Key attributes: id, code, currentValue
+    (standalone per current schema — confirm during review whether
+     this should relate to Order or Customer; if genuinely
+     unconnected, keep it that way rather than inventing a link)
+
+═══════════════════════════════════════════════════════════════
+BI ANALYTICAL LEVEL (bottom section) — Platform BI workflow
+═══════════════════════════════════════════════════════════════
+
+  BiRequest
+    Key attributes: id, businessType, status, paymentStatus
+    Relationships:
+      - many ←→ 1 Client
+      - 1 ←→ 0..* BiUpload (has many)
+      - 1 ←→ 0..* BiNotification (has many)
+      NOTE: the direct BiRequest↔BiDashboard association from the
+      previous draft is REMOVED — there is no requestId FK on
+      BiDashboard. The real path is BiRequest → BiUpload → BiDashboard
+      (transitive, not drawn directly).
+
+  BiUpload
+    Key attributes: id, status, totalFiles, totalRows
+    Relationships:
+      - many ←→ 0..1 BiRequest (optional)
+      - 1 ←→ 0..1 BiProcessingJob (has one)
+      - 1 ←→ 0..* BiDashboard (has many)
+
+  BiProcessingJob
+    Key attributes: id, status, recordsLoaded
+    Relationships:
+      - 1 ←→ 1 BiUpload (belongs to)
+
+  BiDashboard
+    Key attributes: id, businessType, name, status
+    Relationships:
+      - many ←→ 1 Client
+      - many ←→ 0..1 License (optional — see corrected multiplicity
+        under License above, both sides must match)
+      - many ←→ 1 BiUpload (belongs to)
+      - 1 ←→ 0..* BiNotification (has many)
+
+  BiDashboardTemplate
+    Key attributes: id, businessType, name
+    (standalone reference/lookup table — no direct association drawn
+     to BiDashboard unless templateUsed is modeled as an FK; if it's
+     just a string match, leave unconnected)
+
+  BiNotification
+    Key attributes: id, title, type, isRead
+    Relationships:
+      - many ←→ 0..1 Client (optional)
+      - many ←→ 0..1 BiRequest (optional)
+
+═══════════════════════════════════════════════════════════════
+LICENSE HISTORY (right side)
+═══════════════════════════════════════════════════════════════
+
+  LicenseActivationHistory
+    Key attributes: id, action, fromStatus, toStatus
+
+  LicenseValidationLog
+    Key attributes: id, isValid, status
+
+  LicenseTransferHistory
+    Key attributes: id, transferType, authorizedBy
+
+═══════════════════════════════════════════════════════════════
+EXCLUSIONS (explicitly do NOT draw these as classes)
+═══════════════════════════════════════════════════════════════
+
+  - LicenseModule, UserPermission: Prisma join tables. Represent as
+    plain *↔* associations instead (see Module and Permission above).
+  - Dim*, Fact* (warehouse tables): ETL implementation details.
+  - BiAnalysisRequest, BiRequestEvent, BiUploadFile, BiProcessingLog,
+    BiDashboardAssignment: audit/log/event-detail tables referenced
+    in the original schema notes but with no defined attributes here
+    and no clear conceptual role at analysis level. If any of these
+    is actually important to the domain story (e.g.
+    BiDashboardAssignment if dashboards are shared with specific
+    portal users), define it properly with real attributes and add
+    it back in — otherwise omit and mention in report text only.
+
+═══════════════════════════════════════════════════════════════
+ENUMS (show as note boxes attached to the relevant class,
+consistent treatment — promote clearly-fixed-value String fields
+to enums too, don't leave some as raw String with inline comments)
+═══════════════════════════════════════════════════════════════
+
+  UserRole { SUPER_ADMIN, ADMIN, MANAGER, CASHIER, KITCHEN, CLIENT }
+  LicenseType { SUBSCRIPTION, LIFETIME }
+  LicenseStatus { CREATED, ISSUED, ACTIVATED, ACTIVE, EXPIRED,
+                  SUSPENDED, REVOKED, REPLACED, RENEWED }
+  OrderType { DINE_IN, TAKEAWAY, DELIVERY }
+  OrderStatus { PENDING, PREPARING, READY, DELIVERED, CANCELLED }
+  LoyaltyTransactionType { EARNED, REDEEMED }
+  AccountType { NORMAL, BUSINESS, RESELLER }
+  VerificationStatus { PENDING, APPROVED, REJECTED }
+  ReferralStatus { PENDING, APPROVED, PAID, CANCELLED }
+  BiRequestStatus { PENDING_REVIEW, ... } (fill in actual values)
+  BiUploadStatus { UPLOADED, ... } (fill in actual values)
+  BiProcessingJobStatus { QUEUED, PROCESSING, COMPLETED, FAILED }
+  BiDashboardStatus { DRAFT, PUBLISHED }
+  AppointmentStatus { SCHEDULED, COMPLETED, CANCELLED }
+
+═══════════════════════════════════════════════════════════════
+VISUAL LAYOUT
+═══════════════════════════════════════════════════════════════
+
+  - TOP section: Platform level
+  - MIDDLE section: POS operational level
+  - BOTTOM section: BI analytical level
+  - RIGHT side: License history classes
+  - Use dashed grouping boxes/packages to separate the three levels
+    plus a fourth for License History.
+  - Label associations with role names and multiplicities.
+  - Do NOT show FK attributes explicitly (id: String (FK)) — at
+    analysis level, the association line + multiplicity already
+    conveys the relationship; showing raw FK columns is
+    implementation-level detail.
+
+
+ ===========================================================================
+
+
+
+
+===========================================================================
+
+
+FIGURE 5: fig:usecase-client-generation
+-----------------------------------------------------------
+Type: Activity Diagram
+Filename: figures/ch3-usecase-client-generation.png
+Caption: Client-driven POS generation scenario.
+
+Description:
+Draw a detailed activity diagram for the client-driven POS generation flow.
+Both the client and the administrator have direct access to the same POS
+generator - the client can generate POS for his own business.
+
+ACTORS:
+  - Client (business owner - has direct access to the POS generator)
+  - Administrator (operator - also has access to the same generator)
+
+ACTIVITY FLOW:
+
+  1. Client registers / Administrator creates Client account
+  2. Administrator creates License (sector, type)
+  3. Administrator configures LicenseModules and LicenseConfiguration
+  4. Client receives license key
+  5. Client opens POS Generator page (or Admin does from admin portal)
+  6. Client selects business sector (restaurant, cafe, retail, bakery, pharmacy, beauty/salon)
+  7. System loads default modules for the sector
+  8. Client reviews and adjusts module selection
+  9. Client configures theme (colors, logo)
+  10. Client clicks Generate
+  11. Backend executes 8-stage pipeline: license validation, directory init, template copy, module filter, dependency install, theme customization, file patching, build
+  12. System exposes generated application for download
+  13. Client downloads installer (.exe)
+
+Use swim lanes: Client lane, Admin lane, System lane.
+Mark decision points (e.g., License valid? yes/no).
+
+
+===========================================================================
+
+
+FIGURE 6: fig:bi-service-workflow
+-----------------------------------------------------------
+Type: Workflow Diagram
+Filename: figures/ch3-bi-service-workflow.png
+Caption: End-to-end business-intelligence service workflow of CarthaPOS.
+
+Description:
+Draw a linear workflow showing the complete BI service lifecycle.
+
+  STEP 1: POS Data Export - Generated POS exports data as ZIP (20 datasets, 246 columns)
+  STEP 2: Upload - Client or operator uploads ZIP to platform
+  STEP 3: BI Request - Client submits request with objectives, KPIs, payment
+  STEP 4: Data Validation - Schema validation, quality checks, warnings/errors
+  STEP 5: ETL Processing - Extract (unzip), Transform (map, clean), Load (warehouse)
+  STEP 6: Dashboard Provisioning - Select template, deep-copy, bake tenant filter
+  STEP 7: Dashboard Publication - Assign to client, generate embed link, notify
+  STEP 8: Client Consultation - Client views dashboards, receives insights, BI meeting
+
+
+===========================================================================
+
+
+FIGURE 7: fig:gimsi-carthapos
+-----------------------------------------------------------
+Type: Methodology Mapping Diagram
+Filename: figures/ch3-gimsi-carthapos.png
+Caption: Application of the GIMSI methodology to the CarthaPOS BI lifecycle.
+
+Description:
+Draw 8 rows, each with GIMSI phase on left and CarthaPOS implementation on right:
+
+  1. Framing -> Multi-tenant POS analytics scope, 6 sectors
+  2. Data Sources -> BiSchemaContract v2.2.0, 20 datasets, SQLite export
+  3. Data Preparation -> Validation pipeline, schema enforcement
+  4. ETL -> etl-pipeline.js, ~897 lines, synchronous Prisma load
+  5. Warehouse -> Star schema, 5 dimensions, 6 facts, PostgreSQL
+  6. Analysis -> warehouse-service.js, 53 indicators, 13 categories
+  7. Visualization -> Metabase deep-copy, per-client tenant-filtered dashboards
+  8. Decision Support -> Client portal, notifications, BI meetings
+
+
+===========================================================================
+
+
+FIGURE 8: fig:scrum-cycle
+-----------------------------------------------------------
+Type: Process Diagram
+Filename: figures/ch3-scrum-cycle.png
+Caption: Application of the Scrum framework to the CarthaPOS development process.
+
+Description:
+Draw a Scrum lifecycle with product backlog, sprint cycle, and 6 sprints.
+
+TOP: Product Backlog (51 user stories)
+CENTER: Sprint Planning -> Development -> Review -> Retrospective (circular)
+BOTTOM: Timeline of 6 sprints:
+
+  Sprint 1 (Release 1): Foundation - Backend, Prisma schema, admin shell, POS template
+  Sprint 2 (Release 1): POS Core - Sales, products, inventory, kitchen, tables, reports
+  Sprint 3 (Release 2): Generator - 8-stage pipeline, sectors, module filtering
+  Sprint 4 (Release 2): Admin Dashboard - Client/license/module management, RBAC, BI ops
+  Sprint 5 (Release 3): Security - JWT, 35-key RBAC, Ed25519 licensing
+  Sprint 6 (Release 3): Integration - Testing, Docker, Render deployment
+
+Label releases: Release 1 (Sprints 1-2), Release 2 (Sprints 3-4), Release 3 (Sprints 5-6).

@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { POSConfiguration } from '../lib/POSConfiguration';
 import { useAppConfig } from '../hooks/useAppConfig';
 import { useAuth } from '../contexts/AuthContext';
+import { usePermissions } from '../contexts/PermissionsContext';
 import { getImageStyle } from '../utils/imageSettings';
 import { Button } from '../components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
@@ -58,9 +59,18 @@ function Skeleton({ className }) {
 export default function Inventory() {
   const { config: electronConfig } = useAppConfig();
   const { user } = useAuth();
-  const isAdmin = user?.role === 'admin';
-  const isManager = user?.role === 'manager';
-  const canEdit = isAdmin || isManager;
+  const { canCreate, canUpdate, canDelete, canManage } = usePermissions('inventory');
+  const supPerms = usePermissions('suppliers');
+  const canEdit = canUpdate; // legacy alias (stock adjustments)
+  const permsRef = useRef({ canCreate, canUpdate, canDelete, sup: supPerms });
+  permsRef.current = { canCreate, canUpdate, canDelete, sup: supPerms };
+  const permGuard = useCallback((action, scope = 'inventory') => {
+    const p = permsRef.current;
+    const src = scope === 'suppliers' ? p.sup : p;
+    const ok = action === 'create' ? src.canCreate : action === 'delete' ? src.canDelete : src.canUpdate;
+    if (!ok) alert("Action non autorisée : vous avez un accès en lecture seule sur ce module.");
+    return ok;
+  }, []);
 
   const isSupplierEnabled = electronConfig?.modules
     ? electronConfig.modules.some(m => (m.name || m) === 'suppliers' && m.isEnabled !== false)
@@ -198,13 +208,14 @@ export default function Inventory() {
         p.barcode?.includes(s)
       );
     }
+    const isManagedP = p => !(p.manage_stock === 0 || p.manage_stock === false);
     if (filterFamily !== 'all') result = result.filter(p => (p.family || p.category) === filterFamily);
     if (filterSupplier !== 'all') result = result.filter(p => p.supplier === filterSupplier);
-    if (filterStatus === 'in-stock') result = result.filter(p => p.stock > 0 && !(p.min_stock > 0 && p.stock <= p.min_stock));
-    if (filterStatus === 'low-stock') result = result.filter(p => p.min_stock > 0 && p.stock > 0 && p.stock <= p.min_stock);
-    if (filterStatus === 'out-of-stock') result = result.filter(p => p.stock === 0);
-    if (filterLowOnly) result = result.filter(p => p.min_stock > 0 && p.stock > 0 && p.stock <= p.min_stock);
-    if (filterOutOfStock) result = result.filter(p => p.stock === 0);
+    if (filterStatus === 'in-stock') result = result.filter(p => isManagedP(p) && p.stock > 0 && !(p.min_stock > 0 && p.stock <= p.min_stock));
+    if (filterStatus === 'low-stock') result = result.filter(p => isManagedP(p) && p.min_stock > 0 && p.stock > 0 && p.stock <= p.min_stock);
+    if (filterStatus === 'out-of-stock') result = result.filter(p => isManagedP(p) && p.stock === 0);
+    if (filterLowOnly) result = result.filter(p => isManagedP(p) && p.min_stock > 0 && p.stock > 0 && p.stock <= p.min_stock);
+    if (filterOutOfStock) result = result.filter(p => isManagedP(p) && p.stock === 0);
     const [key, dir] = sortBy.split('-');
     result.sort((a, b) => {
       let cmp = 0;
@@ -237,12 +248,14 @@ export default function Inventory() {
   const movTotalPages = Math.max(1, Math.ceil(movements.length / 50));
 
   const stats = useMemo(() => {
+    const isManaged = p => !(p.manage_stock === 0 || p.manage_stock === false);
+    const managed = products.filter(isManaged);
     const total = products.length;
-    const totalStock = products.reduce((s, p) => s + (p.stock || 0), 0);
-    const outOfStock = products.filter(p => p.stock === 0).length;
-    const lowStock = products.filter(p => p.min_stock > 0 && p.stock > 0 && p.stock <= p.min_stock).length;
-    const invValue = products.reduce((s, p) => s + ((p.cost_price || p.price || 0) * (p.stock || 0)), 0);
-    const retailValue = products.reduce((s, p) => s + ((p.price || 0) * (p.stock || 0)), 0);
+    const totalStock = managed.reduce((s, p) => s + (p.stock || 0), 0);
+    const outOfStock = managed.filter(p => p.stock === 0).length;
+    const lowStock = managed.filter(p => p.min_stock > 0 && p.stock > 0 && p.stock <= p.min_stock).length;
+    const invValue = managed.reduce((s, p) => s + ((p.cost_price || p.price || 0) * (p.stock || 0)), 0);
+    const retailValue = managed.reduce((s, p) => s + ((p.price || 0) * (p.stock || 0)), 0);
     const avgCost = products.filter(p => p.cost_price > 0).length > 0
       ? products.filter(p => p.cost_price > 0).reduce((s, p) => s + p.cost_price, 0) / products.filter(p => p.cost_price > 0).length : 0;
     const familiesCount = new Set(products.map(p => p.family || p.category).filter(Boolean)).size;
@@ -271,6 +284,10 @@ export default function Inventory() {
   }, [selectedIds, paginatedProducts]);
 
   const handleAdjustOpen = useCallback((product) => {
+    if (product.manage_stock === 0 || product.manage_stock === false) {
+      showToast('Produit non géré en stock : aucune quantité en main à ajuster.', 'error');
+      return;
+    }
     setAdjustProduct(product);
     setAdjustMode('adjust');
     setAdjustValue('');
@@ -282,6 +299,7 @@ export default function Inventory() {
 
   const handleAdjustSubmit = useCallback(async () => {
     if (!adjustProduct) return;
+    if (!permGuard('update')) return;
     let newStock;
     if (adjustMode === 'adjust') {
       if (!adjustValue) return;
@@ -302,7 +320,7 @@ export default function Inventory() {
           user_name: user?.fullName || user?.username || 'Utilisateur',
         });
       } else {
-        await window.electronAPI.updateProduct(adjustProduct.id, { ...adjustProduct, stock: newStock }, user?.role);
+        await window.electronAPI.updateProduct(adjustProduct.id, { ...adjustProduct, stock: newStock }, permsRef.current);
         if (newStock !== adjustProduct.stock) {
           await window.electronAPI.addStockMovement?.({
             product_id: adjustProduct.id,
@@ -326,9 +344,10 @@ export default function Inventory() {
   }, [adjustProduct, adjustMode, adjustValue, adjustReason, adjustReference, adjustType, user, loadData, showToast]);
 
   const handleBulkDelete = useCallback(async () => {
+    if (!permGuard('delete')) return;
     const ids = [...selectedIds];
     for (const id of ids) {
-      try { await window.electronAPI.deleteProduct(id, user?.role); } catch { /* skip */ }
+      try { await window.electronAPI.deleteProduct(id, permsRef.current); } catch { /* skip */ }
     }
     setSelectedIds(new Set());
     setConfirmBulkDelete(false);
@@ -337,18 +356,18 @@ export default function Inventory() {
   }, [selectedIds, user, loadData, showToast]);
 
   const handleBulkAdjust = useCallback(async (newStock) => {
+    if (!permGuard('update')) return;
     const ids = [...selectedIds];
     for (const id of ids) {
       const prod = products.find(p => p.id === id);
-      if (prod) {
-        try {
-          if (window.electronAPI.adjustStock) {
-            await window.electronAPI.adjustStock({ product_id: id, new_stock: newStock, movement_type: 'adjustment', reason: 'Ajustement groupé', user_name: user?.fullName || user?.username || 'Utilisateur' });
-          } else {
-            await window.electronAPI.updateProduct(id, { ...prod, stock: newStock }, user?.role);
-          }
-        } catch { /* skip */ }
-      }
+      if (!prod || prod.manage_stock === 0 || prod.manage_stock === false) continue; // non-managed: nothing to adjust
+      try {
+        if (window.electronAPI.adjustStock) {
+          await window.electronAPI.adjustStock({ product_id: id, new_stock: newStock, movement_type: 'adjustment', reason: 'Ajustement groupé', user_name: user?.fullName || user?.username || 'Utilisateur' });
+        } else {
+          await window.electronAPI.updateProduct(id, { ...prod, stock: newStock }, permsRef.current);
+        }
+      } catch { /* skip */ }
     }
     setSelectedIds(new Set());
     showToast(`${ids.length} produit(s) ajusté(s)`);
@@ -357,11 +376,14 @@ export default function Inventory() {
 
   const handleExportCSV = useCallback((data, filename) => {
     const headers = ['Nom', 'Famille', 'Fournisseur', 'Stock', 'Stock Min', 'Prix Achat', 'Prix Vente', 'Valeur', 'Code-barres', 'Unité'];
-    const rows = (data || filteredProducts).map(p => [
-      p.name, p.family || p.category || '', p.supplier || '', p.stock || 0, p.min_stock || 0,
-      p.cost_price || 0, p.price || 0, ((p.cost_price || p.price) * (p.stock || 0)).toFixed(2),
-      p.barcode || '', p.unit || ''
-    ]);
+    const rows = (data || filteredProducts).map(p => {
+      const isNonManaged = p.manage_stock === 0 || p.manage_stock === false;
+      return [
+        p.name, p.family || p.category || '', p.supplier || '', isNonManaged ? 'Non géré' : (p.stock || 0), isNonManaged ? '' : (p.min_stock || 0),
+        p.cost_price || 0, p.price || 0, isNonManaged ? '0.00' : ((p.cost_price || p.price) * (p.stock || 0)).toFixed(2),
+        p.barcode || '', p.unit || ''
+      ];
+    });
     const csv = [headers, ...rows].map(r => r.map(c => `"${String(c).replace(/"/g, '""')}"`).join(',')).join('\n');
     const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
@@ -372,8 +394,9 @@ export default function Inventory() {
   }, [filteredProducts, showToast]);
 
   const handleDeleteProduct = useCallback(async (product) => {
+    if (!permGuard('delete')) return;
     try {
-      await window.electronAPI.deleteProduct(product.id, user?.role);
+      await window.electronAPI.deleteProduct(product.id, permsRef.current);
       showToast(`"${product.name}" supprimé`);
       await loadData();
     } catch (e) { showToast('Erreur: ' + e.message, 'error'); }
@@ -382,6 +405,7 @@ export default function Inventory() {
 
   const handleSupplierSave = useCallback(async () => {
     if (!supplierForm.name.trim()) return;
+    if (!permGuard(editingSupplier ? 'update' : 'create', 'suppliers')) return;
     try {
       if (editingSupplier) {
         await window.electronAPI.updateSupplier(editingSupplier.id, supplierForm);
@@ -398,6 +422,7 @@ export default function Inventory() {
   }, [supplierForm, editingSupplier, loadData, showToast]);
 
   const handleDeleteSupplier = useCallback(async (id) => {
+    if (!permGuard('delete', 'suppliers')) return;
     try {
       await window.electronAPI.deleteSupplier(id);
       showToast('Fournisseur supprimé');
@@ -470,7 +495,7 @@ export default function Inventory() {
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <Button variant="outline" size="sm" onClick={() => handleExportCSV(null, 'inventaire')}>
+          <Button variant="outline" size="sm" onClick={() => handleExportCSV(null, 'inventaire')} disabled={!canManage}>
             <Download className="h-4 w-4 mr-1" /> Exporter
           </Button>
           <Button variant="outline" size="sm" onClick={loadData}>
@@ -581,14 +606,16 @@ export default function Inventory() {
             <div className="flex items-center gap-3 bg-muted/50 border rounded-xl px-4 py-2">
               <Badge variant="default" className="text-xs">{selectedIds.size} sélectionné{selectedIds.size > 1 ? 's' : ''}</Badge>
               <Separator orientation="vertical" className="h-5" />
-              <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={() => {
-                const val = window.prompt('Nouveau stock pour les produits sélectionnés:');
-                if (val !== null && !isNaN(parseInt(val))) handleBulkAdjust(parseInt(val));
-              }}><Edit className="h-3.5 w-3.5 mr-1" /> Ajuster stock</Button>
-              <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={() => handleExportCSV(selectedIds.size > 0 ? products.filter(p => selectedIds.has(p.id)) : null, 'selection')}>
+              {canUpdate && (
+                <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={() => {
+                  const val = window.prompt('Nouveau stock pour les produits sélectionnés:');
+                  if (val !== null && !isNaN(parseInt(val))) handleBulkAdjust(parseInt(val));
+                }}><Edit className="h-3.5 w-3.5 mr-1" /> Ajuster stock</Button>
+              )}
+              <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={() => handleExportCSV(selectedIds.size > 0 ? products.filter(p => selectedIds.has(p.id)) : null, 'selection')} disabled={!canManage}>
                 <Download className="h-3.5 w-3.5 mr-1" /> Exporter
               </Button>
-              {canEdit && (
+              {canDelete && (
                 <Button variant="ghost" size="sm" className="h-7 text-xs text-destructive hover:text-destructive" onClick={() => setConfirmBulkDelete(true)}>
                   <Trash2 className="h-3.5 w-3.5 mr-1" /> Supprimer
                 </Button>
@@ -630,7 +657,8 @@ export default function Inventory() {
                         </TableCell>
                       </TableRow>
                     ) : paginatedProducts.map(product => {
-                      const status = getStockStatus(product.stock, product.min_stock);
+                      const isNonManaged = product.manage_stock === 0 || product.manage_stock === false;
+                      const status = isNonManaged ? { text: 'Stock non géré', variant: 'outline', color: 'text-gray-500', bg: 'bg-gray-50' } : getStockStatus(product.stock, product.min_stock);
                       const value = (product.cost_price || product.price || 0) * (product.stock || 0);
                       const isSelected = selectedIds.has(product.id);
                       return (
@@ -649,7 +677,7 @@ export default function Inventory() {
                           </TableCell>
                           <TableCell className="text-sm">{product.family || product.category || '-'}</TableCell>
                           {isSupplierEnabled && <TableCell className="text-sm max-w-[120px] truncate">{product.supplier || '-'}</TableCell>}
-                          <TableCell className="text-right font-mono text-sm font-medium">{product.stock || 0}</TableCell>
+                          <TableCell className="text-right font-mono text-sm font-medium">{isNonManaged ? '—' : (product.stock || 0)}</TableCell>
                           <TableCell className="text-right font-mono text-sm text-muted-foreground">{product.min_stock || 0}</TableCell>
                           <TableCell className="text-sm">{product.unit || '-'}</TableCell>
                           <TableCell className="text-right text-sm">{product.cost_price > 0 ? formatPrice(product.cost_price) : '-'}</TableCell>
@@ -659,8 +687,8 @@ export default function Inventory() {
                           <TableCell>
                             <div className="flex items-center gap-0.5">
                               <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => handleOpenDetails(product)} title="Détails"><Eye className="h-3.5 w-3.5" /></Button>
-                              <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => handleAdjustOpen(product)} title="Ajuster stock" disabled={!canEdit}><Edit className="h-3.5 w-3.5" /></Button>
-                              {canEdit && <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive hover:text-destructive" onClick={() => setConfirmDelete(product)} title="Supprimer"><Trash2 className="h-3.5 w-3.5" /></Button>}
+                              <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => handleAdjustOpen(product)} title="Ajuster stock" disabled={!canUpdate}><Edit className="h-3.5 w-3.5" /></Button>
+                              {canDelete && <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive hover:text-destructive" onClick={() => setConfirmDelete(product)} title="Supprimer"><Trash2 className="h-3.5 w-3.5" /></Button>}
                             </div>
                           </TableCell>
                         </TableRow>
@@ -703,7 +731,7 @@ export default function Inventory() {
               <Input placeholder="Rechercher..." value={movFilterSearch} onChange={e => setMovFilterSearch(e.target.value)} onKeyDown={e => e.key === 'Enter' && loadMovements()} className="pl-9 h-9" />
             </div>
             <Button variant="outline" size="sm" className="h-9" onClick={loadMovements}><RefreshCw className="h-4 w-4 mr-1" /> Charger</Button>
-            <Button variant="outline" size="sm" className="h-9" onClick={() => handleExportCSV(movements.map(m => ({ name: m.product_name, type: m.movement_type, qty: m.quantity, before: m.stock_before, after: m.stock_after, reason: m.reason, user: m.user_name, date: m.created_at })), 'mouvements')}>
+            <Button variant="outline" size="sm" className="h-9" onClick={() => handleExportCSV(movements.map(m => ({ name: m.product_name, type: m.movement_type, qty: m.quantity, before: m.stock_before, after: m.stock_after, reason: m.reason, user: m.user_name, date: m.created_at })), 'mouvements')} disabled={!canManage}>
               <Download className="h-4 w-4 mr-1" /> Exporter
             </Button>
           </div>
@@ -787,9 +815,11 @@ export default function Inventory() {
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
               <Input placeholder="Rechercher un fournisseur..." value={supplierSearch} onChange={e => setSupplierSearch(e.target.value)} className="pl-9 h-9" />
             </div>
-            <Button size="sm" onClick={() => { setEditingSupplier(null); setSupplierForm({ name: '', contact: '', phone: '', email: '', address: '', notes: '' }); setSupplierDialogOpen(true); }}>
-              <Plus className="h-4 w-4 mr-1" /> Nouveau fournisseur
-            </Button>
+            {supPerms.canCreate && (
+              <Button size="sm" onClick={() => { setEditingSupplier(null); setSupplierForm({ name: '', contact: '', phone: '', email: '', address: '', notes: '' }); setSupplierDialogOpen(true); }}>
+                <Plus className="h-4 w-4 mr-1" /> Nouveau fournisseur
+              </Button>
+            )}
           </div>
           <Card>
             <CardContent className="p-0">
@@ -818,8 +848,8 @@ export default function Inventory() {
                         <TableCell className="text-right text-sm">{prodCount}</TableCell>
                         <TableCell className="text-right">
                           <div className="flex items-center gap-0.5 justify-end">
-                            <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => { setEditingSupplier(s); setSupplierForm({ name: s.name, contact: s.contact || '', phone: s.phone || '', email: s.email || '', address: s.address || '', notes: s.notes || '' }); setSupplierDialogOpen(true); }}><Edit className="h-3.5 w-3.5" /></Button>
-                            {canEdit && <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive hover:text-destructive" onClick={() => handleDeleteSupplier(s.id)}><Trash2 className="h-3.5 w-3.5" /></Button>}
+                            {supPerms.canUpdate && <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => { setEditingSupplier(s); setSupplierForm({ name: s.name, contact: s.contact || '', phone: s.phone || '', email: s.email || '', address: s.address || '', notes: s.notes || '' }); setSupplierDialogOpen(true); }}><Edit className="h-3.5 w-3.5" /></Button>}
+                            {supPerms.canDelete && <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive hover:text-destructive" onClick={() => handleDeleteSupplier(s.id)}><Trash2 className="h-3.5 w-3.5" /></Button>}
                           </div>
                         </TableCell>
                       </TableRow>
@@ -930,10 +960,16 @@ export default function Inventory() {
                   {isSupplierEnabled && <div><span className="text-muted-foreground">Fournisseur:</span> <span className="font-medium">{detailsProduct.supplier || '-'}</span></div>}
                   <div><span className="text-muted-foreground">Prix achat:</span> <span className="font-medium">{detailsProduct.cost_price > 0 ? formatPrice(detailsProduct.cost_price) : '-'}</span></div>
                   <div><span className="text-muted-foreground">Prix vente:</span> <span className="font-medium">{formatPrice(detailsProduct.price)}</span></div>
-                  <div><span className="text-muted-foreground">Stock actuel:</span> <span className="font-bold">{detailsProduct.stock || 0}</span></div>
-                  <div><span className="text-muted-foreground">Stock min:</span> <span className="font-medium">{detailsProduct.min_stock || 0}</span></div>
+                  {detailsProduct.manage_stock === 0 || detailsProduct.manage_stock === false ? (
+                    <div className="col-span-2"><span className="text-muted-foreground">Stock:</span> <span className="font-medium">Non géré — vendu à la pièce, quantité en main non suivie</span></div>
+                  ) : (
+                    <>
+                      <div><span className="text-muted-foreground">Stock actuel:</span> <span className="font-bold">{detailsProduct.stock || 0}</span></div>
+                      <div><span className="text-muted-foreground">Stock min:</span> <span className="font-medium">{detailsProduct.min_stock || 0}</span></div>
+                    </>
+                  )}
                   <div><span className="text-muted-foreground">Unité:</span> <span className="font-medium">{detailsProduct.unit || '-'}</span></div>
-                  <div><span className="text-muted-foreground">Valeur stock:</span> <span className="font-medium">{formatPrice((detailsProduct.cost_price || detailsProduct.price) * (detailsProduct.stock || 0))}</span></div>
+                  <div><span className="text-muted-foreground">Valeur stock:</span> <span className="font-medium">{detailsProduct.manage_stock === 0 || detailsProduct.manage_stock === false ? '—' : formatPrice((detailsProduct.cost_price || detailsProduct.price) * (detailsProduct.stock || 0))}</span></div>
                   {detailsProduct.cost_price > 0 && (
                     <div><span className="text-muted-foreground">Marge:</span> <span className="font-medium">{((detailsProduct.price - detailsProduct.cost_price) / detailsProduct.cost_price * 100).toFixed(1)}%</span></div>
                   )}
@@ -966,7 +1002,7 @@ export default function Inventory() {
           </ScrollArea>
           <DialogFooter className="flex-shrink-0">
             <Button variant="outline" onClick={() => setDetailsOpen(false)}>Fermer</Button>
-            {canEdit && <Button onClick={() => { setDetailsOpen(false); handleAdjustOpen(detailsProduct); }}>Ajuster stock</Button>}
+            {canUpdate && <Button onClick={() => { setDetailsOpen(false); handleAdjustOpen(detailsProduct); }}>Ajuster stock</Button>}
           </DialogFooter>
         </DialogContent>
       </Dialog>

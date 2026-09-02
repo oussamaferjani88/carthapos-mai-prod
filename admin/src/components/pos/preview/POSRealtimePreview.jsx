@@ -99,19 +99,25 @@ export default function POSRealtimePreview({
   const handleOpenReceiptDesigner = () => setViewMode('receipt');
   const handleCloseReceiptDesigner = () => setViewMode('pos');
 
-  // Largeur de conception du POS réel (~1366px plein écran). En dessous de
-  // cette largeur, l'aperçu est mis à l'échelle pour rester proportionnel au
-  // conteneur (évite des éléments trop grands par rapport à la taille du cadre).
+  // Dimensions de conception du POS réel (~1366x768 plein écran). L'aperçu est
+  // mis à l'échelle en mode "contain" (min des ratios largeur ET hauteur) pour
+  // remplir exactement le cadre sans déborder ni être rogné, quelle que soit la
+  // taille du conteneur. L'élément non-scalé est agrandi en sens inverse
+  // ((1/scale)*100%) puis réduit par le scale pour occuper 100% du cadre.
   const DESIGN_WIDTH = 1366;
+  const DESIGN_HEIGHT = 768;
+  const MIN_SCALE = 0.35;
   const containerRef = useRef(null);
-  const [fitScale, setFitScale] = useState(1);
+  const [containerSize, setContainerSize] = useState({ width: 0, height: 0 });
 
   useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
     const update = () => {
-      const width = el.clientWidth || 0;
-      setFitScale(Math.max(0.45, Math.min(1, width / DESIGN_WIDTH)));
+      setContainerSize({
+        width: el.clientWidth || 0,
+        height: el.clientHeight || 0
+      });
     };
     update();
     if (typeof ResizeObserver !== 'undefined') {
@@ -123,13 +129,32 @@ export default function POSRealtimePreview({
     return () => window.removeEventListener('resize', update);
   }, []);
 
-  // Configuration du scale selon le device
+  const { width: containerWidth, height: containerHeight } = containerSize;
+
+  // Échelle "contain" : la plus petite des deux contraintes pour que le POS
+  // reste entièrement visible (largeur ET hauteur) sans débordement.
+  const fitScale = Math.max(
+    MIN_SCALE,
+    Math.min(
+      1,
+      containerWidth > 0 && containerHeight > 0
+        ? Math.min(containerWidth / DESIGN_WIDTH, containerHeight / DESIGN_HEIGHT)
+        : 1
+    )
+  );
+
+  // Configuration du scale selon le device. Les appareils sont aussi bornés par
+  // la hauteur du cadre pour éviter tout rognage vertical sur écrans courts.
   const getScaleConfig = () => {
     switch (previewDevice) {
-      case 'mobile':
-        return { scale: 0.7, width: '142.86%', height: '142.86%' };
-      case 'tablet':
-        return { scale: 0.8, width: '125%', height: '125%' };
+      case 'mobile': {
+        const s = containerHeight > 0 ? Math.max(MIN_SCALE, Math.min(0.7, containerHeight / DESIGN_HEIGHT)) : 0.7;
+        return { scale: s, width: `${(1 / s) * 100}%`, height: `${(1 / s) * 100}%` };
+      }
+      case 'tablet': {
+        const s = containerHeight > 0 ? Math.max(MIN_SCALE, Math.min(0.8, containerHeight / DESIGN_HEIGHT)) : 0.8;
+        return { scale: s, width: `${(1 / s) * 100}%`, height: `${(1 / s) * 100}%` };
+      }
       case 'desktop':
       default:
         return { scale: fitScale, width: `${(1 / fitScale) * 100}%`, height: `${(1 / fitScale) * 100}%` };
@@ -146,12 +171,9 @@ export default function POSRealtimePreview({
           style={{
             width: '100%',
             height: '100%',
-            minHeight: '400px',
             background: '#f8fafc',
             borderRadius: '12px',
             overflow: 'hidden',
-            display: 'flex',
-            flexDirection: 'column',
             boxShadow: '0 2px 12px rgba(0,0,0,0.1)',
             border: '1px solid #e5e7eb',
             position: 'relative',
@@ -160,14 +182,14 @@ export default function POSRealtimePreview({
             boxSizing: 'border-box'
           }}
         >
-          {/* Conteneur principal — flex:0 0 auto (pas de flex-grow) pour que la
-              hauteur compensée ((1/scale)*100%) soit respectée : le contenu
-              non-scalé est plus grand que le conteneur puis réduit par le
-              scale pour remplir exactement 100% de la hauteur. */}
+          {/* Conteneur principal — position absolue remplissant le cadre. Le
+              contenu non-scalé est agrandi en sens inverse ((1/scale)*100%) puis
+              réduit par le scale pour occuper exactement 100% du cadre : pas de
+              bande vide, pas de débordement, scrolling interne au workspace. */}
           <div style={{ 
-            flex: '0 0 auto', 
-            minHeight: '100%',
-            minWidth: 0, 
+            position: 'absolute',
+            top: 0,
+            left: 0,
             overflow: 'hidden',
             background: 'transparent',
             transform: `scale(${scaleConfig.scale})`,
@@ -175,7 +197,6 @@ export default function POSRealtimePreview({
             width: scaleConfig.width,
             height: scaleConfig.height,
             transition: 'transform 0.3s ease-in-out',
-            position: 'relative',
             display: 'flex',
             flexDirection: 'column',
             margin: 0,

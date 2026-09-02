@@ -1,5 +1,7 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { PermissionManager } from '../utils/permissions';
+
+const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001/api';
 
 const AuthContext = createContext();
 
@@ -11,68 +13,87 @@ export const useAuth = () => {
   return context;
 };
 
+const ADMIN_ROLES = ['SUPER_ADMIN', 'ADMIN'];
+
 export const AuthProvider = ({ children }) => {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [user, setUser] = useState(null);
-  const [token, setToken] = useState(null);
-  const [permissionManager, setPermissionManager] = useState(null);
   const [loading, setLoading] = useState(true);
 
-  // Charger l'état d'authentification au démarrage
-  useEffect(() => {
-    const savedToken = localStorage.getItem('pos_admin_token');
-    const savedUser = localStorage.getItem('pos_admin_user');
-    
-    if (savedToken && savedUser) {
-      try {
-        const userData = JSON.parse(savedUser);
-        setToken(savedToken);
-        setUser(userData);
-        setPermissionManager(new PermissionManager(userData.permissions || ['all']));
-        setIsAuthenticated(true);
-      } catch (error) {
-        console.error('Erreur lors du chargement de l\'authentification:', error);
-        localStorage.removeItem('pos_admin_token');
-        localStorage.removeItem('pos_admin_user');
-      }
-    }
-    setLoading(false);
+  const clearSession = useCallback(() => {
+    setUser(null);
+    setIsAuthenticated(false);
   }, []);
 
-  // Connexion avec JWT
-  const login = (authData) => {
-    const { token: jwtToken, user: userData } = authData;
-    
-    // Store JWT token
-    setToken(jwtToken);
-    setUser(userData);
-    
-    // Set permissions (admin has 'all', others have specific permissions)
-    const permissions = userData.role === 'ADMIN' ? ['all'] : userData.permissions || [];
-    setPermissionManager(new PermissionManager(permissions));
+  // Session lives in an HttpOnly cookie — restoring it requires calling /me.
+  const restoreSession = useCallback(async () => {
+    try {
+      const res = await fetch(`${API_BASE_URL}/auth/me`, {
+        method: 'GET',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      if (!res.ok) throw new Error('Not authenticated');
+      const body = await res.json();
+      const authUser = body?.data?.user;
+      if (!authUser) throw new Error('Not authenticated');
+      setUser(authUser);
+      setIsAuthenticated(true);
+    } catch {
+      clearSession();
+    } finally {
+      setLoading(false);
+    }
+  }, [clearSession]);
+
+  useEffect(() => {
+    restoreSession();
+  }, [restoreSession]);
+
+  // Connexion via HttpOnly cookie session (no token in localStorage)
+  const login = async (credentials) => {
+    const res = await fetch(`${API_BASE_URL}/auth/login`, {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(credentials),
+    });
+
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || 'Login failed');
+    }
+
+    const body = await res.json();
+    const authUser = body?.data?.user;
+    if (!authUser) throw new Error('Login failed');
+
+    setUser(authUser);
     setIsAuthenticated(true);
-    
-    // Sauvegarder dans localStorage
-    localStorage.setItem('pos_admin_token', jwtToken);
-    localStorage.setItem('pos_admin_user', JSON.stringify({
-      ...userData,
-      permissions
-    }));
+    return authUser;
   };
 
   // Déconnexion
-  const logout = () => {
-    setToken(null);
-    setUser(null);
-    setPermissionManager(null);
-    setIsAuthenticated(false);
-    localStorage.removeItem('pos_admin_token');
-    localStorage.removeItem('pos_admin_user');
+  const logout = async () => {
+    try {
+      await fetch(`${API_BASE_URL}/auth/logout`, {
+        method: 'POST',
+        credentials: 'include',
+      });
+    } catch { /* ignore */ }
+    clearSession();
   };
 
-  // Get Authorization header
+  const permissionManager = user && Array.isArray(user.permissions)
+    ? new PermissionManager([
+        ...(user.role === 'SUPER_ADMIN' ? ['all'] : []),
+        ...user.permissions,
+      ])
+    : null;
+
+  // Get Authorization header (kept for compatibility; sessions are cookie-based)
   const getAuthHeader = () => {
-    return token ? { Authorization: `Bearer ${token}` } : {};
+    return {};
   };
 
   // Vérifier une permission
@@ -82,28 +103,27 @@ export const AuthProvider = ({ children }) => {
 
   // Vérifier si l'utilisateur est admin
   const isAdmin = () => {
-    return user && user.permissions.includes('all');
+    return !!user && ADMIN_ROLES.includes(user.role);
   };
 
   // Vérifier si l'utilisateur est caissier
   const isCashier = () => {
-    return user && user.permissions.includes('sales_read') && !user.permissions.includes('all');
+    return false;
   };
 
-  // Obtenir les modules autorisés
+  // Obtenir les modules autorisés (admins see everything)
   const getAuthorizedModules = (allModules) => {
-    if (!permissionManager) return [];
-    return permissionManager.filterNavigationModules(allModules, user.permissions);
+    return allModules || [];
   };
 
   const value = {
     isAuthenticated,
     user,
-    token,
     permissionManager,
     loading,
     login,
     logout,
+    restoreSession,
     hasPermission,
     isAdmin,
     isCashier,

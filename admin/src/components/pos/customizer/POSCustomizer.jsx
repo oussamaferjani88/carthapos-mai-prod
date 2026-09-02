@@ -8,6 +8,7 @@ import ColorPaletteEditor from '../../customizer/ColorPaletteEditor';
 import TypographyEditor from '../../customizer/TypographyEditor';
 import VisualEffectsEditor from '../../customizer/VisualEffectsEditor';
 import LayoutEditor from '../../customizer/LayoutEditor';
+import PageComponentsEditor from '../../customizer/PageComponentsEditor';
 import AdvancedSettings from '../../customizer/AdvancedSettings';
 import POSRealtimePreview from '../preview/POSRealtimePreview';
 import { getSelectedModuleDisplayNames } from '../../../utils/posPreviewUtils';
@@ -22,6 +23,7 @@ const SECTION_META = {
   typography: { title: 'Typographie', description: 'Police, taille et graisse du texte' },
   effects: { title: 'Effets visuels', description: 'Animations, ombres et transparence' },
   layout: { title: 'Mise en page', description: 'Navigation, espacement et composants' },
+  pages: { title: 'Pages', description: 'Disposition des composants par page' },
   advanced: { title: 'Avancé', description: 'Performance et CSS personnalisé' },
 };
 
@@ -50,9 +52,11 @@ const POSCustomizer = ({
 
   const activeSection = selectedTab === 'advanced'
     ? 'advanced'
-    : selectedTab === 'layout'
-      ? 'layout'
-      : selectedSubTab;
+    : selectedTab === 'pages'
+      ? 'pages'
+      : selectedTab === 'layout'
+        ? 'layout'
+        : selectedSubTab;
 
   const resetToDefaults = () => {
     setFormData({
@@ -135,6 +139,10 @@ const POSCustomizer = ({
       }
     }
 
+    if (selectedTab === 'pages') {
+      return <PageComponentsEditor formData={formData} setFormData={setFormData} />;
+    }
+
     if (selectedTab === 'advanced') {
       return <AdvancedSettings formData={formData} setFormData={setFormData} />;
     }
@@ -151,16 +159,18 @@ const POSCustomizer = ({
         setSelectedSubTab={setSelectedSubTab}
         mode={mode}
       />
-      <div className="flex-1 flex flex-col min-w-0 bg-card border-l border-border">
-        <div className="px-3 py-2.5 border-b border-border shrink-0">
-          <h2 className="text-[13px] font-semibold leading-tight">
+      <div className="flex-1 flex flex-col min-w-0 bg-card">
+        <div className="px-2 py-2 border-b border-border shrink-0">
+          <h2 className="text-xs font-semibold leading-tight">
             {SECTION_META[activeSection]?.title || 'Personnalisation'}
           </h2>
-          <p className="text-[11px] text-muted-foreground leading-snug mt-0.5">
+          <p className="text-[10px] text-muted-foreground leading-snug mt-0.5">
             {SECTION_META[activeSection]?.description || ''}
           </p>
         </div>
-        <div className="flex-1 overflow-y-auto p-3">{renderContent()}</div>
+        <div className="flex-1 overflow-y-auto px-2 pb-2">
+          <div className="py-1">{renderContent()}</div>
+        </div>
       </div>
     </div>
   );
@@ -225,7 +235,7 @@ const POSCustomizer = ({
 
             <aside
               className={`
-                absolute inset-y-0 left-0 z-40 w-[340px] bg-background border-r border-border shadow-2xl
+                absolute inset-y-0 left-0 z-40 w-[32%] bg-background border-r border-border shadow-2xl
                 transition-transform duration-200 ease-out
                 xl:static xl:translate-x-0 xl:shadow-none xl:z-auto
                 ${mobileSidebarOpen ? 'translate-x-0' : '-translate-x-full'}

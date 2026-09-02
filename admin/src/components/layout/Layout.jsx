@@ -26,6 +26,8 @@ import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 import { cn } from '../../lib/utils';
 import { useAccessMode } from '../../contexts/AccessModeContext';
+import { useAuth } from '../../contexts/AuthContext';
+import { filterAdminNavigation } from '../../utils/permissions';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -184,6 +186,7 @@ const navigationGroups = [
     label: 'POS',
     items: [
       { name: 'Générateur POS', href: '/pos-generator', icon: Settings, userAccess: true },
+      { name: 'Projets POS', href: '/pos-projects', icon: Store, userAccess: true },
     ],
   },
   {
@@ -263,15 +266,27 @@ export default function Layout({ children }) {
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
   const location = useLocation();
+  const navigate = useNavigate();
   const { isUserMode, currentUserProfile } = useAccessMode();
+  const { user, permissionManager, logout } = useAuth();
+
+  const displayName = user?.username || currentUserProfile?.name || 'Admin';
+  const displayEmail = user?.email || currentUserProfile?.email || 'carthapos@admin';
 
   const isInIframe = window.self !== window.top;
+
+  const handleLogout = async () => {
+    await logout();
+    navigate('/login', { replace: true });
+  };
 
   const groups = isUserMode
     ? navigationGroups
         .map((g) => ({ ...g, items: g.items.filter((item) => item.userAccess) }))
         .filter((g) => g.items.length > 0)
-    : navigationGroups;
+    : permissionManager
+      ? filterAdminNavigation(navigationGroups, permissionManager, { isSuperAdmin: user?.role === 'SUPER_ADMIN' })
+      : navigationGroups;
 
   // If in user mode AND in iframe, hide chrome completely
   if (isUserMode && isInIframe) {
@@ -340,10 +355,10 @@ export default function Layout({ children }) {
                   className="flex items-center gap-2 rounded-md px-2 py-1 text-white/85 transition-colors hover:bg-white/10 hover:text-white"
                 >
                   <span className="grid size-7 place-items-center rounded-full bg-gradient-to-br from-[#5c6ac4] to-[#47c1bf] text-[11px] font-semibold text-white">
-                    {(currentUserProfile?.name || 'A').charAt(0).toUpperCase()}
+                    {displayName.charAt(0).toUpperCase()}
                   </span>
                   <span className="hidden text-[13px] font-medium sm:block">
-                    {currentUserProfile?.name || 'Admin'}
+                    {displayName}
                   </span>
                   <ChevronDown className="size-3.5 text-white/60" />
                 </button>
@@ -352,9 +367,9 @@ export default function Layout({ children }) {
                 <DropdownMenuLabel className="flex items-center gap-2">
                   <Store className="size-4 text-muted-foreground" />
                   <span className="min-w-0">
-                    <span className="block truncate">{currentUserProfile?.name || 'Administrateur'}</span>
+                    <span className="block truncate">{displayName}</span>
                     <span className="block truncate text-xs font-normal text-muted-foreground">
-                      {currentUserProfile?.email || 'carthapos@admin'}
+                      {displayEmail}
                     </span>
                   </span>
                 </DropdownMenuLabel>
@@ -370,7 +385,10 @@ export default function Layout({ children }) {
                   </a>
                 </DropdownMenuItem>
                 <DropdownMenuSeparator />
-                <DropdownMenuItem className="text-red-600 focus:text-red-600">
+                <DropdownMenuItem
+                  className="text-red-600 focus:text-red-600"
+                  onClick={handleLogout}
+                >
                   <LogOut className="size-4" /> Se déconnecter
                 </DropdownMenuItem>
               </DropdownMenuContent>

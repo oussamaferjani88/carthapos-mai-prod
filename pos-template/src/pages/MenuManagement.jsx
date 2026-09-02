@@ -1,15 +1,19 @@
 import React, { useState } from 'react';
 import { Plus, Edit, Trash2, Save, X, Package, DollarSign, Tag, Grid, List, Sliders } from 'lucide-react';
 import { ScrollArea } from '../components/ui/scroll-area';
-import { useThemeApplier } from '../hooks/useThemeApplier';
 import { POSConfiguration } from '../lib/POSConfiguration';
 import { useAppConfig } from '../hooks/useAppConfig';
 import { getCurrencySymbol } from '../utils/currency';
+import { usePermissions } from '../contexts/PermissionsContext';
 
 const MenuManagement = () => {
-  useThemeApplier();
-
   const { config: electronConfig } = useAppConfig();
+  const { canCreate, canUpdate, canDelete } = usePermissions('products');
+  const menuGuard = (action) => {
+    const ok = action === 'create' ? canCreate : action === 'delete' ? canDelete : canUpdate;
+    if (!ok) alert("Action non autorisée : vous avez un accès en lecture seule sur le menu.");
+    return ok;
+  };
   const getConfig = () => {
     if (electronConfig?.theme) {
       return POSConfiguration.createConfig(electronConfig.theme);
@@ -87,6 +91,7 @@ const MenuManagement = () => {
   const [editingGroupItemId, setEditingGroupItemId] = useState(null);
 
   const handleSaveItem = () => {
+    if (!menuGuard(editingItem ? 'update' : 'create')) return;
     if (editingItem) {
       setMenuItems(items => items.map(item => item.id === editingItem.id ? { ...editingItem } : item));
       setEditingItem(null);
@@ -98,13 +103,15 @@ const MenuManagement = () => {
   };
 
   const handleSaveCategory = () => {
+    if (!menuGuard('create')) return;
     const category = { id: Date.now(), ...newCategory, active: true };
     setCategories(cats => [...cats, category]);
     setNewCategory({ name: '', description: '', order: categories.length + 2 });
   };
 
-  const handleDeleteItem = (id) => setMenuItems(items => items.filter(item => item.id !== id));
+  const handleDeleteItem = (id) => { if (!menuGuard('delete')) return; setMenuItems(items => items.filter(item => item.id !== id)); };
   const handleDeleteCategory = (id) => {
+    if (!menuGuard('delete')) return;
     setCategories(cats => cats.filter(cat => cat.id !== id));
     setMenuItems(items => items.filter(item => item.categoryId !== id));
   };
@@ -116,6 +123,7 @@ const MenuManagement = () => {
 
   // Modifier handlers
   const handleSaveGroup = () => {
+    if (!menuGuard(editingGroup ? 'update' : 'create')) return;
     if (editingGroup) {
       setModifierGroups(groups => groups.map(g => g.id === editingGroup.id ? { ...editingGroup } : g));
       setEditingGroup(null);
@@ -126,9 +134,10 @@ const MenuManagement = () => {
     }
   };
 
-  const handleDeleteGroup = (id) => setModifierGroups(groups => groups.filter(g => g.id !== id));
+  const handleDeleteGroup = (id) => { if (!menuGuard('delete')) return; setModifierGroups(groups => groups.filter(g => g.id !== id)); };
 
   const addModifierItem = (groupId) => {
+    if (!menuGuard('create')) return;
     if (!newModifierItem.name) return;
     setModifierGroups(groups => groups.map(g =>
       g.id === groupId ? { ...g, items: [...g.items, { id: Date.now(), ...newModifierItem, price: parseFloat(newModifierItem.price) || 0 }] } : g
@@ -137,6 +146,7 @@ const MenuManagement = () => {
   };
 
   const deleteModifierItem = (groupId, itemId) => {
+    if (!menuGuard('delete')) return;
     setModifierGroups(groups => groups.map(g =>
       g.id === groupId ? { ...g, items: g.items.filter(i => i.id !== itemId) } : g
     ));
@@ -185,7 +195,7 @@ const MenuManagement = () => {
                 <input type="number" placeholder="Ordre" value={newCategory.order}
                   onChange={(e) => setNewCategory({...newCategory, order: parseInt(e.target.value)})}
                   className="px-3 py-2 border border-border rounded-md focus:outline-none focus:ring-2 focus:ring-primary bg-background flex-1" />
-                <button onClick={handleSaveCategory} disabled={!newCategory.name}
+                <button onClick={handleSaveCategory} disabled={!newCategory.name || !canCreate}
                   className="px-4 py-2 bg-primary text-primary-foreground rounded-md hover:bg-primary/90 disabled:opacity-50 flex items-center gap-2">
                   <Plus className="w-4 h-4" /> Ajouter
                 </button>
@@ -201,8 +211,8 @@ const MenuManagement = () => {
                       <h4 className="font-semibold text-foreground">{category.name}</h4>
                       <p className="text-sm text-muted-foreground">{category.description}</p>
                     </div>
-                    <button onClick={() => handleDeleteCategory(category.id)}
-                      className="p-1 text-muted-foreground hover:text-destructive">
+                    <button onClick={() => handleDeleteCategory(category.id)} disabled={!canDelete}
+                      className="p-1 text-muted-foreground hover:text-destructive disabled:opacity-30 disabled:pointer-events-none">
                       <Trash2 className="w-4 h-4" />
                     </button>
                   </div>
@@ -244,7 +254,7 @@ const MenuManagement = () => {
                   {categories.map(cat => <option key={cat.id} value={cat.id}>{cat.name}</option>)}
                 </select>
                 <button onClick={handleSaveItem}
-                  disabled={editingItem ? !editingItem.name : !newItem.name}
+                  disabled={(editingItem ? !editingItem.name : !newItem.name) || (editingItem ? !canUpdate : !canCreate)}
                   className="px-4 py-2 bg-primary text-primary-foreground rounded-md hover:bg-primary/90 disabled:opacity-50 flex items-center gap-2">
                   <Save className="w-4 h-4" /> {editingItem ? 'Modifier' : 'Ajouter'}
                 </button>
@@ -286,8 +296,8 @@ const MenuManagement = () => {
                       </td>
                       <td className="px-6 py-4">
                         <div className="flex gap-2">
-                          <button onClick={() => setEditingItem(item)} className="text-primary hover:text-primary/80"><Edit className="w-4 h-4" /></button>
-                          <button onClick={() => handleDeleteItem(item.id)} className="text-destructive hover:text-destructive/80"><Trash2 className="w-4 h-4" /></button>
+                          <button onClick={() => setEditingItem(item)} disabled={!canUpdate} className="text-primary hover:text-primary/80 disabled:opacity-30 disabled:pointer-events-none"><Edit className="w-4 h-4" /></button>
+                          <button onClick={() => handleDeleteItem(item.id)} disabled={!canDelete} className="text-destructive hover:text-destructive/80 disabled:opacity-30 disabled:pointer-events-none"><Trash2 className="w-4 h-4" /></button>
                         </div>
                       </td>
                     </tr>
@@ -327,7 +337,7 @@ const MenuManagement = () => {
                   value={editingGroup ? editingGroup.maxSelect : newGroup.maxSelect}
                   onChange={(e) => { if (editingGroup) setEditingGroup({...editingGroup, maxSelect: parseInt(e.target.value) || 5}); else setNewGroup({...newGroup, maxSelect: parseInt(e.target.value) || 5}); }}
                   className="px-3 py-2 border border-border rounded-md focus:outline-none focus:ring-2 focus:ring-primary bg-background flex-1" />
-                <button onClick={handleSaveGroup} disabled={!((editingGroup || newGroup).name)}
+                <button onClick={handleSaveGroup} disabled={!((editingGroup || newGroup).name) || (editingGroup ? !canUpdate : !canCreate)}
                   className="px-4 py-2 bg-primary text-primary-foreground rounded-md hover:bg-primary/90 disabled:opacity-50 flex items-center gap-2">
                   <Save className="w-4 h-4" /> {editingGroup ? 'Modifier' : 'Ajouter'}
                 </button>
@@ -352,8 +362,8 @@ const MenuManagement = () => {
                   </p>
                 </div>
                 <div className="flex gap-2">
-                  <button onClick={() => setEditingGroup(group)} className="p-1 text-muted-foreground hover:text-primary"><Edit className="w-4 h-4" /></button>
-                  <button onClick={() => handleDeleteGroup(group.id)} className="p-1 text-muted-foreground hover:text-destructive"><Trash2 className="w-4 h-4" /></button>
+                  <button onClick={() => setEditingGroup(group)} disabled={!canUpdate} className="p-1 text-muted-foreground hover:text-primary disabled:opacity-30 disabled:pointer-events-none"><Edit className="w-4 h-4" /></button>
+                  <button onClick={() => handleDeleteGroup(group.id)} disabled={!canDelete} className="p-1 text-muted-foreground hover:text-destructive disabled:opacity-30 disabled:pointer-events-none"><Trash2 className="w-4 h-4" /></button>
                 </div>
               </div>
               <div className="p-4">
@@ -367,7 +377,7 @@ const MenuManagement = () => {
                     value={newModifierItem.price || ''}
                     onChange={(e) => setNewModifierItem({...newModifierItem, price: e.target.value})}
                     className="px-3 py-1.5 border border-border rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-primary bg-background w-20" />
-                  <button onClick={() => addModifierItem(group.id)} disabled={!newModifierItem.name}
+                  <button onClick={() => addModifierItem(group.id)} disabled={!newModifierItem.name || !canCreate}
                     className="px-3 py-1.5 bg-primary text-primary-foreground rounded-md text-sm hover:bg-primary/90 disabled:opacity-50 flex items-center gap-1">
                     <Plus className="w-3 h-3" /> Ajouter
                   </button>
@@ -387,8 +397,8 @@ const MenuManagement = () => {
                           {item.price === 0 && <span className="text-xs text-muted-foreground">Inclus</span>}
                           {item.defaultSelected && <span className="text-xs bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded">Défaut</span>}
                         </div>
-                        <button onClick={() => deleteModifierItem(group.id, item.id)}
-                          className="p-1 text-muted-foreground hover:text-destructive">
+                        <button onClick={() => deleteModifierItem(group.id, item.id)} disabled={!canDelete}
+                          className="p-1 text-muted-foreground hover:text-destructive disabled:opacity-30 disabled:pointer-events-none">
                           <Trash2 className="w-3 h-3" />
                         </button>
                       </div>

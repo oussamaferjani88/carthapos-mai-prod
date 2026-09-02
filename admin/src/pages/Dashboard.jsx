@@ -22,16 +22,18 @@ import {
 } from "lucide-react";
 import PageHeader from "../components/shared/PageHeader";
 import { clientsApi, licensesApi, modulesApi } from "../lib/api";
-import toast from "react-hot-toast";
 import DashboardLineChart from "../components/charts/DashboardLineChart";
 import DashboardBarChart from "../components/charts/DashboardBarChart";
 import DashboardPieChart from "../components/charts/DashboardPieChart";
 import DashboardAreaChart from "../components/charts/DashboardAreaChart";
 import BiStatsSection from "../components/BiStatsSection";
 import { useNavigate } from "react-router-dom";
+import { useAuth } from "../contexts/AuthContext";
 
 export default function Dashboard() {
   const navigate = useNavigate();
+  const { hasPermission } = useAuth();
+  const can = (permission) => hasPermission(permission);
   const [stats, setStats] = useState({
     clients: 0,
     licenses: 0,
@@ -54,61 +56,66 @@ export default function Dashboard() {
   }, []);
 
   const loadDashboardData = async () => {
-    try {
-      setLoading(true);
+    setLoading(true);
 
-      const [clientsRes, licensesRes, modulesRes] = await Promise.all([
-        clientsApi.getAll(),
-        licensesApi.getAll(),
-        modulesApi.getAll(),
-      ]);
+    // RBAC-resilient: each section is fetched independently so a missing
+    // permission (403) only blanks that section, not the whole dashboard.
+    const safeGet = async (fn) => {
+      try {
+        const res = await fn();
+        return res.data || [];
+      } catch (error) {
+        console.warn(
+          "Dashboard: data skipped (insufficient permission?)",
+          error?.response?.status,
+        );
+        return [];
+      }
+    };
 
-      const clients = clientsRes.data || [];
-      const licenses = licensesRes.data || [];
-      const modules = modulesRes.data || [];
+    const [clients, licenses, modules] = await Promise.all([
+      safeGet(() => clientsApi.getAll()),
+      safeGet(() => licensesApi.getAll()),
+      safeGet(() => modulesApi.getAll()),
+    ]);
 
-      const previousMonthClients = Math.floor(clients.length * 0.85);
-      const growth =
-        clients.length > 0
-          ? (
-              ((clients.length - previousMonthClients) / previousMonthClients) *
-              100
-            ).toFixed(1)
-          : 0;
+    const previousMonthClients = Math.floor(clients.length * 0.85);
+    const growth =
+      clients.length > 0
+        ? (
+            ((clients.length - previousMonthClients) / previousMonthClients) *
+            100
+          ).toFixed(1)
+        : 0;
 
-      setStats({
-        clients: clients.length,
-        licenses: licenses.length,
-        activeLicenses: licenses.filter((l) => l.isActive).length,
-        modules: modules.length,
-        totalRevenue: licenses.length * 299,
-        monthlyGrowth: parseFloat(growth),
-      });
+    setStats({
+      clients: clients.length,
+      licenses: licenses.length,
+      activeLicenses: licenses.filter((l) => l.isActive).length,
+      modules: modules.length,
+      totalRevenue: licenses.length * 299,
+      monthlyGrowth: parseFloat(growth),
+    });
 
-      setRecentLicenses(
-        licenses
-          .filter((l) => l.createdAt)
-          .slice(0, 5)
-          .sort(
-            (a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0),
-          ),
-      );
-      setRecentClients(
-        clients
-          .filter((c) => c.createdAt)
-          .slice(0, 5)
-          .sort(
-            (a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0),
-          ),
-      );
+    setRecentLicenses(
+      licenses
+        .filter((l) => l.createdAt)
+        .slice(0, 5)
+        .sort(
+          (a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0),
+        ),
+    );
+    setRecentClients(
+      clients
+        .filter((c) => c.createdAt)
+        .slice(0, 5)
+        .sort(
+          (a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0),
+        ),
+    );
 
-      setLastUpdated(new Date());
-    } catch (error) {
-      console.error("Error loading dashboard data:", error);
-      toast.error("Erreur lors du chargement des données");
-    } finally {
-      setLoading(false);
-    }
+    setLastUpdated(new Date());
+    setLoading(false);
   };
 
   const generateChartData = () => {
@@ -145,6 +152,7 @@ export default function Dashboard() {
       value: stats.clients,
       description: "Enregistrés",
       icon: Users,
+      permission: "clients.view",
       change:
         stats.monthlyGrowth > 0
           ? `+${stats.monthlyGrowth}%`
@@ -157,6 +165,7 @@ export default function Dashboard() {
       value: stats.licenses,
       description: "Créées",
       icon: FileText,
+      permission: "licenses.view",
       change: `${((stats.activeLicenses / Math.max(stats.licenses, 1)) * 100).toFixed(0)}% actives`,
       changeType: "neutral",
       action: () => navigate("/licenses"),
@@ -166,6 +175,7 @@ export default function Dashboard() {
       value: stats.activeLicenses,
       description: "En cours",
       icon: Activity,
+      permission: "licenses.view",
       change: `${stats.licenses - stats.activeLicenses} inactives`,
       changeType: "neutral",
       action: () => navigate("/licenses"),
@@ -175,11 +185,16 @@ export default function Dashboard() {
       value: stats.modules,
       description: "Disponibles",
       icon: Package,
+      permission: "modules.view",
       change: "Tous actifs",
       changeType: "positive",
       action: () => navigate("/modules"),
     },
-  ];
+  ].filter((stat) => !stat.permission || can(stat.permission));
+
+  const canViewClients = can("clients.view");
+  const canViewLicenses = can("licenses.view");
+  const canViewModules = can("modules.view");
 
   if (loading) {
     return (
@@ -212,9 +227,11 @@ export default function Dashboard() {
             <Button variant="outline" size="sm" onClick={loadDashboardData}>
               <RefreshCw className="size-3.5" /> Actualiser
             </Button>
-            <Button size="sm" onClick={() => navigate("/pos-generator")}>
-              <Plus className="size-3.5" /> Nouveau POS
-            </Button>
+            {can("pos.view") && (
+              <Button size="sm" onClick={() => navigate("/pos-generator")}>
+                <Plus className="size-3.5" /> Nouveau POS
+              </Button>
+            )}
           </>
         }
       />
@@ -266,7 +283,7 @@ export default function Dashboard() {
 
       {/* Charts */}
       <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-        <Card>
+        {canViewClients && <Card>
           <CardHeader className="flex flex-row items-center justify-between">
             <div>
               <CardTitle className="text-sm font-semibold">
@@ -289,9 +306,9 @@ export default function Dashboard() {
               />
             </div>
           </CardContent>
-        </Card>
+        </Card>}
 
-        <Card>
+        {canViewLicenses && <Card>
           <CardHeader className="flex flex-row items-center justify-between">
             <div>
               <CardTitle className="text-sm font-semibold">
@@ -323,9 +340,9 @@ export default function Dashboard() {
               />
             </div>
           </CardContent>
-        </Card>
+        </Card>}
 
-        <Card>
+        {canViewLicenses && <Card>
           <CardHeader className="flex flex-row items-center justify-between">
             <div>
               <CardTitle className="text-sm font-semibold">
@@ -353,9 +370,9 @@ export default function Dashboard() {
               />
             </div>
           </CardContent>
-        </Card>
+        </Card>}
 
-        <Card>
+        {canViewModules && <Card>
           <CardHeader className="flex flex-row items-center justify-between">
             <div>
               <CardTitle className="text-sm font-semibold">
@@ -381,12 +398,13 @@ export default function Dashboard() {
               />
             </div>
           </CardContent>
-        </Card>
+        </Card>}
       </div>
 
       {/* Recent activity */}
       <div className="grid grid-cols-1 gap-3 xl:grid-cols-2">
-        {/* Recent Licenses */}
+        {canViewLicenses && (
+        /* Recent Licenses */
         <Card>
           <CardHeader className="flex flex-row items-center justify-between">
             <div>
@@ -461,7 +479,10 @@ export default function Dashboard() {
           </CardContent>
         </Card>
 
-        {/* Recent Clients */}
+        )}
+
+        {canViewClients && (
+        /* Recent Clients */
         <Card>
           <CardHeader className="flex flex-row items-center justify-between">
             <div>
@@ -527,12 +548,15 @@ export default function Dashboard() {
             )}
           </CardContent>
         </Card>
+        )}
       </div>
 
       {/* BI Analytics Statistics */}
-      <div className="border-t pt-5">
-        <BiStatsSection />
-      </div>
+      {can("bi.view") && (
+        <div className="border-t pt-5">
+          <BiStatsSection />
+        </div>
+      )}
     </div>
   );
 }

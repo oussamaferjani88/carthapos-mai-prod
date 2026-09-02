@@ -2,7 +2,6 @@ import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import './index.css'
 import App from './App.jsx'
-import ThemeWrapper from './components/ThemeWrapper.jsx'
 
 // Importer les gestionnaires système (disabled notification and error systems to stop alerts)
 import './lib/hardware/cashDrawer.js'
@@ -71,9 +70,6 @@ if (typeof window !== 'undefined') {
   }
 }
 
-// Note: initializeTheme sera appelé automatiquement par ThemeWrapper
-// Ceci garantit que le thème est appliqué AVANT le rendu des composants
-
 // ⚡ PERFORMANCE: Only use StrictMode in development to avoid double-renders in production
 const isDev = import.meta.env.DEV;
 
@@ -83,16 +79,10 @@ if (isDev) {
   // Development: Use StrictMode for debugging
   root.render(
     <StrictMode>
-      <ThemeWrapper>
-        <App />
-      </ThemeWrapper>
+      <App />
     </StrictMode>,
   );
 } else {
   // Production: No StrictMode for better performance
-  root.render(
-    <ThemeWrapper>
-      <App />
-    </ThemeWrapper>,
-  );
+  root.render(<App />);
 }

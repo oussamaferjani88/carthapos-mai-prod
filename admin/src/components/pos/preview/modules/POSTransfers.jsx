@@ -4,6 +4,7 @@ import { Button } from '../../../ui/button';
 import { Input } from '../../../ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../../ui/select';
 import { ArrowRightLeft, Package, CheckCircle, Clock, XCircle } from 'lucide-react';
+import { POSConfiguration } from '../../../../config/POSConfiguration';
 
 export const POSTransfers = ({ config }) => {
   const [showNewTransfer, setShowNewTransfer] = useState(false);
@@ -58,16 +59,10 @@ export const POSTransfers = ({ config }) => {
     );
   };
 
-  const styles = {
-    card: {
-      backgroundColor: config.cardColor || '#ffffff',
-      borderRadius: config.borderRadius || '8px',
-      boxShadow: '0 2px 4px rgba(0,0,0,0.1)'
-    }
-  };
+  const styles = POSConfiguration.getStyles(config);
 
   return (
-    <div className="h-full flex flex-col space-y-4 p-6 bg-gray-50" style={{ fontFamily: config.fontFamily }}>
+    <div className="h-full flex flex-col space-y-4 py-6 bg-gray-50" style={{ fontFamily: config.fontFamily }}>
       {/* Header */}
       <div className="flex justify-between items-center">
         <div>

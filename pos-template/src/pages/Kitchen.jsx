@@ -10,6 +10,7 @@ import {
 import { POSConfiguration } from '../lib/POSConfiguration';
 import { useAppConfig } from '../hooks/useAppConfig';
 import { useToast } from '../hooks/use-toast';
+import { usePermissions } from '../contexts/PermissionsContext';
 import { getCurrencySymbol } from '../utils/currency';
 import { Button } from '../components/ui/button';
 import { Card, CardContent } from '../components/ui/card';
@@ -770,6 +771,15 @@ function HistoryView({ historyOrders, historyLoading, historyStatus, setHistoryS
 }
 
 export default function Kitchen() {
+  const { canCreate, canUpdate, canDelete } = usePermissions('kitchen');
+  const permsRef = useRef({ canCreate, canUpdate, canDelete });
+  permsRef.current = { canCreate, canUpdate, canDelete };
+  const permGuard = useCallback((action) => {
+    const p = permsRef.current;
+    const ok = action === 'create' ? p.canCreate : action === 'delete' ? p.canDelete : p.canUpdate;
+    if (!ok) alert("Action non autorisée : vous avez un accès en lecture seule sur la cuisine.");
+    return ok;
+  }, []);
   const [orders, setOrders] = useState([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
@@ -914,6 +924,7 @@ export default function Kitchen() {
   }, [loadOrders, playSound, toast, showDesktopNotification]);
 
   const updateStatus = useCallback(async (orderId, newStatus) => {
+    if (!permGuard('update')) return;
     setUpdatingIds(prev => new Set([...prev, orderId]));
     try {
       await window.electronAPI.updateKitchenOrderStatus(orderId, newStatus);
@@ -934,6 +945,7 @@ export default function Kitchen() {
 
   const batchUpdate = useCallback(async (ids, status) => {
     if (ids.length === 0) return;
+    if (!permGuard('update')) return;
     try {
       await window.electronAPI.batchUpdateKitchenStatus(ids, status);
       toast({ title: `${ids.length} commande(s) mise(s) à jour` });
@@ -962,6 +974,7 @@ export default function Kitchen() {
 
   const handleSaveDept = useCallback(async () => {
     if (!newDeptName.trim()) { toast({ title: 'Nom requis', variant: 'destructive' }); return; }
+    if (!permGuard('create')) return;
     setSavingDept(true);
     try {
       await window.electronAPI.addKitchenDepartment({ name: newDeptName.trim(), icon: newDeptIcon, color: newDeptColor });

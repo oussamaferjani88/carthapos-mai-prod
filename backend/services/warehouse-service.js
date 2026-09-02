@@ -10,10 +10,10 @@
  *   - No custom dashboard logic — just structured data access
  */
 
-const { PrismaClient } = require('@prisma/client');
+const warehousePrisma = require('../prisma-warehouse/client');
 const analyticsCache = require('./analytics-cache-service');
 
-const prisma = new PrismaClient();
+const prisma = warehousePrisma;
 
 // dimTimeId is an int in YYYYMMDD form (the business transaction date).
 // Analytics MUST bucket by dimTimeId — createdAt is only the ETL load time.

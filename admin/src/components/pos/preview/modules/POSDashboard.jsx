@@ -159,7 +159,7 @@ export const POSDashboard = ({ config }) => {
       </div>
 
       {/* 2. KPI CARDS — 6 en une rangée */}
-      <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3 flex-shrink-0">
+      <div className="pos-preview-grid grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3 flex-shrink-0">
         {KPIS.map((kpi, idx) => {
           const Icon = kpi.icon;
           return (

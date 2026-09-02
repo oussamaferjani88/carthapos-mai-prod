@@ -132,22 +132,18 @@ export default function BiExportDeploy() {
     s === "FAILED" ? "text-red-600" : "text-amber-600";
 
   return (
-    <div className="min-h-screen bg-background">
-      <div className="border-b border-border bg-card">
-        <div className="max-w-7xl mx-auto px-6 lg:px-8 py-6">
-          <div className="flex items-center gap-3">
-            <FileArchive className="w-8 h-8 text-primary" />
-            <div>
-              <h1 className="text-2xl font-bold">Déployer un export BI</h1>
-              <p className="text-muted-foreground">
-                Téléversez le fichier ZIP généré par votre POS pour déployer vos données d'analyse dans l'entrepôt.
-              </p>
-            </div>
-          </div>
+    <div className="space-y-6">
+      <div className="flex items-center gap-3">
+        <FileArchive className="w-6 h-6 text-muted-foreground shrink-0" />
+        <div>
+          <h1 className="text-xl font-semibold tracking-tight sm:text-[22px]">Déployer un export BI</h1>
+          <p className="mt-1 text-[13px] text-muted-foreground">
+            Téléversez le fichier ZIP généré par votre POS pour déployer vos données d'analyse dans l'entrepôt.
+          </p>
         </div>
       </div>
 
-      <div className="max-w-7xl mx-auto px-6 lg:px-8 py-8 space-y-6">
+      <div className="space-y-6">
 
         {/* Upload Form */}
         <Card>

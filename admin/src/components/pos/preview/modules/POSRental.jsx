@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '../../../ui/card';
 import { Button } from '../../../ui/button';
 import { Package, Calendar, Clock, CheckCircle, AlertCircle } from 'lucide-react';
+import { POSConfiguration } from '../../../../config/POSConfiguration';
 
 export const POSRental = ({ config }) => {
   const rentals = [
@@ -58,13 +59,7 @@ export const POSRental = ({ config }) => {
     { name: 'Tente 6P', available: 8, total: 10, rate: 30.00 }
   ];
 
-  const styles = {
-    card: {
-      backgroundColor: config.cardColor || '#ffffff',
-      borderRadius: config.borderRadius || '8px',
-      boxShadow: '0 2px 4px rgba(0,0,0,0.1)'
-    }
-  };
+  const styles = POSConfiguration.getStyles(config);
 
   const getStatusBadge = (status) => {
     const statuses = {
@@ -77,7 +72,7 @@ export const POSRental = ({ config }) => {
   };
 
   return (
-    <div className="h-full flex flex-col space-y-4 p-6 bg-gray-50" style={{ fontFamily: config.fontFamily }}>
+    <div className="h-full flex flex-col space-y-4 py-6 bg-gray-50" style={{ fontFamily: config.fontFamily }}>
       <div className="flex justify-between items-center">
         <div>
           <h1 className="text-3xl font-bold flex items-center gap-2" style={{ color: config.textColor }}>

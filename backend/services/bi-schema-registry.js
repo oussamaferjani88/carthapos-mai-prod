@@ -34,6 +34,7 @@ const SCHEMAS = {
       { name: 'family', type: 'text', required: false },
       { name: 'barcode', type: 'text', required: false },
       { name: 'stock', type: 'integer', required: false },
+      { name: 'manage_stock', type: 'integer', required: false },
       { name: 'description', type: 'text', required: false },
       { name: 'image', type: 'text', required: false },
       { name: 'created_at', type: 'datetime', required: false },
@@ -59,6 +60,7 @@ const SCHEMAS = {
       { name: 'family', type: 'text', required: false },
       { name: 'price', type: 'real', required: false },
       { name: 'times_sold', type: 'integer', required: false },
+      { name: 'manage_stock', type: 'integer', required: false },
     ],
   },
   tables: {

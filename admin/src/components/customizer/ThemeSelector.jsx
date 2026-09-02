@@ -64,7 +64,17 @@ const ThemeSelector = ({ formData, setFormData }) => {
   const applyTheme = (theme) => {
     setFormData({
       ...formData,
-      configuration: { ...formData.configuration, ...theme.config, themeId: theme.id },
+      configuration: {
+        ...formData.configuration,
+        ...theme.config,
+        themeId: theme.id,
+        // Keep the Layout panel's card-radius control in sync with the
+        // theme's own radius, since they'd otherwise silently disagree.
+        components: {
+          ...formData.configuration?.components,
+          cards: { ...formData.configuration?.components?.cards, borderRadius: theme.config.borderRadius },
+        },
+      },
     });
   };
 

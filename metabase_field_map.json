@@ -1,0 +1,71 @@
+{
+  "tables": [
+    {
+      "id": 142,
+      "name": "dim_customers",
+      "db_id": 2
+    },
+    {
+      "id": 147,
+      "name": "fact_sale_items",
+      "db_id": 2
+    },
+    {
+      "id": 123,
+      "name": "fact_sales",
+      "db_id": 2
+    }
+  ],
+  "fields": [
+    {
+      "id": 303,
+      "name": "date",
+      "table_id": 17
+    },
+    {
+      "id": 354,
+      "name": "total",
+      "table_id": 123
+    },
+    {
+      "id": 355,
+      "name": "paymentMethod",
+      "table_id": 123
+    },
+    {
+      "id": 1383,
+      "name": "transactionHour",
+      "table_id": 123
+    },
+    {
+      "id": 308,
+      "name": "dayOfWeek",
+      "table_id": 17
+    },
+    {
+      "id": 1370,
+      "name": "lineTotal",
+      "table_id": 147
+    },
+    {
+      "id": 1371,
+      "name": "quantity",
+      "table_id": 147
+    },
+    {
+      "id": 1380,
+      "name": "category",
+      "table_id": 147
+    },
+    {
+      "id": 1381,
+      "name": "productName",
+      "table_id": 147
+    },
+    {
+      "id": 1331,
+      "name": "isActive",
+      "table_id": 142
+    }
+  ]
+}

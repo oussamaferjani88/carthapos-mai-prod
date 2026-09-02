@@ -4,6 +4,7 @@ import { Button } from '../../../ui/button';
 import { Input } from '../../../ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../../ui/select';
 import { Tag, Percent, Gift, TrendingDown, Calendar } from 'lucide-react';
+import { POSConfiguration } from '../../../../config/POSConfiguration';
 
 export const POSPromotions = ({ config }) => {
   const [showAddPromo, setShowAddPromo] = useState(false);
@@ -51,13 +52,7 @@ export const POSPromotions = ({ config }) => {
     }
   ];
 
-  const styles = {
-    card: {
-      backgroundColor: config.cardColor || '#ffffff',
-      borderRadius: config.borderRadius || '8px',
-      boxShadow: '0 2px 4px rgba(0,0,0,0.1)'
-    }
-  };
+  const styles = POSConfiguration.getStyles(config);
 
   const getPromoIcon = (type) => {
     switch(type) {
@@ -69,7 +64,7 @@ export const POSPromotions = ({ config }) => {
   };
 
   return (
-    <div className="h-full flex flex-col space-y-4 p-6 bg-gray-50" style={{ fontFamily: config.fontFamily }}>
+    <div className="h-full flex flex-col space-y-4 py-6 bg-gray-50" style={{ fontFamily: config.fontFamily }}>
       {/* Header */}
       <div className="flex justify-between items-center">
         <div>

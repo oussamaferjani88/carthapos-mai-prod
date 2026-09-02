@@ -13,7 +13,7 @@ const { verifyToken, optionalAuth } = require('./middleware/auth');
 
 // Import routes
 const clientRoutes = require('./routes/clients');
-const licenseRoutes = require('./routes/licenses');
+const licenseRoutes = require('./src/routes/licenses');
 const moduleRoutes = require('./routes/modules');
 const usbRoutes = require('./routes/usb');
 const posRoutes = require('./routes/pos');
@@ -50,10 +50,26 @@ const PORT = process.env.PORT || 3001;
 // env AUTH_REQUIRED=true once the client portal ships real JWT login.
 const AUTH_REQUIRED = process.env.AUTH_REQUIRED === 'true';
 
+// Allowed browser origins (admin panel + client portal dev). Credentials-aware
+// CORS cannot use origin:'*', so an explicit allowlist is required for the
+// HttpOnly session cookie to be sent by browsers. Non-browser / no-origin
+// requests (curl, Electron POS, server-to-server) always pass. Local dev
+// origins (localhost/127.0.0.1 any port) are always allowed.
+const ALLOWED_ORIGINS = (process.env.CORS_ORIGINS || 'http://localhost:5173,http://localhost:4173')
+  .split(',')
+  .map((s) => s.trim())
+  .filter(Boolean);
+const isLocalOrigin = (origin) => /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin);
+
 // Middleware
 app.use(helmet());
 app.use(cors({
-  origin: '*', // Allow all origins for development
+  origin(origin, callback) {
+    if (!origin || isLocalOrigin(origin) || ALLOWED_ORIGINS.includes(origin)) {
+      return callback(null, true);
+    }
+    return callback(null, false);
+  },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization', 'X-Access-Mode', 'X-User-Id', 'x-user-id', 'X-User-Email', 'x-user-email', 'x-access-mode']
@@ -141,7 +157,7 @@ app.use((err, req, res, next) => {
     return next(err);
   }
   
-  res.status(err.status || 500).json({
+  res.status(err.statusCode || err.status || 500).json({
     error: 'Something went wrong!',
     message: process.env.NODE_ENV === 'development' ? err.message : 'Internal server error',
     ...(process.env.NODE_ENV === 'development' && { stack: err.stack })

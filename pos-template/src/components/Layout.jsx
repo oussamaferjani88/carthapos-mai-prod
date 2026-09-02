@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { cn } from '../lib/utils';
 import { useThemeApplier } from '../hooks/useThemeApplier';
+import { mapThemeForApplier } from '../lib/mapThemeForApplier';
 import { POSHeader } from './POSHeader';
 import { POSNavbar } from './POSNavbar';
 import { POSContent } from './POSContent';
@@ -45,7 +46,7 @@ export default function Layout({ children, config = {} }) {
     borderRadius: theme.borderRadius || 'medium'
   };
 
-  useThemeApplier(mergedConfig);
+  useThemeApplier(mapThemeForApplier(theme));
 
   const layoutFlexDirection = mergedConfig.navbarPosition === 'top' ? 'flex-col' : 'flex-row';
 

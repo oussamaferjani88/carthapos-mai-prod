@@ -23,7 +23,7 @@ class LicenseService {
       return response.data;
     } catch (error) {
       console.error('Error creating license:', error);
-      throw new Error(error.response?.data?.error || 'Failed to create license');
+      throw new Error(this._apiError(error) || 'Failed to create license');
     }
   }
 
@@ -33,8 +33,17 @@ class LicenseService {
       return response.data;
     } catch (error) {
       console.error('Error creating admin license:', error);
-      throw new Error(error.response?.data?.error || 'Failed to create admin license');
+      throw new Error(this._apiError(error) || 'Failed to create admin license');
     }
+  }
+
+  _apiError(error) {
+    const data = error?.response?.data;
+    if (!data) return null;
+    if (Array.isArray(data.errors) && data.errors.length > 0) {
+      return data.errors.map((e) => `${e.field}: ${e.message}`).join('; ');
+    }
+    return data.message || data.error || null;
   }
 
   /**

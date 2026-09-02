@@ -1,8 +1,9 @@
-import { useState, useEffect, useRef, useMemo } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import {
   ShoppingCart, Search, Plus, Minus, Trash2, X,
   CreditCard, Printer, Calculator, Utensils, User,
-  Package, Receipt, Clock, PauseCircle, Play, Check
+  Package, Receipt, Clock, PauseCircle, Play,
+  History, Wallet, ListOrdered, MenuSquare, ChevronRight, Lock,
 } from 'lucide-react';
 
 const DEMO_PRODUCTS = [
@@ -22,6 +23,10 @@ const DEMO_PRODUCTS = [
 
 const DEMO_CATEGORIES = ['Tous', 'Boissons', 'Pâtisseries', 'Sandwichs', 'Salades'];
 
+// Aligned to admin/src/components/pos/preview/modules/POSSales.jsx's layout
+// (fixed 3-panel width, "Caisse ouverte" badge, quick-action set). Client's
+// held/parked-orders feature (heldOrders/showHeldOrders/restoreOrder) has no
+// admin equivalent and is kept as-is.
 export const POSSales = ({ config, modules = [] }: { config: any; modules?: any[] }) => {
   useEffect(() => {
     const style = document.createElement('style');
@@ -60,6 +65,7 @@ export const POSSales = ({ config, modules = [] }: { config: any; modules?: any[
   const [showTableSelector, setShowTableSelector] = useState(false);
   const [heldOrders, setHeldOrders] = useState<any[]>([]);
   const [showHeldOrders, setShowHeldOrders] = useState(false);
+  const [navHidden, setNavHidden] = useState(false);
 
   const tables = [
     { id: 1, table_number: 1, status: 'available', capacity: 4 },
@@ -248,6 +254,14 @@ export const POSSales = ({ config, modules = [] }: { config: any; modules?: any[
 
   return (
     <div className="h-full bg-gray-50 overflow-hidden flex">
+      {/* Caisse ouverte badge */}
+      <div className="absolute top-3 right-3 z-40">
+        <div className="bg-white/90 backdrop-blur-sm border border-emerald-200 px-3 py-1.5 rounded-xl shadow-sm flex items-center gap-2">
+          <span className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse" />
+          <span className="text-xs font-medium text-emerald-700">Caisse ouverte</span>
+        </div>
+      </div>
+
       {/* Notification */}
       {localNotification && (
         <div className="fixed top-4 left-1/2 -translate-x-1/2 z-50 animate-in slide-in-from-top-2 duration-300">
@@ -315,10 +329,10 @@ export const POSSales = ({ config, modules = [] }: { config: any; modules?: any[
         </div>
       )}
 
-      {/* Main Layout */}
-      <div className="h-full w-full flex gap-0.5 p-0.5">
+      {/* Main Layout - 3 panneaux (aligné sur admin) */}
+      <div className="h-full w-full flex gap-2 p-2">
         {/* Cart Panel - Left */}
-        <div className="w-[320px] min-w-[280px] flex flex-col h-full">
+        <div className="w-[300px] min-w-[260px] flex flex-col h-full">
           <div className="flex flex-col h-full bg-white rounded-2xl shadow-sm border border-gray-100 min-h-0">
             {/* Cart Header */}
             <div className="px-4 py-3 flex-shrink-0 border-b border-gray-100">
@@ -343,9 +357,14 @@ export const POSSales = ({ config, modules = [] }: { config: any; modules?: any[
                     </button>
                   )}
                 </span>
-                <span className="text-xs font-medium bg-blue-50 text-blue-600 px-2 py-0.5 rounded-lg">
-                  {getTotalItems()}
-                </span>
+                <button
+                  onClick={holdOrder}
+                  disabled={cart.length === 0}
+                  className="py-1.5 px-2.5 rounded-lg bg-amber-50 hover:bg-amber-100 text-amber-700 text-xs font-medium transition-all flex items-center justify-center gap-1 disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  <PauseCircle className="w-3.5 h-3.5" />
+                  Attente
+                </button>
               </div>
             </div>
 
@@ -394,6 +413,18 @@ export const POSSales = ({ config, modules = [] }: { config: any; modules?: any[
                 <span className="text-white font-bold text-lg">{formatPrice(cartTotal)}</span>
               </div>
 
+              <div className="flex items-center justify-between px-3 py-2 rounded-xl bg-blue-50 border border-blue-100">
+                <div className="flex items-center gap-2">
+                  <div className="w-6 h-6 rounded-md flex items-center justify-center bg-blue-100">
+                    <Printer className="w-3.5 h-3.5 text-blue-600" />
+                  </div>
+                  <span className="text-xs font-medium text-blue-700">Impression auto</span>
+                </div>
+                <span className="w-8 h-4.5 rounded-full bg-blue-600 relative" style={{ height: '18px' }}>
+                  <span className="absolute right-0.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 bg-white rounded-full shadow" />
+                </span>
+              </div>
+
               <div className="grid grid-cols-2 gap-2">
                 <button onClick={processPayment} disabled={cart.length === 0}
                   className="py-2.5 px-3 rounded-xl text-white font-semibold text-sm transition-all hover:shadow-md hover:scale-[1.01] active:scale-[0.99] disabled:opacity-40 disabled:hover:shadow-none disabled:hover:scale-100"
@@ -406,56 +437,148 @@ export const POSSales = ({ config, modules = [] }: { config: any; modules?: any[
                 </button>
               </div>
 
-              <div className="flex gap-2">
-                {hasTablesModule && selectedTable && (
-                  <button onClick={changeTable}
-                    className="flex-1 py-2 px-3 rounded-xl bg-purple-50 hover:bg-purple-100 text-purple-700 text-xs font-medium transition-all flex items-center justify-center gap-1.5">
-                    <Utensils className="w-3.5 h-3.5" />
-                    Changer Table
-                  </button>
-                )}
-                {!selectedTable && hasTablesModule && (
-                  <button onClick={() => setShowTableSelector(true)}
-                    className="flex-1 py-2 px-3 rounded-xl bg-emerald-50 hover:bg-emerald-100 text-emerald-700 text-xs font-medium transition-all flex items-center justify-center gap-1.5">
-                    <Utensils className="w-3.5 h-3.5" />
-                    Assigner Table
-                  </button>
-                )}
-                <button onClick={() => setShowCalculator(true)}
-                  className="flex-1 py-2 px-3 rounded-xl bg-gray-50 hover:bg-gray-100 text-gray-600 text-xs font-medium transition-all flex items-center justify-center gap-1.5">
-                  <Calculator className="w-3.5 h-3.5" />
-                  Calculatrice
-                </button>
-              </div>
+              {hasTablesModule && (
+                <div className="flex gap-2">
+                  {selectedTable ? (
+                    <button onClick={changeTable}
+                      className="flex-1 py-2 px-3 rounded-xl bg-purple-50 hover:bg-purple-100 text-purple-700 text-xs font-medium transition-all flex items-center justify-center gap-1.5">
+                      <Utensils className="w-3.5 h-3.5" />
+                      Changer Table
+                    </button>
+                  ) : (
+                    <button onClick={() => setShowTableSelector(true)}
+                      className="flex-1 py-2 px-3 rounded-xl bg-emerald-50 hover:bg-emerald-100 text-emerald-700 text-xs font-medium transition-all flex items-center justify-center gap-1.5">
+                      <Utensils className="w-3.5 h-3.5" />
+                      Assigner Table
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
 
-              <div className={`grid ${hasTablesModule ? 'grid-cols-5' : 'grid-cols-4'} gap-1.5`}>
-                {hasTablesModule && (
-                  <button onClick={() => setShowTableSelector(true)}
-                    className="bg-emerald-50 hover:bg-emerald-100 text-emerald-700 rounded-xl font-medium text-[10px] h-10 flex flex-col items-center justify-center gap-0.5 transition-all" title="Sélectionner Table">
-                    <Utensils className="w-4 h-4" />
-                    <span>Table</span>
+        {/* Numeric Keypad - Middle (aligné sur admin) */}
+        <div className="w-[220px] min-w-[200px] flex flex-col h-full">
+          <div className="h-full bg-white rounded-2xl shadow-sm border border-gray-100 flex flex-col">
+            <div className="px-3 py-2.5 border-b border-gray-100">
+              <span className="flex items-center gap-2 font-semibold text-gray-800 text-sm">
+                <Calculator className="w-4 h-4 text-gray-400" />
+                Pavé numérique
+              </span>
+            </div>
+
+            {/* Quick Actions Grid */}
+            <div className="grid grid-cols-2 gap-2 px-2.5 pt-2.5">
+              {hasTablesModule && (
+                <button
+                  onClick={() => setShowTableSelector(true)}
+                  className="bg-emerald-50 hover:bg-emerald-100 text-emerald-700 rounded-xl font-medium text-xs h-11 flex flex-col items-center justify-center gap-0.5 transition-all"
+                  title="Sélectionner Table"
+                >
+                  <Utensils className="w-4 h-4" />
+                  <span>Table</span>
+                </button>
+              )}
+              <button
+                onClick={() => { setLocalNotification('Sélection de client'); setTimeout(() => setLocalNotification(null), 2000); }}
+                className="bg-purple-50 hover:bg-purple-100 text-purple-700 rounded-xl font-medium text-xs h-11 flex flex-col items-center justify-center gap-0.5 transition-all"
+                title="Sélectionner Client"
+              >
+                <User className="w-4 h-4" />
+                <span>Client</span>
+              </button>
+              <button
+                onClick={() => { setLocalNotification('Historique des ventes'); setTimeout(() => setLocalNotification(null), 2000); }}
+                className="bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded-xl font-medium text-xs h-11 flex flex-col items-center justify-center gap-0.5 transition-all"
+                title="Historique des ventes"
+              >
+                <History className="w-4 h-4" />
+                <span>Historique</span>
+              </button>
+              <button
+                onClick={() => setShowCalculator(true)}
+                className="bg-gray-50 hover:bg-gray-100 text-gray-600 rounded-xl font-medium text-xs h-11 flex flex-col items-center justify-center gap-0.5 transition-all"
+                title="Calculatrice"
+              >
+                <Calculator className="w-4 h-4" />
+                <span>Calc</span>
+              </button>
+              <button
+                onClick={() => {
+                  setLocalNotification('Tiroir ouvert');
+                  setDrawerStatus('open');
+                  setTimeout(() => { setDrawerStatus('closed'); setLocalNotification(null); }, 3000);
+                }}
+                className={`rounded-xl font-medium text-xs h-11 flex flex-col items-center justify-center gap-0.5 transition-all ${
+                  drawerStatus === 'open' ? 'bg-emerald-100 text-emerald-700' : 'bg-gray-50 hover:bg-gray-100 text-gray-600'
+                }`}
+                title="Ouvrir le tiroir-caisse"
+              >
+                <Wallet className="w-4 h-4" />
+                <span>Caisse</span>
+              </button>
+              <button
+                onClick={() => { setLocalNotification('Commandes de la session'); setTimeout(() => setLocalNotification(null), 2000); }}
+                className="relative bg-teal-50 hover:bg-teal-100 text-teal-700 rounded-xl font-medium text-xs h-11 flex flex-col items-center justify-center gap-0.5 transition-all"
+                title="Commandes"
+              >
+                <ListOrdered className="w-4 h-4" />
+                <span>Commande</span>
+              </button>
+              <button
+                onClick={() => setNavHidden(prev => !prev)}
+                className={`rounded-xl font-medium text-xs h-11 flex flex-col items-center justify-center gap-0.5 transition-all ${
+                  navHidden ? 'bg-violet-100 hover:bg-violet-200 text-violet-600' : 'bg-gray-50 hover:bg-gray-100 text-gray-600'
+                }`}
+                title="Masquer la navigation"
+              >
+                {navHidden ? <ChevronRight className="w-4 h-4" /> : <MenuSquare className="w-4 h-4" />}
+                <span>{navHidden ? 'Menu' : 'Masquer'}</span>
+              </button>
+              <button
+                onClick={() => { setLocalNotification('Caisse ouverte'); setTimeout(() => setLocalNotification(null), 2000); }}
+                className="bg-red-50 hover:bg-red-100 text-red-600 rounded-xl font-medium text-xs h-11 flex flex-col items-center justify-center gap-0.5 transition-all"
+                title="Fermer la caisse"
+              >
+                <Lock className="w-4 h-4" />
+                <span>Fermer</span>
+              </button>
+            </div>
+
+            {/* Numeric Keypad */}
+            <div className="flex-1 p-3 flex flex-col justify-end select-none touch-manipulation">
+              <div className="mb-1.5 px-3 text-right font-mono text-sm tracking-wide text-gray-700 bg-gray-50 border border-gray-200 rounded-xl overflow-hidden h-8 flex items-center justify-end" style={{ textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {keypadValue || ' '}
+              </div>
+              <div className="grid grid-cols-4 gap-1.5">
+                {['×', '+', '-', '÷'].map((op) => (
+                  <button key={op} onClick={() => handleKeypadClick(op === '×' ? '*' : op === '÷' ? '/' : op)}
+                    className="rounded-xl font-bold text-lg bg-blue-500 hover:bg-blue-600 active:bg-blue-700 text-white border border-blue-600 flex items-center justify-center transition-all active:scale-95"
+                    style={{ height: '44px' }}>
+                    {op}
                   </button>
-                )}
-                <button onClick={() => { setLocalNotification("Gestion client"); setTimeout(() => setLocalNotification(null), 2000); }}
-                  className="bg-purple-50 hover:bg-purple-100 text-purple-700 rounded-xl font-medium text-[10px] h-10 flex flex-col items-center justify-center gap-0.5 transition-all" title="Client">
-                  <User className="w-4 h-4" />
-                  <span>Client</span>
-                </button>
-                <button onClick={() => { setLocalNotification("Rapports"); setTimeout(() => setLocalNotification(null), 2000); }}
-                  className="bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded-xl font-medium text-[10px] h-10 flex flex-col items-center justify-center gap-0.5 transition-all" title="Rapports">
-                  <Receipt className="w-4 h-4" />
-                  <span>Rapports</span>
-                </button>
-                <button onClick={() => { setLocalNotification("Impression ticket"); setTimeout(() => setLocalNotification(null), 2000); }}
-                  className="bg-orange-50 hover:bg-orange-100 text-orange-700 rounded-xl font-medium text-[10px] h-10 flex flex-col items-center justify-center gap-0.5 transition-all" title="Ticket">
-                  <Receipt className="w-4 h-4" />
-                  <span>Ticket</span>
-                </button>
-                <button onClick={() => { setDrawerStatus('open'); setLocalNotification("Tiroir ouvert !"); setTimeout(() => { setDrawerStatus('closed'); setLocalNotification(null); }, 3000); }}
-                  className={`rounded-xl font-medium text-[10px] h-10 flex flex-col items-center justify-center gap-0.5 transition-all ${drawerStatus === 'open' ? 'bg-emerald-100 text-emerald-700' : 'bg-gray-50 hover:bg-gray-100 text-gray-600'}`} title="Tiroir caisse">
-                  <CreditCard className="w-4 h-4" />
-                  <span>Caisse</span>
-                </button>
+                ))}
+              </div>
+              <div className="grid grid-cols-3 gap-1.5 mt-1.5">
+                {['7', '8', '9', '4', '5', '6', '1', '2', '3'].map((key) => (
+                  <button key={key} onClick={() => handleKeypadClick(key)}
+                    className="rounded-xl font-bold text-xl bg-gray-100 hover:bg-gray-200 text-gray-800 border border-gray-200 flex items-center justify-center transition-all active:scale-95"
+                    style={{ height: '44px' }}>
+                    {key}
+                  </button>
+                ))}
+              </div>
+              <div className="grid grid-cols-3 gap-1.5 mt-1.5">
+                <button onClick={() => handleKeypadClick('0')}
+                  className="rounded-xl font-bold text-xl bg-gray-100 hover:bg-gray-200 text-gray-800 border border-gray-200 flex items-center justify-center transition-all active:scale-95"
+                  style={{ height: '44px' }}>0</button>
+                <button onClick={() => handleKeypadClick('.')}
+                  className="rounded-xl font-bold text-xl bg-gray-100 hover:bg-gray-200 text-gray-800 border border-gray-200 flex items-center justify-center transition-all active:scale-95"
+                  style={{ height: '44px' }}>.</button>
+                <button onClick={() => handleKeypadClick('C')}
+                  className="rounded-xl font-bold text-sm bg-red-500 hover:bg-red-600 active:bg-red-700 text-white border border-red-600 flex items-center justify-center transition-all active:scale-95"
+                  style={{ height: '44px' }}>C</button>
               </div>
             </div>
           </div>

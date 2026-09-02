@@ -1,0 +1,128 @@
+[
+  {
+    "id": 51,
+    "name": "Total Revenue",
+    "display": "scalar",
+    "visualization_settings": "{}",
+    "dataset_query": "{\"database\":2,\"type\":\"query\",\"query\":{\"source-table\":123,\"aggregation\":[[\"sum\",[\"field\",354,{\"base-type\":\"type/Float\"}]]]}}"
+  },
+  {
+    "id": 52,
+    "name": "Number of Orders",
+    "display": "scalar",
+    "visualization_settings": "{}",
+    "dataset_query": "{\"database\":2,\"type\":\"query\",\"query\":{\"source-table\":123,\"aggregation\":[[\"count\"]]}}"
+  },
+  {
+    "id": 53,
+    "name": "Average Order Value",
+    "display": "scalar",
+    "visualization_settings": "{}",
+    "dataset_query": "{\"database\":2,\"type\":\"query\",\"query\":{\"source-table\":123,\"aggregation\":[[\"avg\",[\"field\",354,{\"base-type\":\"type/Float\"}]]]}}"
+  },
+  {
+    "id": 54,
+    "name": "Total Customers",
+    "display": "scalar",
+    "visualization_settings": "{}",
+    "dataset_query": "{\"database\":2,\"type\":\"query\",\"query\":{\"source-table\":142,\"aggregation\":[[\"count\"]]}}"
+  },
+  {
+    "id": 55,
+    "name": "Active Customers",
+    "display": "scalar",
+    "visualization_settings": "{}",
+    "dataset_query": "{\"database\":2,\"type\":\"query\",\"query\":{\"source-table\":142,\"aggregation\":[[\"count\"]],\"filter\":[\"=\",[\"field\",1331,{\"base-type\":\"type/Integer\"}],1]}}"
+  },
+  {
+    "id": 56,
+    "name": "Average Items per Order",
+    "display": "scalar",
+    "visualization_settings": "{}",
+    "dataset_query": "{\"database\":2,\"type\":\"query\",\"query\":{\"source-table\":147,\"aggregation\":[[\"count\"]]}}"
+  },
+  {
+    "id": 57,
+    "name": "Total Items Sold",
+    "display": "scalar",
+    "visualization_settings": "{}",
+    "dataset_query": "{\"database\":2,\"type\":\"query\",\"query\":{\"source-table\":147,\"aggregation\":[[\"sum\",[\"field\",1371,{\"base-type\":\"type/Integer\"}]]]}}"
+  },
+  {
+    "id": 58,
+    "name": "Kitchen Load by Hour",
+    "display": "pie",
+    "visualization_settings": "{}",
+    "dataset_query": "{\"database\":2,\"type\":\"native\",\"native\":{\"template-tags\":{},\"collection\":\"fact_kitchen_orders\",\"query\":\"SELECT\\r\\n    status,\\r\\n    COUNT(*) AS total_orders\\r\\nFROM public.fact_kitchen_orders\\r\\nGROUP BY status\\r\\nORDER BY total_orders DESC;\"}}"
+  },
+  {
+    "id": 59,
+    "name": "Inventory Value",
+    "display": "scalar",
+    "visualization_settings": "{}",
+    "dataset_query": "{\"database\":2,\"type\":\"native\",\"native\":{\"template-tags\":{},\"collection\":\"fact_inventory\",\"query\":\"SELECT\\r\\n    SUM(stock * price) AS inventory_value\\r\\nFROM public.fact_inventory;\"}}"
+  },
+  {
+    "id": 60,
+    "name": "Average Daily Revenue",
+    "display": "line",
+    "visualization_settings": "{\"graph.dimensions\":[\"date\"],\"graph.metrics\":[\"sum\"]}",
+    "dataset_query": "{\"database\":2,\"type\":\"query\",\"query\":{\"source-table\":123,\"aggregation\":[[\"sum\",[\"field\",354,{\"base-type\":\"type/Float\"}]]],\"breakout\":[[\"field\",303,{\"base-type\":\"type/DateTime\",\"temporal-unit\":\"day\",\"source-field\":353}]]}}"
+  },
+  {
+    "id": 61,
+    "name": "Sales Trend",
+    "display": "line",
+    "visualization_settings": "{\"graph.dimensions\":[\"date\"],\"graph.metrics\":[\"sum\"]}",
+    "dataset_query": "{\"database\":2,\"type\":\"query\",\"query\":{\"source-table\":123,\"aggregation\":[[\"sum\",[\"field\",354,{\"base-type\":\"type/Float\"}]]],\"breakout\":[[\"field\",303,{\"base-type\":\"type/DateTime\",\"temporal-unit\":\"month\",\"source-field\":353,\"original-temporal-unit\":\"year\"}]]}}"
+  },
+  {
+    "id": 62,
+    "name": "Revenue by Payment Method",
+    "display": "bar",
+    "visualization_settings": "{\"series_settings\":{\"sum\":{\"color\":\"#EF8C8C\"}},\"graph.dimensions\":[\"paymentMethod\"],\"graph.metrics\":[\"sum\"]}",
+    "dataset_query": "{\"database\":2,\"type\":\"query\",\"query\":{\"source-table\":123,\"aggregation\":[[\"sum\",[\"field\",354,{\"base-type\":\"type/Float\"}]]],\"breakout\":[[\"field\",355,{\"base-type\":\"type/Text\"}]]}}"
+  },
+  {
+    "id": 63,
+    "name": "Orders by Hour",
+    "display": "bar",
+    "visualization_settings": "{\"graph.dimensions\":[\"transactionHour\"],\"graph.metrics\":[\"count\"]}",
+    "dataset_query": "{\"database\":2,\"type\":\"query\",\"query\":{\"source-table\":123,\"aggregation\":[[\"count\"]],\"breakout\":[[\"field\",1383,{\"base-type\":\"type/Integer\",\"binning\":{\"strategy\":\"default\"}}]]}}"
+  },
+  {
+    "id": 64,
+    "name": "Revenue by Day of Week",
+    "display": "bar",
+    "visualization_settings": "{\"graph.dimensions\":[\"dayOfWeek\"],\"graph.metrics\":[\"sum\"]}",
+    "dataset_query": "{\"database\":2,\"type\":\"query\",\"query\":{\"source-table\":123,\"aggregation\":[[\"sum\",[\"field\",354,{\"base-type\":\"type/Float\"}]]],\"breakout\":[[\"field\",308,{\"base-type\":\"type/Integer\",\"binning\":{\"strategy\":\"default\"},\"source-field\":353}]]}}"
+  },
+  {
+    "id": 65,
+    "name": "Top 10 Products",
+    "display": "row",
+    "visualization_settings": "{\"graph.dimensions\":[\"productName\"],\"graph.metrics\":[\"sum\"]}",
+    "dataset_query": "{\"database\":2,\"type\":\"query\",\"query\":{\"source-table\":147,\"aggregation\":[[\"sum\",[\"field\",1371,{\"base-type\":\"type/Integer\"}]]],\"breakout\":[[\"field\",1381,{\"base-type\":\"type/Text\"}]],\"limit\":10}}"
+  },
+  {
+    "id": 66,
+    "name": "Revenue by Product",
+    "display": "bar",
+    "visualization_settings": "{\"graph.dimensions\":[\"productName\"],\"graph.metrics\":[\"sum\"]}",
+    "dataset_query": "{\"database\":2,\"type\":\"query\",\"query\":{\"source-table\":147,\"aggregation\":[[\"sum\",[\"field\",1370,{\"base-type\":\"type/Float\"}]]],\"breakout\":[[\"field\",1381,{\"base-type\":\"type/Text\"}]]}}"
+  },
+  {
+    "id": 67,
+    "name": "Revenue by Category",
+    "display": "pie",
+    "visualization_settings": "{}",
+    "dataset_query": "{\"database\":2,\"type\":\"query\",\"query\":{\"source-table\":147,\"aggregation\":[[\"sum\",[\"field\",1370,{\"base-type\":\"type/Float\"}]]],\"breakout\":[[\"field\",1380,{\"base-type\":\"type/Text\"}]]}}"
+  },
+  {
+    "id": 68,
+    "name": "Product Mix",
+    "display": "pie",
+    "visualization_settings": "{}",
+    "dataset_query": "{\"database\":2,\"type\":\"query\",\"query\":{\"source-table\":147,\"aggregation\":[[\"distinct\",[\"field\",1371,{\"base-type\":\"type/Integer\"}]]],\"breakout\":[[\"field\",1380,{\"base-type\":\"type/Text\"}]]}}"
+  }
+]

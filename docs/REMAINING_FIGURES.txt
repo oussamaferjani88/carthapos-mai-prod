@@ -1,0 +1,253 @@
+REMAINING FIGURES TO CREATE — CarthaPOS Report
+=================================================
+Total remaining: 28
+Organized by chapter, ordered by type (UML diagrams first, then screenshots)
+
+======================================
+CHAPTER 3 — Analysis & Specification
+======================================
+ 1. fig:usecase-global
+    ch3-usecase-global.png
+    Type: UML Use-Case Diagram
+    Description: Global use-case diagram showing Client, Administrator,
+    BI Specialist and POS personnel, with major use cases grouped into
+    account management, POS generation, licensing, POS operations and
+    BI services.
+
+ 2. fig:global-class-diagram-ch3
+    ch3-global-class-diagram.png
+    Type: UML Class Diagram
+    Description: Global class diagram showing analysis-level classes across
+    platform level (Client, Administrator, License, Module, POSConfiguration,
+    GeneratedPOS), POS operational level (Product, Category, Sale, SaleItem,
+    Payment, Customer, Supplier, InventoryMovement, Table, KitchenOrder,
+    CashRegister, Appointment) and BI analytical level (BIRequest, BIUpload,
+    ETLProcess, AnalyticalWarehouse, Dashboard), with associations.
+
+ 3. fig:usecase-client-generation
+    ch3-usecase-client-generation.png
+    Type: UML Use-Case / Activity Diagram
+    Description: Detailed diagram for client-driven POS generation:
+    account creation, configuration, module selection, design selection,
+    license selection, license-medium selection and POS generation.
+
+======================================
+CHAPTER 4 — Release 1: Foundation + POS Core
+======================================
+ 4. fig:pos-erd
+    ch4-pos-erd.png
+    Type: Entity-Relationship Diagram
+    Description: ERD of the local SQLite database of the generated POS,
+    focusing on orders, order items, products, inventory, customers and
+    related operational entities.
+
+ 5. fig:usecase-sprint1
+    ch4-usecase-sprint1.png
+    Type: UML Use-Case Diagram
+    Description: Use-case diagram for Sprint 1 showing the Developer
+    actor and foundation setup use cases: initialize backend, define
+    schema, create admin shell, initialize POS template, configure
+    middleware.
+
+ 6. fig:s1-startup-sequence
+    ch4-s1-startup-sequence.png
+    Type: UML Sequence Diagram
+    Description: Sequence diagram for application startup:
+    Developer -> server.js -> Middleware -> Prisma -> PostgreSQL ->
+    Admin Frontend (Vite/React) -> POS Template (Electron Main ->
+    Preload -> Renderer -> SQLite).
+
+ 7. fig:classdiagram-sprint1
+    ch4-classdiagram-sprint1.png
+    Type: UML Class Diagram
+    Description: Class diagram for Sprint 1: User, Permission,
+    UserPermission, Client, License, Module, LicenseModule,
+    LicenseConfiguration with relationships.
+
+ 8. fig:usecase-sprint2
+    ch4-usecase-sprint2.png
+    Type: UML Use-Case Diagram
+    Description: Use-case diagram for Sprint 2 showing Cashier, Manager,
+    Kitchen Staff and Server actors with POS operational use cases:
+    create sale, manage products/inventory/customers/suppliers/tables,
+    kitchen orders, shift management, reporting.
+
+ 9. fig:sale-transaction-sequence
+    ch4-sale-transaction-sequence.png
+    Type: UML Sequence Diagram
+    Description: Sequence diagram of the atomic sale transaction:
+    Cashier -> POS UI -> Sale Module -> ElectronDB (SQLite) ->
+    Kitchen Display, with database transaction wrapping all operations
+    and optional loyalty and table-freeing branches.
+
+10. fig:kitchen-order-sequence
+    ch4-kitchen-order-sequence.png
+    Type: UML Sequence Diagram
+    Description: Sequence diagram for kitchen order processing:
+    Kitchen Staff -> Kitchen Display -> IPC Handler -> ElectronDB
+    (SQLite) -> Sale Record, showing status machine transitions
+    (pending -> preparing -> ready -> served) and automatic priority
+    promotion.
+
+11. fig:classdiagram-sprint2
+    ch4-classdiagram-sprint2.png
+    Type: UML Class Diagram
+    Description: Class diagram for Sprint 2 (POS operational models):
+    Product, Order, OrderItem, Customer, LoyaltyTransaction, Table,
+    Appointment, GiftCard with relationships.
+
+12. fig:pos-operational-screenshot
+    ch4-pos-operational-screenshot.png
+    Type: Screenshot
+    Description: Operational screen of the generated CarthaPOS
+    application (e.g. sales, inventory, kitchen, table management
+    or cash register), demonstrating one of the business modules
+    implemented in Sprint 2.
+
+======================================
+CHAPTER 5 — Release 2: Generation Engine + Admin
+======================================
+13. fig:usecase-sprint3
+    ch5-usecase-sprint3.png
+    Type: UML Use-Case Diagram
+    Description: Use-case diagram for Sprint 3 showing the Operator
+    actor and generation use cases: configure generation, select
+    sector/modules, generate POS, preview configuration, download
+    installer.
+
+14. fig:classdiagram-sprint3
+    ch5-classdiagram-sprint3.png
+    Type: UML Class Diagram
+    Description: Class diagram for Sprint 3: License, LicenseModule,
+    LicenseConfiguration, Module, UserPosConfiguration,
+    LicenseActivationHistory, LicenseValidationLog,
+    LicenseTransferHistory with relationships.
+
+15. fig:pos-generator-screenshot
+    ch5-pos-generator-screenshot.png
+    Type: Screenshot
+    Description: CarthaPOS POS generation and configuration interface,
+    showing sector selection, module filtering and generation wizard
+    used to produce a customized Electron POS application from the
+    shared template.
+
+16. fig:usecase-sprint4
+    ch5-usecase-sprint4.png
+    Type: UML Use-Case Diagram
+    Description: Use-case diagram for Sprint 4 showing the Operator
+    actor and administration use cases: view dashboard, manage clients,
+    manage licenses, manage modules, manage users/permissions, manage
+    BI workflow.
+
+17. fig:admin-client-sequence
+    ch5-admin-client-sequence.png
+    Type: UML Sequence Diagram
+    Description: Sequence diagram for client management:
+    Operator -> Admin Frontend -> Backend API -> Middleware (auth +
+    permission check) -> Client Service -> Prisma Client -> PostgreSQL.
+
+18. fig:classdiagram-sprint4
+    ch5-classdiagram-sprint4.png
+    Type: UML Class Diagram
+    Description: Class diagram for Sprint 4: Client, User,
+    UserPosConfiguration with relationships to License and
+    LicenseConfiguration.
+
+19. fig:admin-interface-screenshot
+    ch5-admin-interface-screenshot.png
+    Type: Screenshot
+    Description: CarthaPOS administration interface, showing the
+    operator's dashboard with client management, license management,
+    module catalogue, POS generation wizard and business-intelligence
+    operations.
+
+======================================
+CHAPTER 6 — Release 3: Security + BI
+======================================
+20. fig:usecase-sprint5
+    ch6-usecase-sprint5.png
+    Type: UML Use-Case Diagram
+    Description: Use-case diagram for Sprint 5 showing User (login),
+    Super-Administrator (manage users, assign permissions), and
+    Generated POS (verify license, validate fingerprint) actors with
+    access-control use cases.
+
+21. fig:auth-sequence
+    ch6-auth-sequence.png
+    Type: UML Sequence Diagram
+    Description: Sequence diagram for authentication: User -> Login
+    Endpoint -> Password Validation (bcrypt) -> JWT Generation ->
+    HttpOnly Cookie Set -> Response (identity + permissions).
+    Subsequent request: Cookie/Header -> Token Verification ->
+    Permission Check -> Controller.
+
+22. fig:classdiagram-sprint5
+    ch6-classdiagram-sprint5.png
+    Type: UML Class Diagram
+    Description: Class diagram for Sprint 5: User, Permission,
+    UserPermission, UserRole enum, LicenseActivationHistory,
+    LicenseValidationLog, LicenseTransferHistory.
+
+23. fig:usecase-sprint6
+    ch6-usecase-sprint6.png
+    Type: UML Use-Case Diagram
+    Description: Use-case diagram for Sprint 6 showing Developer and
+    Operations actors with integration use cases: validate preview
+    matching, module filtering, BI export integration, deployment
+    configuration, installer workflow, Metabase connection.
+
+24. fig:classdiagram-sprint6
+    ch6-classdiagram-sprint6.png
+    Type: UML Class Diagram
+    Description: Class diagram for Sprint 6 showing integrated
+    relationships: License -> UserPosConfiguration (generation output),
+    BiRequest -> BiUpload -> BiProcessingJob (BI pipeline),
+    BiDashboardTemplate -> BiDashboard (visualization).
+
+25. fig:bi-validation-flow
+    ch6-bi-validation-flow.png
+    Type: Flow Diagram
+    Description: BI validation flow showing archive reception, metadata
+    validation, schema validation, data-quality checks, normalization,
+    warning/error recording and preparation for ETL.
+
+26. fig:metabase-template-screenshot
+    ch6-metabase-template-screenshot.png
+    Type: Screenshot
+    Description: Metabase business-type dashboard template selection
+    interface.
+
+27. fig:metabase-client-dashboard-screenshot
+    ch6-metabase-client-dashboard-screenshot.png
+    Type: Screenshot
+    Description: Metabase client dashboard showing tenant-filtered
+    analytical indicators.
+
+======================================
+CHAPTER 8 — Conclusion
+======================================
+28. fig:pos-interface-screenshot
+    ch8-pos-interface-screenshot.png
+    Type: Screenshot
+    Description: Generated CarthaPOS Electron application showing the
+    main user interface of a restaurant-sector POS instance.
+
+======================================
+SUMMARY
+======================================
+By type:
+  - UML Use-Case Diagrams:       8  (items 1, 3, 5, 8, 13, 16, 20, 23)
+  - UML Class Diagrams:          7  (items 2, 7, 11, 14, 18, 22, 24)
+  - UML Sequence Diagrams:       5  (items 6, 9, 10, 17, 21)
+  - Entity-Relationship Diagram: 1  (item 4)
+  - Flow / Process Diagrams:     1  (item 25)
+  - Screenshots:                 6  (items 12, 15, 19, 26, 27, 28)
+  Total:                        28
+
+By chapter:
+  - Chapter 3:  3  (use-case, class diagram, use-case/activity)
+  - Chapter 4:  8  (ERD, 2 use-cases, 2 sequences, 2 class diagrams, 1 screenshot)
+  - Chapter 5:  7  (2 use-cases, 1 sequence, 2 class diagrams, 2 screenshots)
+  - Chapter 6:  7  (2 use-cases, 1 sequence, 2 class diagrams, 2 screenshots)
+  - Chapter 8:  1  (screenshot)
+  Total:      28
