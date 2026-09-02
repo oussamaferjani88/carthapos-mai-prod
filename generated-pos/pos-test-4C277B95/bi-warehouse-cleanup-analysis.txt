@@ -1,0 +1,225 @@
+WAREHOUSE CLEANUP — ANALYTICS ANALYSIS REPORT (READ-ONLY, NOT EXECUTED)
+=======================================================================
+Date: 2026-07-31
+Database: Analytics Warehouse (PostgreSQL) — pos_system
+Status: ANALYSIS ONLY — no deletion, modification, truncation, or reset
+        was performed. This report is the pre-approval deliverable; the
+        cleanup will run only after explicit user confirmation.
+
+Note: the entire inventory below was produced with read-only SELECT queries.
+      No DELETE / UPDATE / TRUNCATE / DROP was executed anywhere.
+
+
+STEP 1 — WAREHOUSE INVENTORY
+============================
+
+Registered clients (for reference)
+----------------------------------
+  cmoogzf95000xt2l5hk9yax74 | Restaurant Le Gourmet | active snapshot present
+  cmpb0pfd00000k2bm903auzi1 | test                   | only orphan rows
+  cms36ee38000u6sghhpvc3nej | maktabi                | no warehouse data
+
+Row counts (all warehouse tables)
+---------------------------------
+  dim_clients:           2
+  dim_products:         26
+  dim_suppliers:         0
+  dim_time:            181   (dates 2026-02-02 .. 2026-08-01)
+  fact_sales:        2 525
+  fact_inventory:       29
+  fact_appointments:     0
+  fact_kitchen_orders: 402
+
+Facts — fact_sales (2 525 rows total)
+-------------------------------------
+  tenantId                 exportId              rows  created      category
+  cmoogzf...               cms9foty... (latest)  2500  07-31 20:07  VALID — latest successful import
+  cmpb0pfd...              cmq40ovhq...*            2  06-07        ORPHAN — abandoned pre-fix run / cross-tenant corruption
+  unknown-client           cmq427g1i...*            5  06-07        ORPHAN — abandoned QA run
+  unknown-client           cmqy0d9jm... (test)     18  06-28        ORPHAN — pre-fix attribution bug (ZIP client_id leaked)
+  * no matching row in bi_uploads
+
+Facts — fact_inventory (29 rows total)
+--------------------------------------
+  tenantId                 exportId              rows  created      category
+  cmoogzf...               cms9foty... (latest)    19  07-31 20:07  VALID
+  cmpb0pfd...              cmq40ovhq...*            2  06-07        ORPHAN — pre-fix corruption (reference Le Gourmet products 1&2)
+  unknown-client           cmq427g1i...*            1  06-07        ORPHAN — abandoned QA run
+  unknown-client           cmqy0d9jm... (test)      7  06-28        ORPHAN — pre-fix attribution bug
+  * no matching row in bi_uploads
+
+Facts — fact_kitchen_orders (402 rows)
+--------------------------------------
+  All rows belong to cmoogzf / export cms9foty (latest load) -> VALID, nothing to remove.
+
+Facts — fact_appointments
+-------------------------
+  Empty (0 rows).
+
+Dimensions
+----------
+  dim_clients (2):
+    cmoogzf...  -> KEEP (valid snapshot dim, export cms9foty)
+    unknown-client (id cmq427g8b...) -> ORPHAN (1 row, export cmqzgvu9f..., test upload)
+
+  dim_products (26):
+    19 rows cmoogzf / export cms9foty  -> KEEP (current snapshot)
+    7 rows  unknown-client (prod_unknown-client_1..7,
+            exports cmq427g1i + cmqy0d9jm) -> ORPHAN
+
+  dim_suppliers: empty.
+
+  dim_time (181): KEEP ALL — every row is referenced by at least one fact
+    (0 unreferenced rows verified); the valid snapshot alone references all
+    181 dates. Not tenant-scoped; shared reference table. No cleanup.
+
+Other data hygiene facts
+------------------------
+  - No fact rows with NULL tenantId / NULL exportId.
+  - No warehouse rows for client "maktabi".
+  - No orphan rows under tenant cmoogzf: the post-fix replacement semantics
+    left only the latest export (cms9foty) under Le Gourmet. This confirms
+    bug #5 is fixed at the data level.
+  - Orphan fact_sales rows carry NULL dimProductId/dimClientId and reference
+    only dim_time ids (20260601, 20260606, 20260628) — which are also used
+    by valid data, so dim_time stays intact.
+  - Orphan fact_inventory rows reference dim_products ids
+    prod_unknown-client_1..7 (deleted together) plus prod_cmoogzf_1/_2
+    (Le Gourmet rows that are NOT deleted).
+
+Data categories present
+-----------------------
+  a) abandoned QA runs            (unknown-client / cmq427g1i)  5 sales, 1 inv, 1 dim_product
+  b) pre-fix attribution bug      (unknown-client / cmqy0d9jm) 18 sales, 7 inv, 6 dim_products, 1 dim_client
+  c) cross-tenant corruption      (cmpb0pfd / cmq40ovhq)        2 sales, 2 inv
+  Not present: duplicate loads, obsolete valid exports, dim_time orphans.
+
+
+STEP 2 — SAFETY VERIFICATION
+============================
+The planned deletion only targets rows from tenantIds 'unknown-client' and
+cmpb0pfd/export cmq40ovhq. Verified NOT affected:
+
+  - Latest successful import: upload cms9foty... (status COMPLETED,
+    2921 records = 2500 sales + 19 inventory + 402 kitchen) lives entirely
+    under tenant cmoogzf. Cleanup does not touch it. SAFE.
+  - Corrected ETL workflow: fixes are code-level (backend services); a new
+    load deletes+reinserts the per-tenant snapshot independently of these
+    leftover rows. SAFE.
+  - Dashboard generation: the 4 Le Gourmet dashboards (cms9fjmhq, cms9foooz,
+    cms9fovll, cms9fovm2) reference uploads cms9fjli/cms9fkoy/cms9foty and
+    client cmoogzf; all of their warehouse data is retained. SAFE.
+  - Active client warehouse data: only cmoogzf has active data; 100% kept.
+    SAFE.
+  - FK integrity: fact tables have NO foreign-key constraints (verified via
+    pg_constraint). The orphan dim rows are referenced only by the orphan
+    facts being removed in the same cleanup. SAFE.
+
+Caveat (application artifacts, OUT of warehouse scope)
+------------------------------------------------------
+  - Old "test" dashboard cmqy3c0g7 (client cmpb0pfd, upload cmqy0d9jm) will
+    render empty once the cmpb0pfd facts are gone. It is a QA artifact.
+  - Upload records cmqy0d9jm / cmqzgvu9f and their bi_processing_jobs rows
+    remain in the application tables. These are not warehouse rows and are
+    excluded from this cleanup; they can be removed separately if desired.
+
+
+STEP 3 — CLEANUP PLAN (NOT executed)
+====================================
+Order of execution:
+  1. Backup the 4 affected tables (pg_dump).
+  2. Delete fact_sales orphan rows.
+  3. Delete fact_inventory orphan rows.
+  4. Delete dim_products orphan rows (facts removed first).
+  5. Delete dim_clients orphan row.
+  6. Verify row counts (expect the numbers below).
+
+Tables affected / expected rows removed / expected rows remaining:
+  fact_sales             removed  25   remaining 2500
+  fact_inventory         removed  10   remaining   19
+  fact_kitchen_orders    removed   0   remaining  402
+  fact_appointments      removed   0   remaining    0
+  dim_products           removed   7   remaining   19
+  dim_clients            removed   1   remaining    1
+  dim_suppliers          removed   0   remaining    0
+  dim_time               removed   0   remaining  181
+  -----------------------------------------------
+  TOTAL                  removed  43   remaining 3122   (from 3165)
+
+Possible risks:
+  - LOW. Removing the last cmpb0pfd warehouse data makes the old test
+    dashboard cmqy3c0g7 render empty.
+  - Deletion is irrecoverable without a backup.
+
+Rollback strategy:
+  1. pg_dump snapshot of fact_sales / fact_inventory / dim_products /
+     dim_clients BEFORE any delete.
+  2. Wrap all DELETEs in a single transaction; ROLLBACK on any anomaly.
+  3. Alternative: quarantine first (CREATE TABLE q_... AS SELECT <scope>)
+     then restore by re-INSERT if needed.
+
+
+STEP 4 — EXACT OPERATIONS (NOT executed)
+========================================
+Backup:
+  pg_dump -h localhost -U postgres -d pos_system \
+          -t fact_sales -t fact_inventory -t dim_products -t dim_clients \
+          > backup_bi_warehouse_2026-07-31.sql
+
+SQL (each DELETE filtered by tenantId and/or exportId — no broad deletes):
+  BEGIN;
+  -- facts first
+  DELETE FROM fact_sales
+    WHERE "tenantId" = 'unknown-client'
+       OR ("tenantId" = 'cmpb0pfd00000k2bm903auzi1'
+           AND "exportId" = 'cmq40ovhq0000lx58sfkvt18l');
+  DELETE FROM fact_inventory
+    WHERE "tenantId" = 'unknown-client'
+       OR ("tenantId" = 'cmpb0pfd00000k2bm903auzi1'
+           AND "exportId" = 'cmq40ovhq0000lx58sfkvt18l');
+  -- dims after
+  DELETE FROM dim_products WHERE "tenantId" = 'unknown-client';
+  DELETE FROM dim_clients  WHERE "tenantId" = 'unknown-client';
+  COMMIT;
+
+Prisma equivalent (identical scope):
+  prisma.factSale.deleteMany({ where: {
+    OR: [
+      { tenantId: 'unknown-client' },
+      { tenantId: 'cmpb0pfd00000k2bm903auzi1', exportId: 'cmq40ovhq0000lx58sfkvt18l' },
+    ],
+  }});
+  prisma.factInventory.deleteMany({ where: { /* same OR filter */ }});
+  prisma.dimProduct.deleteMany({ where: { tenantId: 'unknown-client' }});
+  prisma.dimClient.deleteMany({ where: { tenantId: 'unknown-client' }});
+
+Not touched by design: all cmoogzf rows, dim_time (all 181), and every
+upload / dashboard / processing-job record.
+
+
+STEP 5 — SUMMARY
+================
+Warehouse cleanup summary
+
+  Rows to remove:
+    FactSales:            25   (23 unknown-client + 2 cmpb0pfd/cmq40ovhq)
+    FactInventory:        10   (8  unknown-client + 2 cmpb0pfd/cmq40ovhq)
+    FactKitchenOrders:     0
+    FactAppointments:      0
+    DimProduct:            7   (prod_unknown-client_1..7)
+    DimClient:             1   (unknown-client)
+    DimSupplier:           0
+    DimTime:               0
+    TOTAL:                43
+
+  Rows to keep:          3122  (Le Gourmet snapshot + shared dim_time)
+
+  Estimated impact:       Low — only pre-fix QA leftovers; no active client
+                          data, no dashboards, no latest-import data affected.
+
+  Risk level:             LOW (rollback: pg_dump + transactional deletes)
+
+=======================================================================
+STATUS: ANALYSIS COMPLETE. NO CLEANUP EXECUTED.
+Awaits explicit user confirmation to run the backup + deletes.
+=======================================================================

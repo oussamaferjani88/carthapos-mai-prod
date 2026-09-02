@@ -1,0 +1,355 @@
+═══════════════════════════════════════════════════════════════════════════════
+                     AUDIT — RAPPORTS (Reports Section)
+                          Date : 2026-07-20
+═══════════════════════════════════════════════════════════════════════════════
+
+Fichiers concernés :
+  • src/pages/Reports.jsx                           (1140 lignes — UI principale)
+  • src/components/BiExportModal.jsx                 (229 lignes — Modal export BI)
+  • src/electron/handlers/ipc-sales-handlers.cjs     (257 lignes — Handlers ventes)
+  • src/electron/handlers/ipc-database-handlers.cjs  (970 lignes — DB query brut)
+  • src/electron/handlers/ipc-bi-export-handler.cjs  (401 lignes — Export BI/ZIP)
+  • src/electron/bi/BiSchemaContract.cjs             (191 lignes — Schéma BI)
+  • src/electron/bi/BiDataMapper.cjs                 (233 lignes — Mapping données)
+  • src/electron/bi/BiValidator.cjs                  (139 lignes — Validation)
+  • public/preload.cjs                               (Lignes 17, 35, 88 — Bridge)
+  • preload.js                                       (Lignes 17, 35, 88 — Ancien bridge)
+  • admin/src/components/pos/preview/modules/
+    POSReports.jsx                                   (625 lignes — Preview mock admin)
+  • backend/services/warehouse-service.js            (258 lignes — Analytics backend)
+  • backend/services/bi-insight-generator.js         (117 lignes — Auto-insights)
+
+═══════════════════════════════════════════════════════════════════════════════
+                         1. ARCHITECTURE GÉNÉRALE
+═══════════════════════════════════════════════════════════════════════════════
+
+La section Rapports utilise une architecture hybride :
+
+  POS Template (Electron + SQLite)
+  ├── Reports.jsx — Composant React principal
+  │   ├── Exécute 4 SQL bruts via window.electronAPI.query()
+  │   │   ├── Requête ventes par heure (pour bar chart)
+  │   │   ├── Requête ventes par catégorie (pour pie chart)
+  │   │   ├── Requête stats résumées (CA total, nb ventes, panier moyen, taux répétition)
+  │   │   └── Requête transactions détaillées (tableau, paginé, N+1 queries)
+  │   ├── Requête historique caisses (shifts)
+  │   └── Export via BiExportModal → ipc-bi-export-handler → ZIP
+  │
+  ├── Preload bridge
+  │   ├── query(sql, params) → database:query channel → DB directe
+  │   ├── getSalesData() → get-sales-data channel (INUTILISÉ par Reports.jsx)
+  │   └── exportBiData() → bi:export channel
+  │
+  Backend (PostgreSQL + Prisma)
+  ├── warehouse-service.js — Analytics sur données warehouse
+  ├── bi-insight-generator.js — Auto-insights
+  └── Routes REST /api/bi/* — Dashboards, Metabase, ETL
+      └── PAS de endpoint REST pour les rapports POS
+
+═══════════════════════════════════════════════════════════════════════════════
+                    2. FICHIERS PAR FONCTION
+═══════════════════════════════════════════════════════════════════════════════
+
+2a. Reports.jsx — Page principale (1140 lignes)
+─────────────────────────────────────────────────
+  Structure :
+  ├── Lignes   1-13 : Imports (Recharts, UI, BiExportModal, POSConfiguration)
+  ├── Lignes  15-39 : Composant setup, formatPrice, theme
+  ├── Lignes  48-81 : États (period, salesData, categoryData, transactions, filters, sort, pagination)
+  ├── Lignes  83-156 : filteredTransactions — useMemo filtrage/sort côté client
+  ├── Lignes 192-338 : loadReportsData() — 4 SQL bruts via electronAPI.query()
+  ├── Lignes 341-401 : loadTransactions() — N+1 queries pour items
+  ├── Lignes 403-425 : loadCashShifts() — historique caisses
+  ├── Lignes 428-483 : getDateRangeForPeriod() — calcul bornes dates
+  ├── Lignes 485-522 : Config UI (periods, stat cards)
+  └── Lignes 524-1139 : JSX complet (skeleton, cards, charts, tables, modals)
+
+  SQL exécutés :
+  ─────────────
+  Requête 1 (Ventes par heure) :
+    SELECT strftime('%H', s.created_at) as hour, COUNT(*) as count
+    FROM sales s WHERE s.created_at BETWEEN ? AND ?
+    GROUP BY hour ORDER BY hour
+
+  Requête 2 (Ventes par catégorie) :
+    SELECT p.category, SUM(si.quantity) as total_quantity, SUM(si.price * si.quantity) as total_revenue
+    FROM sale_items si JOIN products p ON si.product_id = p.id
+    JOIN sales s ON si.sale_id = s.id
+    WHERE s.created_at BETWEEN ? AND ?
+    GROUP BY p.category ORDER BY total_revenue DESC
+
+  Requête 3 (Stats résumées) :
+    SELECT COUNT(*) as totalSales, SUM(s.total) as totalRevenue,
+           AVG(s.total) as avgSale, COUNT(DISTINCT s.customer_id) as uniqueCustomers
+    FROM sales s WHERE s.created_at BETWEEN ? AND ?
+
+  Requête 4 (Taux de répétition客户):
+    SELECT COUNT(*) as repeatCustomers
+    FROM (SELECT customer_id, COUNT(*) as visit_count FROM sales
+    WHERE created_at BETWEEN ? AND ? AND customer_id IS NOT NULL
+    GROUP BY customer_id HAVING visit_count > 1)
+
+  Requête 5 (Transactions détaillées — N+1) :
+    SELECT s.* FROM sales s WHERE s.created_at BETWEEN ? AND ?
+    ORDER BY s.created_at DESC LIMIT 500
+    + puis pour chaque transaction :
+      SELECT si.*, p.name as product_name FROM sale_items si
+      LEFT JOIN products p ON si.product_id = p.id WHERE si.sale_id = ?
+
+  Requête 6 (Historique caisses) :
+    SELECT sh.*, u.full_name as user_name FROM shifts sh
+    LEFT JOIN users u ON sh.user_id = u.id
+    ORDER BY sh.opened_at DESC LIMIT 50
+
+2b. BiExportModal.jsx (229 lignes)
+───────────────────────────────────
+  Modal React pour l'export BI. Génère un ZIP via le backend IPC :
+  - Sélectionne la période et le format
+  - Appelle window.electronAPI.exportBiData()
+  - Affiche le résultat (fichier généré ou erreur)
+
+2c. ipc-bi-export-handler.cjs (401 lignes)
+───────────────────────────────────────────
+  Handler IPC pour bi:export. Génère un ZIP contenant :
+  - sales.csv, sale_items.csv, products.csv, customers.csv, cash_shifts.csv
+  - manifest.json (metadata)
+  Utilise archiver + fs pour créer le ZIP.
+  Valide via BiValidator, mappe via BiDataMapper.
+
+2d. ipc-sales-handlers.cjs — Ligne 198-207
+───────────────────────────────────────────
+  Channel get-sales-data :
+    SELECT s.*, u.full_name as user_name, c.name as customer_name
+    FROM sales s LEFT JOIN users u ON u.id = s.user_id
+    LEFT JOIN customers c ON c.id = s.customer_id
+    ORDER BY s.created_at DESC
+
+  NOTE : Ce handler N'EST PAS utilisé par Reports.jsx.
+         Il n'est utilisé que par autoBackup.js.
+
+2e. preload.cjs — Expositions
+─────────────────────────────
+  Line 17 : query: (sql, params) => createIpcHandler('database:query', sql, params)
+  Line 35 : getSalesData: () => createIpcHandler('get-sales-data')
+  Line 88 : exportBiData: () => createIpcHandler('bi:export')
+
+═══════════════════════════════════════════════════════════════════════════════
+                     3. PROBLÈMES IDENTIFIÉS
+═══════════════════════════════════════════════════════════════════════════════
+
+  GRAVITÉ    ID    DESCRIPTION
+  ─────────  ────  ───────────────────────────────────────────────────────────
+
+  HA [CRIT]  R-01  VULNÉRABILITÉ SQL INJECTION
+                   Le canal IPC database:query accepte du SQL arbitraire du
+                   renderer et l'exécute directement sur SQLite. Reports.jsx
+                   construit des chaînes SQL avec des valeurs influencées par
+                   l'utilisateur. Toute faille XSS ou composant compromis peut
+                   exécuter n'importe quel SQL (DROP, exfiltration, etc.).
+                   → Reports.jsx:192-338
+                   → ipc-database-handlers.cjs:53-60
+
+  HA [CRIT]  R-02  DOUBLE ENREGISTREMENT database:query
+                   Le canal database:query est enregistré DEUX fois :
+                   une fois dans la classe IPCDatabaseHandlers (ligne 53)
+                   et une fois dans la fonction registerDatabaseHandlers
+                   (ligne 679). Selon l'ordre d'import, l'un écrase
+                   l'autre silencieusement.
+                   → ipc-database-handlers.cjs:53 et :679
+
+  HA         R-03  PATTERN N+1 QUERIES — 501 REQUÊTES
+                   loadTransactions() exécute une requête pour charger
+                   les 500 transactions, puis UNE REQUÊTE SUPPLÉMENTAIRE
+                   pour les items de CHAQUE transaction. Avec 500
+                   transactions = 501 requêtes SQL. Devrait être un
+                   seul JOIN ou une requête batch.
+                   → Reports.jsx:364-375
+
+  HA         R-04  TRANSACTIONS NON FILTRÉES PAR PÉRIODE
+                   loadTransactions() reçoit dateRange en paramètre
+                   MAIS ne l'utilise PAS dans le SQL. Le WHERE clause
+                   est absent — les 500 transactions les plus récentes
+                   sont TOUJOURS affichées, même si l'utilisateur
+                   sélectionne "Aujourd'hui". Les graphiques filtrent
+                   correctement, le tableau non. Incohérence de données.
+                   → Reports.jsx:348-361
+
+  MOY        R-05  PERFORMANCE ARBITRAIRE (HARDCODED THRESHOLDS)
+                   Les seuils de notation (>20 = "Excellente", >15 =
+                   "Bonne", >10 = "Correcte", etc.) sont des nombres
+                   absolus qui ne s'adaptent pas à la période. Pour
+                   "Cette Année", 20 ventes/heure est mauvais. Pour
+                   "Aujourd'hui" avant midi, 5 pourrait être excellent.
+                   → Reports.jsx:730-735
+
+  MOY        R-06  sendErrorReport MANQUANT DANS PRELOAD
+                   errorRecovery.js (ligne 742) appelle
+                   window.electronAPI.sendErrorReport() mais cette
+                   méthode N'EST PAS exposée dans preload.cjs. Le
+                   reporting d'erreurs échoue silencieusement.
+                   → preload.cjs (absent)
+                   → errorRecovery.js:742
+
+  MOY        R-07  AUCUN BOUNDARY AUTOUR DES CHARTS RECHARTS
+                   Si Recharts reçoit des données malformées (null,
+                   undefined, format inattendu), le composant entier
+                   plante. Pas de try-catch ni Error Boundary autour
+                   des graphiques.
+                   → Reports.jsx:650-720
+
+  MOY        R-08  PAGINATION REND TOUS LES BOUTONS
+                   La pagination affiche TOUS les numéros de page
+                   (1,2,3,...,N). Avec 100+ pages, cela rend 100+
+                   boutons. Devrait utiliser "..." pour les grands
+                   nombres.
+                   → Reports.jsx:904-914
+
+  MOY        R-09  DÉTAIL TRANSACTION HARDCODED bg-white
+                   Le modal de détail de transaction utilise bg-white
+                   au lieu du thème POSConfiguration.getStyles().
+                   → Reports.jsx:1006
+
+  MOY        R-10  PRODUIT VEDETTE INEXISTANT
+                   La section "Produit vedette" du dashboard n'est pas
+                   implémentée dans Reports.jsx. Seul le preview admin
+                   (POSReports.jsx) l'affiche avec une valeur hardcodée
+                   "Cafe Expresso".
+
+  Basse      R-11  get-sales-data IPC INUTILISÉ PAR RAPPORTS
+                   Le handler get-sales-data n'est pas utilisé par
+                   Reports.jsx (qui utilise query() brut à la place).
+                   Il est utilisé uniquement par autoBackup.js.
+                   → ipc-sales-handlers.cjs:198
+
+  Basse      R-12  enableAdvancedReporting DÉFINI JAMAIS UTILISÉ
+                   La clé enableAdvancedReporting dans POSConfiguration
+                   n'est lue par aucun composant pour activer/désactiver
+                   des fonctionnalités.
+                   → POSConfiguration.js:150
+
+  Basse      R-13  MIX ANGLAIS/FRANÇAIS
+                   Les labels UI sont en français mais les commentaires
+                   de code et noms de variables sont en anglais.
+                   Messages d'erreur mixtes ("Error loading" vs "Aucune
+                   vente pour cette période").
+
+  Basse      R-14  admin/POSReports.jsx — 625 LIGNES DE MOCK DATA
+                   Le composant preview admin contient des données
+                   démo hardcodées (DEMO_HOURLY_DATA, 25 fausses
+                   transactions, "Cafe Expresso"). Le sélecteur de
+                   période est désactivé (disabled). 625 lignes de
+                   code mort si quelqu'un suppose que c'est fonctionnel.
+
+  Basse      R-15  HISTORIQUE CAISSES SANS FILTRE
+                   La section "Historique des caisses" affiche les 50
+                   derniers shifts sans aucun filtre (date, caissier,
+                   statut), contrairement au tableau des transactions.
+                   → Reports.jsx:403-425
+
+  Basse      R-16  BUG NOM DE PROPRIÉTÉ — bi-insight-generator
+                   bi-insight-generator.js (ligne 18) référence
+                   summary.revenueByDay mais warehouse-service.js
+                   (ligne 198) définit summary.revenue. La propriété
+                   revenueByDay n'existe jamais → insight de revenu
+                   ne se déclenche JAMAIS.
+
+  Info       R-17  PAS D'API REST POUR RAPPORTS POS
+                   La page Rapports interroge SQLite directement via
+                   IPC. Il n'existe aucun endpoint REST correspondant
+                   sur le backend. Les rapports sont 100% locaux et
+                   inaccessibles depuis le portail admin ou à distance.
+
+  Info       R-18  PAS D'EXPORT PDF / IMPRESSION
+                   Pas de fonctionnalité pour imprimer ou exporter un
+                   PDF du rapport. Seul l'export ZIP (BI) est disponible.
+                   Un système POS a souvent besoin d'un rapport
+                   imprimable quotidien/hebdomadaire.
+
+  Info       R-19  PAS DE COMPARAISON DE PÉRIODES
+                   Impossible de comparer cette semaine vs la semaine
+                   dernière, ce mois vs le mois dernier, etc.
+
+  Info       R-20  GRAPHIQUE MONTRANT UNIQUEMENT NOMBRE DE VENTES
+                   Le bar chart affiche "Ventes" (nombre) mais pas le
+                   chiffre d'affaires (revenu), alors que les données
+                   revenue sont disponibles dans salesData. Le tooltip
+                   montre les deux, mais le graphique n'a qu'une seule
+                   série de barres.
+
+═══════════════════════════════════════════════════════════════════════════════
+                      4. RÉSUMÉ STATISTIQUE
+═══════════════════════════════════════════════════════════════════════════════
+
+  Total problèmes : 20
+  ──────────────────────────────
+  HA (Critique)  :  4  (R-01, R-02, R-03, R-04)
+  MOY (Moyen)    :  6  (R-05, R-06, R-07, R-08, R-09, R-10)
+  Basse          :  6  (R-11, R-12, R-13, R-14, R-15, R-16)
+  Info           :  4  (R-17, R-18, R-19, R-20)
+
+  Score de qualité : 5/10
+
+  Justification du score :
+  - Les graphiques Recharts fonctionnent bien et sont visuellement corrects
+  - L'export BI (ZIP) est bien implémenté avec validation
+  - Les données de ventes sont réelles (pas de mock dans Reports.jsx)
+  - MAIS : faille SQL injection critique (R-01)
+  - MAIS : 501 requêtes pour charger les transactions (R-03)
+  - MAIS : transactions non filtrées par période (R-04) = données incohérentes
+  - MAIS : pas de boundary charts (R-07) = crash possible
+  - MAIS : pas d'export PDF (R-18) = fonctionnalité manquante de base
+  - Le pattern database:query ouvert est le problème architectural #1
+
+═══════════════════════════════════════════════════════════════════════════════
+                   5. RECOMMANDATIONS PRIORITAIRES
+═══════════════════════════════════════════════════════════════════════════════
+
+  Priorité 1 (Sécurité) :
+  ────────────────────────
+  • R-01 : Restreindre database:query — whitelist de tables autorisées
+           OU créer des handlers IPC dédiés pour chaque type de rapport
+  • R-02 : Supprimer la classe IPCDatabaseHandlers, garder uniquement
+           la version fonctionnelle registerDatabaseHandlers
+
+  Priorité 2 (Bugs critiques) :
+  ──────────────────────────────
+  • R-03 : Refondre loadTransactions() — un seul JOIN au lieu de N+1
+  • R-04 : Ajouter WHERE created_at BETWEEN ? AND ? dans la requête
+           des transactions pour respecter la période sélectionnée
+  • R-16 : Corriger revenueByDay → revenue dans bi-insight-generator.js
+
+  Priorité 3 (UX / Fonctionnalités) :
+  ────────────────────────────────────
+  • R-07 : Ajouter des Error Boundaries autour des graphiques
+  • R-08 : Pagination avec ellipsis pour les grands nombres de pages
+  • R-09 : Utiliser le thème POSConfiguration dans le modal détail
+  • R-18 : Ajouter export PDF/impression pour rapport quotidien
+  • R-19 : Ajouter comparaison de périodes
+
+  Priorité 4 (Nettoyage) :
+  ────────────────────────
+  • R-12 : Implémenter ou supprimer enableAdvancedReporting
+  • R-14 : Nettoyer ou documenter le mock admin POSReports.jsx
+  • R-15 : Ajouter filtres sur l'historique des caisses
+  • R-17 : Créer des endpoints REST pour les rapports (si accès distant requis)
+
+═══════════════════════════════════════════════════════════════════════════════
+                    6. FICHIERS MODIFIÉS / À MODIFIER
+═══════════════════════════════════════════════════════════════════════════════
+
+  Fichier                                          Priorité
+  ────────────────────────────────────────────────  ─────────
+  src/pages/Reports.jsx                            R-01,03,04,05,07,08,09,20
+  src/electron/handlers/ipc-database-handlers.cjs  R-01,02
+  src/electron/handlers/ipc-sales-handlers.cjs     R-11
+  src/electron/bi/BiSchemaContract.cjs             (OK)
+  src/electron/bi/BiDataMapper.cjs                 (OK)
+  src/electron/bi/BiValidator.cjs                  (OK)
+  src/components/BiExportModal.jsx                 (OK)
+  src/electron/handlers/ipc-bi-export-handler.cjs  (OK)
+  public/preload.cjs                               R-06
+  preload.js                                       R-06 (ancien, peut être supprimé)
+  admin/src/.../POSReports.jsx                     R-14
+  backend/services/bi-insight-generator.js         R-16
+
+═══════════════════════════════════════════════════════════════════════════════
