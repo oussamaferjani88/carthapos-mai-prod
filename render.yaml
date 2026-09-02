@@ -96,7 +96,6 @@ services:
   - type: web
     name: carthapos-frontend
     runtime: static
-    region: oregon
     rootDir: frontend
     buildCommand: npx pnpm install && npx pnpm run build
     staticPublishPath: dist
@@ -110,7 +109,6 @@ services:
   - type: web
     name: carthapos-admin
     runtime: static
-    region: oregon
     rootDir: admin
     buildCommand: npx pnpm install && npx pnpm run build
     staticPublishPath: dist
