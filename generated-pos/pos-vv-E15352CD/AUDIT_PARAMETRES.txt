@@ -1,0 +1,352 @@
+═══════════════════════════════════════════════════════════════════════════════
+                     AUDIT — PARAMÈTRES (Settings Section)
+                          Date : 2026-07-21
+═══════════════════════════════════════════════════════════════════════════════
+
+Fichiers concernés :
+  • src/pages/Settings.jsx                       (908 lignes — Page principale)
+  • src/pages/HardwareSettings.jsx               (865 lignes — Matériel)
+  • src/pages/SecuritySettings.jsx               (595 lignes — Sécurité)
+  • src/pages/ReceiptDesigner.jsx                (1134 lignes — Concepteur tickets)
+  • src/hooks/useSettings.js                     (82 lignes — Hook DB key-value)
+  • src/hooks/useAppConfig.js                    (88 lignes — Hook config JSON)
+  • src/config/AppConfig.js                      (123 lignes — Classe statique)
+  • src/config/app-config.json                   (75 lignes — Config JSON)
+  • src/lib/POSConfiguration.js                  (476 lignes — Moteur de thème)
+  • src/lib/hardware/thermalPrinter.js           (449 lignes — Imprimante thermique)
+  • preload.js                                   (122 lignes — Bridge preload)
+  • preload.cjs                                  (220 lignes — Bridge preload)
+  • src/electron/handlers/ipc-app-handlers.cjs   (189 lignes — Handlers config)
+  • src/electron/handlers/ipc-auth-handlers.cjs  (325 lignes — Handlers sécurité)
+  • src/electron/handlers/ipc-database-handlers.cjs (888 lignes — Handlers DB)
+  • src/electron/ElectronAuthManager.cjs         (956 lignes — Auth manager)
+  • admin/src/components/pos/preview/modules/POSSettings.jsx (330 lignes — Preview)
+  • admin/src/pages/settings/HardwareSettings.jsx (663 lignes — Copie admin)
+  • admin/src/pages/settings/SecuritySettings.jsx (380 lignes — Mock admin)
+
+═══════════════════════════════════════════════════════════════════════════════
+                        1. ARCHITECTURE DES STOCKAGES
+═══════════════════════════════════════════════════════════════════════════════
+
+4 mécanismes de stockage distincts utilisés de manière INCOHÉRENTE :
+
+  Mécanisme                    Utilisé pour                           Où
+  ───────────────────────────  ─────────────────────────────────────  ──────────────
+  SQLite table `settings`      Business, devise, TVA, langue, thème   Settings.jsx
+  (key-value)                  impression, backup, son               via useSettings
+                                                                      
+  SQLite table                 Tentatives login, verrouillage,        SecuritySettings.jsx
+  `security_settings`          session timeout, politiques MDP        via IPC auth
+  (1 seule ligne, id=1)                                                  
+
+  localStorage                 Matériel (caisse, imprimante,          HardwareSettings.jsx
+                               clavier, notifs, kiosk, backup)        ReceiptDesigner.jsx
+                                                                      
+  JSON file                    Modules, thème, DB config, features    app-config.json
+  (`app-config.json`)                                                   via get-app-config
+
+
+═══════════════════════════════════════════════════════════════════════════════
+                    2. INVENTAIRE DES CANAUX IPC
+═══════════════════════════════════════════════════════════════════════════════
+
+  Canal IPC                     preload.cjs   Handler               Stockage
+  ─────────────────────────────  ────────────  ─────────────────────  ────────
+  get-app-config                 ✅            ipc-app-handlers:89    JSON file
+  settings:get                    ✅            ipc-app-handlers:111   SQLite
+  settings:set                    ✅            ipc-app-handlers:125   SQLite
+  settings:getAll                 ✅            ipc-app-handlers:142   SQLite
+  get-security-settings           ✅            ipc-auth-handlers:257  SQLite
+  update-security-settings        ✅            ipc-auth-handlers:267  SQLite
+  get-all-users                   ✅            ipc-auth-handlers:129  SQLite
+  change-password                 ✅            ipc-auth-handlers:195  SQLite
+  admin-reset-password            ✅            ipc-auth-handlers:205  SQLite
+  validate-password               ✅            ipc-auth-handlers:215  SQLite
+  get-vat-rates                   ✅            ipc-database:815       SQLite
+  add-vat-rate                    ✅            ipc-database:831       SQLite
+  update-vat-rate                 ✅            ipc-database:850       SQLite
+  delete-vat-rate                 ✅            ipc-database:869       SQLite
+  get-receipt-config              ❌ MANQUANT   AUCUN                  N/A
+  save-receipt-config             ❌ MANQUANT   AUCUN                  N/A
+
+  NOTE : get-security-settings, update-security-settings, get-all-users,
+         change-password, admin-reset-password, validate-password,
+         get/add/update/delete-vat-rate sont dans preload.cjs MAIS PAS
+         dans preload.js (l'ancien bridge). Le preload.cjs est le bridge
+         actif pour Electron, donc ces canaux fonctionnent correctement
+         dans les builds Electron.
+
+
+═══════════════════════════════════════════════════════════════════════════════
+                     3. PROBLÈMES IDENTIFIÉS
+═══════════════════════════════════════════════════════════════════════════════
+
+  GRAVITÉ    ID     DESCRIPTION
+  ─────────  ─────  ───────────────────────────────────────────────────────────
+
+  HA [CRIT]  S-01   DOUBLE ENREGISTREMENT settings:get/set/getAll
+                    ipc-app-handlers.cjs enregistre les handlers DEUX fois :
+                    une fois dans la classe IPCAppHandlers (lignes 55-71) qui
+                    retourne null/{} (STUBS), et une fois dans la fonction
+                    registerAppHandlers (lignes 111-158) qui interroge SQLite.
+                    Si les deux sont appelés, les stubs de la classe écrasent
+                    les handlers fonctionnels → les paramètres cessent de
+                    fonctionner.
+                    → ipc-app-handlers.cjs:55-71 vs :111-158
+
+  HA [CRIT]  S-02   RECEIPT CONFIG — HANDLER IPC MANQUANT
+                    ReceiptDesigner.jsx appelle getReceiptConfig() et
+                    saveReceiptConfig() mais AUCUN handler IPC n'existe pour
+                    ces canaux. La persistance DB est cassée — le designer
+                    fonctionne uniquement via localStorage.
+                    → ReceiptDesigner.jsx:155-156, :188-189
+
+  HA [CRIT]  S-03   BOOLEAN PARSING INCOHÉRENT — useSettings convertit tout
+                    en String. String(true) = "true", String(false) = "false".
+                    Settings.jsx compare avec === 'true' (OK) mais taxEnabled
+                    utilise === true (boolean) qui échoue pour les valeurs
+                    chargées depuis la DB.
+                    → useSettings.js:40,62
+                    → Settings.jsx:104-117
+
+  MOY        S-04   AUTORISATION MANQUANTE — settings:set
+                    Le handler settings:set n vérifie PAS le rôle utilisateur.
+                    Un caissier peut changer le nom du business, la devise,
+                    le taux de TVA, etc.
+                    → ipc-app-handlers.cjs:125-140
+
+  MOY        S-05   AUTORISATION MANQUANTE — update-security-settings
+                    Le handler update-security-settings n vérifie PAS le rôle.
+                    Un caissier peut réduire les politiques de sécurité pour
+                    tout le système.
+                    → ipc-auth-handlers.cjs:267-276
+
+  MOY        S-06   DEAD CODE — Classe IPCAppHandlers (lignes 8-82)
+                    La version classe avec registerHandlers() est exportée
+                    mais jamais utilisée. Elle enregistre des stubs TODO
+                    qui retournent null.
+                    → ipc-app-handlers.cjs:8-82
+
+  MOY        S-07   DEAD CODE — Classe AppConfig.js
+                    AppConfig.getConfig() lit window.__POS_CONFIG__ qui
+                    n'est JAMAIS défini. applyTheme() applique des CSS
+                    custom properties qui entrent en conflit avec le
+                    système Tailwind. Aucune méthode n'est utilisée.
+                    → AppConfig.js (fichier entier)
+
+  MOY        S-08   thermalPrinter.js lit depuis le MAUVAIS stockage
+                    Line 77: lit localStorage.getItem('appConfig') qui
+                    n'est JAMAIS écrit (la vraie config est dans
+                    app-config.json ou la DB). Les tickets imprimés
+                    auront le nom/adresse/telephone du business VIDE.
+                    → thermalPrinter.js:77-80
+
+  MOY        S-09   thermalPrinter.js lit l'historique ventes depuis
+                    localStorage (salesHistory) au lieu de la DB SQLite.
+                    La fonction printDuplicate échouera toujours avec
+                    "Vente introuvable".
+                    → thermalPrinter.js:384-405
+
+  MOY        S-10   thermalPrinter.js utilise hardcoded '€' au lieu de
+                    la devise configurée dans les paramètres.
+                    → thermalPrinter.js:272,285
+
+  MOY        S-11   OVERLAP IMPRESSION — Settings.jsx ET HardwareSettings.jsx
+                    Settings.jsx (lignes 577-650) a une section impression
+                    avec receiptPrinter, kitchenPrinter, paperWidth.
+                    HardwareSettings.jsx (lignes 461-543) a une section
+                    imprimante thermique avec des champs similaires.
+                    Settings sauve en DB, HardwareSettings en localStorage.
+                    Pas de synchronisation → conflit de configuration.
+                    → Settings.jsx:577-650
+                    → HardwareSettings.jsx:461-543
+
+  MOY        S-12   OVERLAP BACKUP — Settings.jsx ET HardwareSettings.jsx
+                    Settings.jsx (lignes 652-704): autoBackup, backupFolder,
+                    backupFrequency (DB).
+                    HardwareSettings.jsx (lignes 757-862): autoBackup,
+                    interval, maxBackups, includeImages (localStorage).
+                    Champs différents, stockages différents, pas de synchro.
+                    → Settings.jsx:652-704
+                    → HardwareSettings.jsx:757-862
+
+  Basse      S-13   DUPLICATION — POSConfiguration.js
+                    Fichier quasi-identique entre pos-template (476 lignes)
+                    et admin (476 lignes) avec des différences mineures
+                    (devise: 'DT' vs '€'). Devrait être un package partagé.
+                    → pos-template/src/lib/POSConfiguration.js
+                    → admin/src/config/POSConfiguration.js
+
+  Basse      S-14   DUPLICATION — HardwareSettings.jsx
+                    Version admin (663 lignes) = copie allégée de la version
+                    POS (865 lignes). Tests simulés avec setTimeout, statuts
+                    hardcodés à 'ready', pas de vraie intégration matérielle.
+                    → admin/src/pages/settings/HardwareSettings.jsx
+
+  Basse      S-15   DUPLICATION — SecuritySettings.jsx
+                    Version admin (380 lignes) = données mock hardcodées.
+                    Version POS (595 lignes) = fonctionnelle avec IPC.
+                    → admin/src/pages/settings/SecuritySettings.jsx
+
+  Basse      S-16   VALEURS PAR DÉFAUT INCOHÉRENTES — Devise
+                    Settings.jsx: 'TND' (ligne 58)
+                    app-config.json: 'EUR' (ligne 50)
+                    POSConfiguration.js: 'DT' (ligne 81)
+                    thermalPrinter.js: '€' hardcodé (ligne 272)
+                    → 4 default values diferentes
+
+  Basse      S-17   VALEURS PAR DÉFAUT INCOHÉRENTES — TVA
+                    Settings.jsx: 19 (ligne 59)
+                    app-config.json: 20.0 (ligne 51)
+                    → 2 default values différentes
+
+  Basse      S-18   VALEURS PAR DÉFAUT INCOHÉRENTES — Timezone
+                    Settings.jsx: 'Africa/Tunis' (ligne 62)
+                    app-config.json: 'Europe/Paris' (ligne 53)
+                    POSConfiguration.js: 'Europe/Paris' (ligne 88)
+                    → 2 default values différentes
+
+  Basse      S-19   VERSION HARDCODÉE "1.0.0"
+                    Settings.jsx ligne 881 et admin POSSettings ligne 303
+                    affichent "Version 1.0.0" au lieu de lire package.json.
+                    → Settings.jsx:881
+
+  Basse      S-20   CHEMIN HARDCODÉ "C:\ProgramData\POS\database.db"
+                    Admin POSSettings ligne 314 affiche un chemin Windows
+                    hardcodé qui ne correspond pas au vrai emplacement.
+                    → admin/POSSettings.jsx:314
+
+  Basse      S-21   DONNÉES DÉMO HARDCODÉES DANS L'ADMIN
+                    Admin POSSettings (lignes 233-261) affiche une licence
+                    "DEMO-XXXX-XXXX-XXXX", client "Client Demo", type
+                    "Restauration", durée "À vie". Données trompeuses.
+                    → admin/POSSettings.jsx:233-261
+
+  Basse      S-22   taxRate LEGACY vs SYSTÈME VAT
+                    Settings.jsx a un champ taxRate (défaut 19) qui n'est
+                    JAMAIS utilisé dans les calculs de vente. Le vrai
+                    système utilise la table vat_rates avec des taux
+                    multiples configurables. Le champ taxRate est du code
+                    mort.
+                    → Settings.jsx:59
+
+  Basse      S-23   IMPORTS @/ alias vs ../ relatif
+                    ReceiptDesigner.jsx utilise @/components/... (alias
+                    Vite) tandis que tous les autres fichiers utilisent
+                    ../components/... (chemins relatifs). Incohérent.
+                    → ReceiptDesigner.jsx
+
+  Basse      S-24   TIMEOUT SESSION NON APPLIQUÉ
+                    Le paramètre session_timeout_minutes est sauvegardé
+                    dans la DB mais aucun timer dans le renderer ne
+                    surveille l'expiration de session. Le paramètre
+                    n'est JAMAIS appliqué.
+                    → SecuritySettings.jsx:456-464
+
+  Info       S-25   PAS D'IMPORT/EXPORT DES PARAMÈTRES
+                    Aucune fonctionnalité pour exporter/importer la
+                    configuration (ex: migrer vers un autre POS).
+
+  Info       S-26   PAS D'AUDIT TRAIL DES CHANGEMENTS DE PARAMÈTRES
+                    Les modifications de paramètres ne sont PAS enregistrées
+                    dans le journal d'audit (audit_logs). Impossible de
+                    savoir qui a changé quoi.
+
+  Info       S-27   RESTORE BACKUP — "EN COURS DE DÉVELOPPEMENT"
+                    HardwareSettings.jsx ligne 851-852: la restauration
+                    de backup est explicitement marquée comme non implémentée.
+                    → HardwareSettings.jsx:851-852
+
+  Info       S-28   PAS DE VALIDATION DES ENTRÉES
+                    Les adresses IP imprimante, emails, URLs ne sont pas
+                    validés avant sauvegarde. Les taux de TVA acceptent
+                    n'importe quel nombre sans vérification de plage.
+                    → Settings.jsx (ensemble du formulaire)
+
+═══════════════════════════════════════════════════════════════════════════════
+                      4. RÉSUMÉ STATISTIQUE
+═══════════════════════════════════════════════════════════════════════════════
+
+  Total problèmes : 28
+  ──────────────────────────────
+  HA (Critique)  :  3  (S-01, S-02, S-03)
+  MOY (Moyen)    :  9  (S-04 à S-12)
+  Basse          : 10  (S-13 à S-24)
+  Info           :  4  (S-25 à S-28)
+
+  Score de qualité : 4/10
+
+  Justification du score :
+  - Les settings de base (business info, thème) fonctionnent via DB
+  - La page Security Settings est bien implémentée ( après refactoring )
+  - Les VAT rates ont un CRUD complet
+  - MAIS : le double enregistrement IPC menace la stabilité (S-01)
+  - MAIS : la persistance du receipt designer est cassée (S-02)
+  - MAIS : le parsing boolean casse les settings chargés (S-03)
+  - MAIS : pas d'autorisation sur les modifs de settings (S-04, S-05)
+  - MAIS : l'imprimante thermique lit les mauvaises sources (S-08, S-09, S-10)
+  - MAIS : 4 default values différentes pour la devise (S-16)
+  - MAIS : overlapping settings entre 2 pages (S-11, S-12)
+  - Architecture de stockage fragmentée (4 mécanismes différents)
+
+═══════════════════════════════════════════════════════════════════════════════
+                   5. RECOMMANDATIONS PRIORITAIRES
+═══════════════════════════════════════════════════════════════════════════════
+
+  Priorité 1 (Stabilité / Sécurité) :
+  ────────────────────────────────────
+  • S-01 : Supprimer la classe IPCAppHandlers, garder uniquement la
+           version fonctionnelle registerAppHandlers
+  • S-02 : Créer les handlers get-receipt-config / save-receipt-config
+           pour persister le receipt designer en DB
+  • S-03 : Corriger le parsing boolean dans useSettings.js et
+           Settings.jsx — uniformiser la conversion
+  • S-04 : Ajouter vérification role=admin/manager sur settings:set
+  • S-05 : Ajouter vérification role=admin sur update-security-settings
+
+  Priorité 2 (Cohérence / Intégrité) :
+  ────────────────────────────────────
+  • S-08 à S-10 : Refondre thermalPrinter.js pour lire depuis les
+           bons canaux IPC (get-app-config + settings:getAll)
+  • S-11 : Fusionner la config impression en un seul endroit
+  • S-12 : Fusionner la config backup en un seul endroit
+  • S-16 à S-18 : Unifier les default values dans un seul fichier
+
+  Priorité 3 (Nettoyage / Maintenance) :
+  ───────────────────────────────────────
+  • S-06 : Supprimer la classe IPCAppHandlers (dead code)
+  • S-07 : Supprimer ou isoler AppConfig.js (dead code)
+  • S-22 : Supprimer le champ taxRate legacy
+  • S-19 : Lire la version depuis package.json
+  • S-24 : Implémenter un timer de session timeout
+
+  Priorité 4 (Fonctionnalités manquantes) :
+  ──────────────────────────────────────────
+  • S-25 : Ajouter import/export des paramètres
+  • S-26 : Logger les changements de paramètres dans audit_logs
+  • S-27 : Implémenter la restauration de backup
+  • S-28 : Ajouter la validation des entrées (IP, email, URL, TVA)
+
+═══════════════════════════════════════════════════════════════════════════════
+                    6. FICHIERS MODIFIÉS / À MODIFIER
+═══════════════════════════════════════════════════════════════════════════════
+
+  Fichier                                             Priorité
+  ────────────────────────────────────────────────────  ─────────
+  src/electron/handlers/ipc-app-handlers.cjs           S-01,04,06
+  src/pages/ReceiptDesigner.jsx                        S-02,23
+  src/hooks/useSettings.js                             S-03
+  src/pages/Settings.jsx                               S-03,11,12,16-19,22,28
+  src/pages/HardwareSettings.jsx                       S-11,12,27
+  src/pages/SecuritySettings.jsx                       S-24
+  src/lib/hardware/thermalPrinter.js                   S-08,09,10
+  src/config/AppConfig.js                              S-07 (supprimer)
+  src/config/app-config.json                           S-16-18 (unifier)
+  src/lib/POSConfiguration.js                          S-16-18 (unifier)
+  src/electron/handlers/ipc-auth-handlers.cjs          S-05
+  admin/src/.../POSSettings.jsx                        S-19-21 (nettoyer)
+  admin/src/.../HardwareSettings.jsx                   S-14
+  admin/src/.../SecuritySettings.jsx                   S-15
+  admin/src/config/POSConfiguration.js                 S-13
+
+═══════════════════════════════════════════════════════════════════════════════
