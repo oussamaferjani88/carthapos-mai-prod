@@ -1,8 +1,8 @@
 -- BI Hardening: idempotency, unique constraints, duplicate detection
 
--- fileHash for duplicate ZIP detection
-ALTER TABLE "bi_uploads" ADD COLUMN "fileHash" TEXT;
-CREATE UNIQUE INDEX "bi_uploads_fileHash_key" ON "bi_uploads"("fileHash");
+-- fileHash for duplicate ZIP detection (lowercase to match schema.prisma @map("filehash"))
+ALTER TABLE "bi_uploads" ADD COLUMN "filehash" TEXT;
+CREATE UNIQUE INDEX "bi_uploads_filehash_key" ON "bi_uploads"("filehash");
 
 -- DimClient: one row per tenant
 CREATE UNIQUE INDEX "dim_clients_tenantId_key" ON "dim_clients"("tenantId");

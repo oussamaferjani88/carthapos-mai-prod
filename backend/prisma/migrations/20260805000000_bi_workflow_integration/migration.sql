@@ -51,10 +51,8 @@ CREATE TABLE "bi_request_events" (
 
 -- CreateIndex
 CREATE UNIQUE INDEX "clients_userid_key" ON "clients"("userid");
-CREATE INDEX "bi_dashboards_clientid_idx" ON "bi_dashboards"("clientid");
 CREATE INDEX "bi_dashboards_uploadid_idx" ON "bi_dashboards"("uploadid");
 CREATE INDEX "bi_dashboards_requestid_idx" ON "bi_dashboards"("requestid");
-CREATE INDEX "bi_notifications_clientid_idx" ON "bi_notifications"("clientid");
 CREATE INDEX "bi_notifications_role_idx" ON "bi_notifications"("role");
 CREATE INDEX "bi_dashboard_assignments_clientid_idx" ON "bi_dashboard_assignments"("clientid");
 CREATE INDEX "bi_dashboard_assignments_dashboardid_idx" ON "bi_dashboard_assignments"("dashboardid");

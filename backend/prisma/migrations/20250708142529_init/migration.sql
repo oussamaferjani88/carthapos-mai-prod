@@ -22,7 +22,7 @@ CREATE TABLE "licenses" (
     "sector" TEXT NOT NULL,
     "licenseType" "LicenseType" NOT NULL,
     "expirationDate" TIMESTAMP(3),
-    "isActive" BOOLEAN NOT NULL DEFAULT true,
+    "isactive" BOOLEAN NOT NULL DEFAULT true,
     "machineId" TEXT,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMP(3) NOT NULL,

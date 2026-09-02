@@ -1,60 +1,60 @@
--- CreateTable
+-- CreateTable (bi_uploads: lowercase to match schema.prisma @map)
 CREATE TABLE "bi_uploads" (
     "id" TEXT NOT NULL,
-    "clientId" TEXT NOT NULL,
-    "businessType" TEXT NOT NULL,
-    "biSchemaVersion" TEXT,
-    "fileName" TEXT NOT NULL,
-    "fileSize" INTEGER NOT NULL,
-    "filePath" TEXT NOT NULL,
+    "clientid" TEXT NOT NULL,
+    "businesstype" TEXT NOT NULL,
+    "bischemaversion" TEXT,
+    "filename" TEXT NOT NULL,
+    "filesize" INTEGER NOT NULL,
+    "filepath" TEXT NOT NULL,
     "status" TEXT NOT NULL DEFAULT 'UPLOADED',
-    "totalFiles" INTEGER NOT NULL DEFAULT 0,
-    "totalRows" INTEGER NOT NULL DEFAULT 0,
-    "errorMessage" TEXT,
-    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "updatedAt" TIMESTAMP(3) NOT NULL,
+    "totalfiles" INTEGER NOT NULL DEFAULT 0,
+    "totalrows" INTEGER NOT NULL DEFAULT 0,
+    "errormessage" TEXT,
+    "createdat" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedat" TIMESTAMP(3) NOT NULL,
 
     CONSTRAINT "bi_uploads_pkey" PRIMARY KEY ("id")
 );
 
--- CreateTable
+-- CreateTable (bi_upload_files: lowercase)
 CREATE TABLE "bi_upload_files" (
     "id" TEXT NOT NULL,
-    "uploadId" TEXT NOT NULL,
-    "fileName" TEXT NOT NULL,
-    "rowCount" INTEGER NOT NULL DEFAULT 0,
-    "fileSize" INTEGER NOT NULL DEFAULT 0,
+    "uploadid" TEXT NOT NULL,
+    "filename" TEXT NOT NULL,
+    "rowcount" INTEGER NOT NULL DEFAULT 0,
+    "filesize" INTEGER NOT NULL DEFAULT 0,
     "status" TEXT NOT NULL DEFAULT 'PENDING',
-    "errorMessage" TEXT,
-    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "errormessage" TEXT,
+    "createdat" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
     CONSTRAINT "bi_upload_files_pkey" PRIMARY KEY ("id")
 );
 
--- CreateTable
+-- CreateTable (bi_processing_jobs: lowercase)
 CREATE TABLE "bi_processing_jobs" (
     "id" TEXT NOT NULL,
-    "uploadId" TEXT NOT NULL,
+    "uploadid" TEXT NOT NULL,
     "status" TEXT NOT NULL DEFAULT 'QUEUED',
-    "startedAt" TIMESTAMP(3),
-    "completedAt" TIMESTAMP(3),
-    "errorMessage" TEXT,
-    "recordsLoaded" INTEGER NOT NULL DEFAULT 0,
-    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "updatedAt" TIMESTAMP(3) NOT NULL,
+    "startedat" TIMESTAMP(3),
+    "completedat" TIMESTAMP(3),
+    "errormessage" TEXT,
+    "recordsloaded" INTEGER NOT NULL DEFAULT 0,
+    "createdat" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedat" TIMESTAMP(3) NOT NULL,
 
     CONSTRAINT "bi_processing_jobs_pkey" PRIMARY KEY ("id")
 );
 
--- CreateTable
+-- CreateTable (bi_processing_logs: lowercase)
 CREATE TABLE "bi_processing_logs" (
     "id" TEXT NOT NULL,
-    "jobId" TEXT NOT NULL,
+    "jobid" TEXT NOT NULL,
     "level" TEXT NOT NULL DEFAULT 'INFO',
     "step" TEXT NOT NULL,
     "message" TEXT NOT NULL,
     "details" JSONB,
-    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "createdat" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
     CONSTRAINT "bi_processing_logs_pkey" PRIMARY KEY ("id")
 );
@@ -181,20 +181,17 @@ CREATE TABLE "fact_kitchen_orders" (
     CONSTRAINT "fact_kitchen_orders_pkey" PRIMARY KEY ("id")
 );
 
--- CreateIndex
-CREATE UNIQUE INDEX "bi_processing_jobs_uploadId_key" ON "bi_processing_jobs"("uploadId");
-
--- CreateIndex
+-- CreateIndex (bi_processing_jobs.uploadid unique is created in 20260806010000)
 CREATE UNIQUE INDEX "dim_time_date_key" ON "dim_time"("date");
 
 -- AddForeignKey
-ALTER TABLE "bi_upload_files" ADD CONSTRAINT "bi_upload_files_uploadId_fkey" FOREIGN KEY ("uploadId") REFERENCES "bi_uploads"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+ALTER TABLE "bi_upload_files" ADD CONSTRAINT "bi_upload_files_uploadid_fkey" FOREIGN KEY ("uploadid") REFERENCES "bi_uploads"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE "bi_processing_jobs" ADD CONSTRAINT "bi_processing_jobs_uploadId_fkey" FOREIGN KEY ("uploadId") REFERENCES "bi_uploads"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+ALTER TABLE "bi_processing_jobs" ADD CONSTRAINT "bi_processing_jobs_uploadid_fkey" FOREIGN KEY ("uploadid") REFERENCES "bi_uploads"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE "bi_processing_logs" ADD CONSTRAINT "bi_processing_logs_jobId_fkey" FOREIGN KEY ("jobId") REFERENCES "bi_processing_jobs"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+ALTER TABLE "bi_processing_logs" ADD CONSTRAINT "bi_processing_logs_jobid_fkey" FOREIGN KEY ("jobid") REFERENCES "bi_processing_jobs"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "fact_sales" ADD CONSTRAINT "fact_sales_dimClientId_fkey" FOREIGN KEY ("dimClientId") REFERENCES "dim_clients"("id") ON DELETE SET NULL ON UPDATE CASCADE;

@@ -7,12 +7,11 @@
 
 ALTER TABLE "bi_notifications" ALTER COLUMN "category" SET NOT NULL;
 
--- 2) Schema declares @unique on BiUpload.fileHash and BiProcessingJob.uploadId, but the
---    unique constraints were never created. No duplicate rows exist (verified), so safe.
+-- 2) Schema declares @unique on BiUpload.fileHash and BiProcessingJob.uploadId.
+--    bi_uploads.filehash unique index is already created by 20260606120000;
+--    bi_processing_jobs.uploadid unique index was never created, add it now.
 
-CREATE UNIQUE INDEX "bi_uploads_filehash_key" ON "bi_uploads"("filehash");
 CREATE UNIQUE INDEX "bi_processing_jobs_uploadid_key" ON "bi_processing_jobs"("uploadid");
 
--- 3) Schema declares @@index([clientId]) on BiAnalysisRequest; never created. Add it.
-
-CREATE INDEX "bi_analysis_requests_clientid_idx" ON "bi_analysis_requests"("clientid");
+-- 3) bi_analysis_requests @@index([clientId]) is already created by
+--    20260611210000 (bi_analysis_requests_clientid_idx). Nothing to add here.
