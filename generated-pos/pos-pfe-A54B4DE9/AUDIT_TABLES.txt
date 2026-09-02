@@ -1,0 +1,236 @@
+================================================================================
+  AUDIT — GESTION DES TABLES (Restaurant Table Management)
+  Date: 2026-07-20
+  Scope: Backend (DB, IPC handlers) + UI (Tables.jsx)
+================================================================================
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  PART 1 — DATABASE SCHEMA: restaurant_tables
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Base Table (ElectronDatabaseManager.cjs:840-849):
+──────────────────────────────────────────────────
+  id              INTEGER PRIMARY KEY AUTOINCREMENT
+  table_number    TEXT NOT NULL
+  capacity        INTEGER DEFAULT 2
+  status          TEXT DEFAULT 'available'
+  current_order_id INTEGER
+  created_at      DATETIME DEFAULT CURRENT_TIMESTAMP
+
+Migration-Added Columns:
+────────────────────────
+  x               INTEGER DEFAULT 50       ← floor plan X position
+  y               INTEGER DEFAULT 50       ← floor plan Y position
+  waiter          TEXT DEFAULT ''           ← assigned waiter name
+  notes           TEXT DEFAULT ''           ← free-form notes
+  merged_tables   TEXT DEFAULT NULL         ← comma-separated merged table IDs
+  merged_into     INTEGER DEFAULT NULL      ← primary table ID if merged
+  zone            TEXT DEFAULT ''           ← zone name (UNUSED IN UI)
+  area_name       TEXT DEFAULT ''           ← area name (UNUSED IN UI)
+
+Status Values (no CHECK constraint):
+─────────────────────────────────────
+  'available'     Table is free
+  'occupied'      Table has an active order
+  'reserved'      Table is reserved
+  'cleaning'      Table is being cleaned
+  'merged'        Table is merged into another
+
+Related Tables:
+───────────────
+  sales.table_id         → FK → restaurant_tables.id (migration line 1070)
+  kitchen_orders.table_number → loose string reference (no FK)
+  held_orders.table_id   → loose reference (no FK)
+  held_orders.table_number → loose string reference
+
+Indexes: NONE on restaurant_tables
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  PART 2 — IPC HANDLERS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Channel                Params              SQL / Description
+───────────────────── ─────────────────── ───────────────────────────────────
+get-tables             none                SELECT * FROM restaurant_tables ORDER BY id ASC
+add-table              (table)             INSERT (table_number, capacity, waiter, notes, x, y, zone, area_name)
+update-table           (id, table)         Dynamic UPDATE SET <fields> WHERE id=?
+delete-table           (id)                DELETE FROM restaurant_tables WHERE id=?
+update-table-status    (id, status)        UPDATE SET status=? WHERE id=?
+
+Other handlers touching tables:
+  add-sale (ipc-sales-handlers.cjs:88-93)   → frees table on sale (status='available')
+  add-sale (ipc-sales-handlers.cjs:147-148) → looks up table_number for kitchen order
+  database:query / database:execute          → generic, can run any SQL on restaurant_tables
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  PART 3 — PRELOAD BRIDGE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  getTables()                → get-tables
+  addTable(table)            → add-table
+  updateTable(id, table)     → update-table
+  deleteTable(id)            → delete-table
+  updateTableStatus(id, s)   → update-table-status
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  PART 4 — UI (Tables.jsx — 651 lines)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+4A. Features Implemented
+────────────────────────
+  ✅ Visual floor plan with draggable tables (drag & drop, position saved to DB)
+  ✅ Status cycling on click (available → occupied → reserved → cleaning → available)
+  ✅ Explicit status buttons in list view (available/occupied/cleaning)
+  ✅ Add single table dialog (table_number, capacity, waiter, notes)
+  ✅ Bulk add tables (up to 50 at once, prefix + range)
+  ✅ Edit table (reuses add dialog)
+  ✅ Delete table (direct from list card — NO CONFIRMATION)
+  ✅ Merge tables (select 2+ tables, primary absorbs capacity/notes)
+  ✅ Split/unmerge tables (restores all to 'available')
+  ✅ Transfer order between tables (moves order, waiter, notes)
+  ✅ Waiter assignment (free text in add/edit form)
+  ✅ Status stats bar (Libres, Occupées, Réservées, Nettoyage, Fusionnées)
+
+4B. Features NOT Implemented
+────────────────────────────
+  ❌ Split bill — button always disabled, state declared but never used
+  ❌ Zone management — DB columns `zone` and `area_name` exist but no UI
+  ❌ Zone/area filtering — no filter or grouping in floor plan
+  ❌ Table reservations with time/date — status exists but no reservation system
+
+4C. UI Structure
+────────────────
+  1. Header — Title + buttons (Bulk add, New table)
+  2. Status stats — 5 cards (Libres, Occupées, Réservées, Nettoyage, Fusionnées)
+  3. Action bar — Merge mode toggle, Split bill (disabled)
+  4. Banners — Merge mode (blue), Transfer mode (amber)
+  5. Floor plan — Large div with absolutely-positioned 80x80 table boxes
+     - Color-coded by status
+     - Drag & drop for repositioning
+     - Click behavior depends on mode (cycle status / merge select / transfer)
+  6. Table list — 3-column grid of table cards
+     - Shows: number, capacity, waiter, notes, status badge, merge info
+     - Actions: Edit, Status buttons, Transfer, Split, Delete
+  7. Bulk add dialog
+  8. Add/Edit dialog
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  PART 5 — CROSS-FILE REFERENCES
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  Sales.jsx (line 266)      — Loads tables for order assignment
+  Sales.jsx (line 650)      — Sets table to 'occupied' when selected for order
+  Reports.jsx (line 358)    — JOINs sales with restaurant_tables for table_number display
+  ipc-sales-handlers.cjs    — Frees table (status='available') on sale completion
+  ipc-bi-export-handler.cjs — Exports restaurant_tables data for BI
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  PART 6 — ISSUES FOUND
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  CRITICAL
+  ────────
+  1. NO DELETE CONFIRMATION — Clicking delete immediately destroys the table.
+     No dialog, no undo. Tables with active orders can be deleted.
+     Location: Tables.jsx:579-581
+
+  2. NO CASCADE ON DELETE — Deleting a table doesn't clean up:
+     - sales.table_id references (orphan FK)
+     - held_orders.table_id / table_number
+     - kitchen_orders.table_number
+     - merged_tables / merged_into references in other tables
+     - Active order for occupied tables
+     Location: ipc-database-handlers.cjs delete-table handler
+
+  3. NO STATUS VALIDATION — update-table-status accepts any string.
+     No CHECK constraint on restaurant_tables.status. Invalid values
+     can be written to DB. Valid values only enforced by UI.
+     Location: ipc-database-handlers.cjs:233-242
+
+  4. DUPLICATE get-tables HANDLER — Both class-based (line 37) and
+     functional (line 215) register on the same channel. One shadows
+     the other depending on initialization order.
+     Location: ipc-database-handlers.cjs:37 and :215
+
+  MEDIUM
+  ──────
+  5. DEAD UI: Split Bill — Button rendered but permanently disabled.
+     State variables splitBillMode/splitTableId declared but never used.
+     No handler exists. Should be implemented or removed.
+     Location: Tables.jsx:36-37, 397-399
+
+  6. DEAD COLUMNS: zone + area_name — In DB schema and INSERT query,
+     but no UI fields, no filtering, no grouping. Dead code.
+     Location: ElectronDatabaseManager.cjs:1229-1239, ipc handlers
+
+  7. UNUSED IMPORT: Select component imported but never rendered.
+     Location: Tables.jsx:16
+
+  8. SORT ORDER INCONSISTENCY — Class handler sorts by table_number ASC,
+     functional handler sorts by id ASC. Can cause different ordering.
+     Location: ipc-database-handlers.cjs:42 vs :221
+
+  9. STALE CLOSURE IN DRAG — useEffect for mouseUp captures tables from
+     initial render, not latest state. Position saves may use stale data.
+     Location: Tables.jsx:204-226
+
+  10. MERGE/SPLIT WITHOUT ERROR FEEDBACK — Only alert('Erreur') on failure.
+      No detail about what went wrong. No success toasts.
+      Location: Tables.jsx:258, 286, 312
+
+  LOW
+  ───
+  11. NO INDEXES — No database indexes on restaurant_tables. Performance
+      risk with many tables or frequent status queries.
+
+  12. HARDCODED MOCK DATA — 6 fallback tables hardcoded for when
+      electronAPI is unavailable. Development artifacts.
+      Location: Tables.jsx:80-87
+
+  13. BULK ADD IS SEQUENTIAL — Tables added one at a time in a loop.
+      Slow for large batches. Should use a transaction.
+      Location: Tables.jsx:148-155
+
+  14. BULK PREVIEW CAPS AT 20 — Even if creating up to 50 tables.
+      Location: Tables.jsx:173
+
+  15. NO TABLE NUMBER UNIQUENESS CHECK — Duplicate table_number values
+      are allowed. add-table handler doesn't check for existing numbers.
+
+  16. FLOOR PLAN HAS NO ZOOM — Large layouts may require scrolling.
+      No zoom in/out capability.
+
+  17. NO TABLE NUMBER AUTO-GENERATION — User must manually type each
+      table number. Bulk add uses prefix + range but user must know
+      the numbering scheme.
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  PART 7 — ARCHITECTURE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  Renderer (React: Tables.jsx)
+       │
+       ▼
+  preload.js (electronAPI bridge)
+       │
+       ├── getTables()              → ipc-database-handlers → restaurant_tables
+       ├── addTable(table)          → ipc-database-handlers → restaurant_tables
+       ├── updateTable(id, table)   → ipc-database-handlers → restaurant_tables
+       ├── deleteTable(id)          → ipc-database-handlers → restaurant_tables
+       └── updateTableStatus(id, s) → ipc-database-handlers → restaurant_tables
+
+  Cross-module:
+  Sales.jsx → getTables() → table selector for orders
+  Sales.jsx → addSale(table_id) → sets status to 'available' on completion
+  Kitchen  → addKitchenOrder → reads table_number from restaurant_tables
+
+================================================================================
+  END OF AUDIT
+================================================================================

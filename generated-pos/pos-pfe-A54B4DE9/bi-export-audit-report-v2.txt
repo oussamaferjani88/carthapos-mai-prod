@@ -1,0 +1,221 @@
+BI EXPORT + REPORTING AUDIT REPORT — FINAL
+=============================================
+Date: 2026-07-29
+Schema: v2.1.0
+Scope: All POS modules
+Business Types: retail, restaurant, cafe, bakery, pharmacy, clothing,
+                electronics, supermarket, salon, hotel, clinic
+
+A. DATASETS EXPORTED (21 total)
+--------------------------------
+
+  #  | Dataset             | Type      | Business Types          | Status
+  ---|---------------------|-----------|-------------------------|--------
+  1  | sales               | fact      | all                     | OK
+  2  | sale_items          | fact      | all                     | OK
+  3  | products            | dimension | all                     | OK
+  4  | customers           | dimension | all                     | OK
+  5  | inventory           | fact      | all                     | OK
+  6  | product_families    | dimension | all                     | OK
+  7  | tables              | dimension | restau/cafe/hotel       | OK
+  8  | kitchen_orders      | fact      | restau/cafe/bakery      | OK
+  9  | kitchen_departments | dimension | restau/cafe/bakery      | OK
+  10 | table_reservations  | fact      | restau/cafe/hotel       | OK
+  11 | suppliers           | dimension | retail/pharma/etc       | OK
+  12 | services            | dimension | salon/hotel/clinic      | OK
+  13 | appointments        | fact      | salon/clinic/hotel      | OK
+  14 | stock_movements     | fact      | retail/etc              | OK
+  15 | shifts              | fact      | all                     | OK
+  16 | cash_drawer_events  | fact      | all                     | OK
+  17 | z_reports           | fact      | all                     | OK
+  -- + ------------------ + --------- + ----------------------- + ----
+  18 | audit_logs          | fact      | all                     | NEW
+  19 | vat_rates           | dimension | all                     | NEW
+
+B. DATABASE TABLES NOT EXPORTED (9 remaining)
+----------------------------------------------
+
+  Table                   | Content                          | Decision
+  ------------------------|----------------------------------|---------
+  users                   | user accounts, roles, status     | EXCLUDED
+  held_orders             | pending/on-hold orders           | EXCLUDED
+  user_sessions           | login/logout session tracking    | EXCLUDED
+  user_modules            | module permissions per user      | EXCLUDED
+  settings                | app configuration k/v            | EXCLUDED
+  printer_configs         | printer setup records            | EXCLUDED
+  department_printer_routes| printer-department routing      | EXCLUDED
+  table_zones             | table zone/area definitions      | EXCLUDED
+  security_settings       | security policy (lockout, etc.)  | EXCLUDED
+  recent_logins           | login timestamp log              | EXCLUDED
+
+C. EXCLUSION JUSTIFICATIONS
+----------------------------
+
+  users:
+    - User account data (roles, PIN status, login tracking) is NOT already
+      covered by shifts.
+    - However, user activity is comprehensively captured in audit_logs
+      (LOGIN_SUCCESS, USER_CREATE/UPDATE/DELETE, PASSWORD_CHANGE).
+    - Sales reference users via user_id with denormalized cashier_name.
+    - Audit_logs records who did what; shifts records who managed the drawer.
+    - Adding users would expose password hashes and PIN config — not suitable
+      for BI export without careful field filtering.
+    - DECISION: EXCLUDED. User identity is sufficiently denormalized into
+      sales (cashier_name) and audit_logs (user_name). Direct user table
+      export is a security risk for minimal analytical gain.
+
+  held_orders:
+    - Stores on-hold carts as JSON blobs (items TEXT field).
+    - Data is EPHEMERAL — rows are DELETED immediately after restore.
+    - The restore operation is a "move" (select + delete), not a copy.
+    - At any given time, held_orders contains only in-flight holds with
+      near-zero historical analytical value.
+    - Completed held orders become sales (captured in sales + sale_items).
+    - DECISION: EXCLUDED. Data lifecycle is too short for BI; useful
+      information is already in sales/sale_items after conversion.
+
+  user_sessions:
+    - Tracks login/logout times and session duration per user.
+    - Primarily operational (active session management).
+    - Audit_logs already records LOGIN_SUCCESS and LOGOUT events with
+      timestamps, covering the same analytical narrative.
+    - DECISION: EXCLUDED. Duplicative with audit_logs tracking.
+
+  user_modules:
+    - Permission/role matrix per user per module.
+    - Static RBAC configuration — not analytical data.
+    - Changes are recorded in audit_logs (USER_UPDATE).
+    - DECISION: EXCLUDED. Configuration data, not analytical.
+
+  settings / security_settings:
+    - Key-value pairs for app config (locale, business info, receipt design).
+    - Security policy (lockout threshold, password rules).
+    - Static configuration — extremely low analytical value.
+    - Changes are recorded in audit_logs (SETTINGS_UPDATE, etc.).
+    - DECISION: EXCLUDED. Configuration data, not analytical.
+
+  printer_configs / department_printer_routes:
+    - Printer hardware setup and routing rules.
+    - Purely operational configuration — no analytical value.
+    - DECISION: EXCLUDED. Operational config only.
+
+  table_zones:
+    - Restaurant table zone names, colors, sort order.
+    - Denormalized zone name already available in tables.zone column.
+    - DECISION: EXCLUDED. Sufficiently covered by tables dataset.
+
+  recent_logins:
+    - Simple log of user_id + login_at timestamps.
+    - Audit_logs already captures LOGIN_SUCCESS with full detail.
+    - DECISION: EXCLUDED. Duplicative with audit_logs.
+
+D. X REPORT — FIX VERIFIED
+----------------------------
+
+  Root causes identified and fixed:
+
+  1. No shift fallback logic:
+     - Before: returned "No open shift found" when no shift was open.
+     - After: falls back to the last closed shift (same pattern as Z Report).
+     - File: ipc-reports-handlers.cjs, lines 506-511.
+
+  2. Frontend-backend data contract mismatch:
+     - Before: handler returned nested {data: {sales: {total, revenue},
+       drawer: {cashSales, cardSales}}} but UI read flat totalSales,
+       totalRevenue, cashTotal, cardTotal directly — all undefined -> 0.
+     - After: handler returns flat fields matching UI expectations:
+       totalSales, totalRevenue, cashTotal, cardTotal, byPaymentMethod[],
+       byCashier[].
+     - File: ipc-reports-handlers.cjs, lines 557-588; Reports.jsx lines 371-381.
+
+  3. Missing cashier aggregation:
+     - Before: UI rendered "by cashier" section but handler never fetched it.
+     - After: handler queries sales grouped by user_id JOIN users.
+     - File: ipc-reports-handlers.cjs, lines 547-553.
+
+  4. Payment method field name:
+     - Before: SQL used 'revenue' alias; UI expected 'total'.
+     - After: SQL uses 'total' alias.
+     - File: ipc-reports-handlers.cjs, line 529.
+
+  5. UI error handling:
+     - Before: no error state; xReportData.error displayed as totalSales=0.
+     - After: error message shown in a dedicated UI state.
+     - File: Reports.jsx, lines 1474-1478.
+
+E. REPORTING IPC HANDLERS COVERAGE
+------------------------------------
+
+  IPC Channel                | Query Basis                      | Status
+  ---------------------------|----------------------------------|---------
+  report:dashboard           | date range on sales              | OK
+  report:sales-by-period     | date range on sales              | OK
+  report:categories          | date range on sale_items+prods   | OK
+  report:top-products        | date range on sale_items+prods   | OK
+  report:transactions        | date range on sales, paginated   | OK
+  report:payment-methods     | date range on sales              | OK
+  report:cash-shifts         | shifts table + subqueries        | OK
+  report:customers           | customers + sales date range     | OK
+  report:cashiers            | sales + users date range         | OK
+  report:revenue-trends      | date range on sales              | OK
+  report:hourly-heatmap      | date range on sales              | OK
+  report:x-report            | shift_id filter on sales         | FIXED
+  report:z-report            | shift_id filter on sales         | FIXED
+  report:z-report-history    | z_reports table                  | OK
+  report:z-report-detail     | z_reports by id                  | OK
+
+F. NEW DATASET JUSTIFICATIONS
+-------------------------------
+
+  audit_logs:
+    - WHY: Full security and compliance audit trail. Every user action is
+      recorded: logins, CRUD operations, shift opens/closes, settings changes,
+      backups, password changes, user management.
+    - SOURCE: audit_logs table, populated from 11 INSERT sites across 7 files
+      (ElectronAuthManager, ipc-app-handlers, ipc-cash-register-handlers,
+      ipc-customer-handlers, ipc-hardware-handlers, ipc-database-handlers,
+      ipc-supplier-handlers).
+    - 27 distinct action_type values, all populated during normal POS usage.
+    - NOT duplicative: no existing dataset captures user activity timeline.
+    - VALUE: Compliance, security auditing, user behavior analysis.
+
+  vat_rates:
+    - WHY: Completes the sales dimension model. Products reference
+      vat_rate_id, and sale_items store the resolved vat_rate percentage.
+      Without vat_rates in the export, the FK from products has no
+      corresponding dimension table.
+    - SOURCE: vat_rates table, queried on every page load and during sale
+      transaction for tax calculation.
+    - NOT duplicative: the numeric vat_rate on sale_items is the resolved
+      value at time of sale; vat_rates provides the active rate definitions.
+    - VALUE: Enables joining products.vat_rate_id for tax analysis.
+
+G. PREVIOUS FIXES VERIFIED
+----------------------------
+
+  1. Sector in theme .................... ThemeCustomizer.js:354,
+                                         AssetManager.js:392     APPLIED
+  2. Categories removed from BI ......... 5 BI files updated        APPLIED
+  3. Cash drawer INSERTs (drawer_open,
+     shift_open, shift_close) .......... 3 handler files            APPLIED
+  4. DB migration for CHECK constraint .. ElectronDatabaseManager    APPLIED
+  5. CSV BOM ............................ ipc-bi-export-handler     APPLIED
+  6. Z-report shift fallback ............ ipc-reports-handlers      APPLIED
+  7. X Report fix ....................... ipc-reports-handlers +
+                                         Reports.jsx                APPLIED
+  8. audit_logs dataset ................. BiDatasetRegistry +
+                                         BiSchemaContract +
+                                         BiDataMapper +
+                                         BiValidator               APPLIED
+  9. vat_rates dataset .................. same 4 BI files           APPLIED
+
+H. REMAINING INCONSISTENCIES (LOW)
+------------------------------------
+
+  1. Backfill shift_id for old sales: sales created before the shift_id
+     migration have shift_id = NULL, invisible to X/Z Reports.
+     Fix: one-time UPDATE sales SET shift_id = ... for orphaned rows.
+
+  2. Multiple open shifts allowed: the system allows per-user open shifts;
+     X Report picks only the latest. Ideally, opening a new shift should
+     auto-close any previous open shift for the same user.

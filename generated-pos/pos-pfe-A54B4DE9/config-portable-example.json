@@ -1,0 +1,17 @@
+{
+  "businessName": "My Business",
+  "appTitle": "My POS System",
+  "forcePortableMode": true,
+  "description": "Set forcePortableMode to true to require database in installation folder",
+  "notes": [
+    "When forcePortableMode is true:",
+    "  - Database MUST be in <InstallDir>/data/ folder",
+    "  - Installation will FAIL if install folder is not writable (e.g., Program Files)",
+    "  - Recommended install locations: D:\\Apps, C:\\POS, Desktop, USB drives",
+    "",
+    "When forcePortableMode is false (default):",
+    "  - Tries to use install folder if writable",
+    "  - Falls back to AppData if install folder is read-only",
+    "  - Works everywhere, including Program Files installations"
+  ]
+}
