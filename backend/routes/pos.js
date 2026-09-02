@@ -527,20 +527,32 @@ router.get('/download', async (req, res) => {
             fs.mkdirSync(distFolder, { recursive: true });
             
             let exeFound = false;
+            const extractionPromises = [];
             await fs.createReadStream(tempZipPath)
               .pipe(unzipper.Parse())
               .on('entry', (entry) => {
                 const fileName = entry.path;
-                if (fileName.endsWith('.exe')) {
+                if (fileName.endsWith('.exe') && !fileName.includes('win-unpacked')) {
                   const exePath = path.join(distFolder, path.basename(fileName));
-                  entry.pipe(fs.createWriteStream(exePath));
+                  const ws = fs.createWriteStream(exePath);
+                  entry.pipe(ws);
+                  // CRITICAL: collect the write-completion promise. unzipper.Parse()
+                  // does NOT wait for downstream write streams to flush, so without
+                  // this the .exe can be truncated/half-written when we serve it,
+                  // producing NSIS "installer integrity check failed".
+                  extractionPromises.push(new Promise((resolve, reject) => {
+                    ws.on('finish', resolve);
+                    ws.on('error', reject);
+                  }));
                   exeFound = true;
                 } else {
                   entry.autodrain();
                 }
               })
               .promise();
-            
+
+            await Promise.all(extractionPromises);
+
             // Cleanup temp file
             fs.unlinkSync(tempZipPath);
             
@@ -669,13 +681,21 @@ router.get('/download', async (req, res) => {
           fs.mkdirSync(distFolder, { recursive: true });
           
           let exeFound = false;
+          const extractionPromises = [];
           await fs.createReadStream(tempZipPath)
             .pipe(unzipper.Parse())
             .on('entry', (entry) => {
               const fileName = entry.path;
-              if (fileName.endsWith('.exe')) {
+              if (fileName.endsWith('.exe') && !fileName.includes('win-unpacked')) {
                 const exePath = path.join(distFolder, path.basename(fileName));
-                entry.pipe(fs.createWriteStream(exePath));
+                const ws = fs.createWriteStream(exePath);
+                entry.pipe(ws);
+                // CRITICAL: wait for the write stream to fully flush & close before
+                // serving, otherwise the .exe is served truncated -> NSIS integrity error.
+                extractionPromises.push(new Promise((resolve, reject) => {
+                  ws.on('finish', resolve);
+                  ws.on('error', reject);
+                }));
                 exeFound = true;
                 logger.info(`💾 Extracting .exe: ${path.basename(fileName)}`);
               } else {
@@ -683,6 +703,10 @@ router.get('/download', async (req, res) => {
               }
             })
             .promise();
+
+          // Wait for every extracted .exe to be fully written before deleting the zip
+          // and serving the file — prevents truncated/damaged installers.
+          await Promise.all(extractionPromises);
           
           // Delete temp zip file
           fs.unlinkSync(tempZipPath);
