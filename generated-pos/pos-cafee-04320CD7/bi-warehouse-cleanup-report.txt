@@ -1,0 +1,142 @@
+WAREHOUSE CLEANUP — FINAL EXECUTION REPORT
+============================================
+Date: 2026-08-02
+Database: Analytics Warehouse (PostgreSQL) — pos_system
+Operation: ONE-TIME removal of pre-fix QA/orphan warehouse data
+Reference: bi-warehouse-cleanup-analysis.txt (plan, not executed)
+
+The cleanup was executed exactly as planned: precondition scope verified,
+backup taken, single transaction, exact delete order, in-transaction
+verification, commit, integrity re-verification, and a final end-to-end
+wizard QA with a real POS v2.2.0 export ZIP.
+
+No ETL architecture, wizard, Prisma model, route, or backend behavior was
+modified during this operation.
+
+
+1) BACKUP CREATED
+-----------------
+  File: backup_bi_cleanup_2026_07_31.sql  (368,524 bytes)
+  Tool: pg_dump (PostgreSQL 18) — schema + data for the 4 affected tables
+  Tables backed up: fact_sales, fact_inventory, dim_products, dim_clients
+  Backup content verified before deletion (data rows, tab-based count):
+      fact_sales     2525 rows
+      fact_inventory   29 rows
+      dim_products     26 rows
+      dim_clients       2 rows
+  This backup allows complete restoration of all four tables.
+
+
+2) ROWS REMOVED PER TABLE
+-------------------------
+  Delete order (exact): 1) fact_sales  2) fact_inventory
+                         3) dim_products  4) dim_clients
+  Scope: tenantId='unknown-client' OR
+         (tenantId='cmpb0pfd00000k2bm903auzi1' AND exportId='cmq40ovhq0000lx58sfkvt18l')
+  (dims scoped to tenantId='unknown-client')
+
+      fact_sales       25  (18 unknown-client/cmqy0d9jm + 5 unknown-client/cmq427g1i + 2 cmpb0pfd/cmq40ovhq)
+      fact_inventory   10  (7 + 1 + 2)
+      dim_products      7  (prod_unknown-client_1..7)
+      dim_clients       1  (unknown-client)
+      TOTAL            43
+
+
+3) ROWS REMAINING PER TABLE
+---------------------------
+      fact_sales           2500
+      fact_inventory         19
+      fact_kitchen_orders   402
+      fact_appointments       0
+      dim_products           19
+      dim_clients             1
+      dim_time              181
+      dim_suppliers           0
+
+
+4) VERIFICATION RESULTS
+-----------------------
+  Precondition check (before deletion, read-only):
+    - Rows matching the deletion scope: 25 / 10 / 7 / 1 — EXACT match to plan.
+    - Kept rows all belong to tenant cmoogzf (Restaurant Le Gourmet), export cms9foty.
+    - No rows under cmpb0pfd with a different exportId (would have been excluded).
+    - Tables never to touch (fact_kitchen_orders, fact_appointments, dim_time,
+      dim_suppliers) counted before: 402 / 0 / 181 / 0.
+
+  In-transaction verification (before COMMIT):
+    - DELETE row counts: 25 / 10 / 7 / 1 — matched expected.
+    - Post-delete counts: 2500 / 19 / 402 / 0 / 19 / 1 / 181 / 0 — all matched.
+    - No unknown-client rows remain; no cmq40ovhq rows remain.
+    RESULT: COMMIT OK.
+
+  Post-commit integrity (independent re-query): ALL PASS
+    - unknown-client rows = 0 in fact_sales, fact_inventory, dim_products, dim_clients.
+    - export cmq40ovhq rows = 0 in all four tables.
+    - Le Gourmet snapshot intact: fact_sales 2500 / fact_inventory 19 /
+      fact_kitchen_orders 402 / dim_products 19 / dim_clients 1.
+    - Aggregate queries work (sum(total)=139869.52, 181 distinct dates).
+    - No dangling FK-style references (all dimProductId/dimTimeId resolve).
+
+  Dashboard / query smoke tests (API):
+    - GET /api/bi/dashboards -> 200, Le Gourmet dashboards listed.
+    - GET /api/bi-uploads/:id/report -> 200, COMPLETED, recordsLoaded 2921,
+      elapsed 0.6s, dashboard present.
+
+  Final end-to-end wizard QA (real unpatched POS v2.2.0 export ZIP):
+    - Export produced by the REAL POS exporter (ipc-bi-export-handler.cjs),
+      schema_version 2.2.0, 2500 sales, Restaurant Le Gourmet.
+    - RESULT: 18 PASS / 0 FAIL over the full wizard:
+        1. Upload                     PASS (201)
+        2. Validation                 PASS (200, schemaVersion 2.2.0)
+        3. Raw Preview                PASS (summary + per-dataset detail)
+        4. Prepare                    PASS (FactSale=2500 DimProduct=19 DimClient=1)
+        5. Transformation Preview     PASS (summary + per-table detail)
+        6. Corrections                PASS (applied + persisted in preview)
+        7. Confirm Load               PASS (recordsLoaded=2921, status COMPLETED,
+                                        replacement semantics: fact_sales[client]=2500,
+                                        no unknown-client rows reintroduced)
+        8. Dashboard generation       PASS (201, DRAFT, linked to upload)
+        9. Success report             PASS (fileName, recordsLoaded, elapsed,
+                                        status COMPLETED, dashboard)
+    - The load replaced the Le Gourmet snapshot under the new export id
+      (cmsbtgfbf0001f7cz88jnolkl) with the same dataset — normal confirm-load
+      behaviour, no data loss.
+
+
+5) TRANSACTION COMMITTED SUCCESSFULLY
+-------------------------------------
+  YES. All deletes ran inside ONE transaction (BEGIN ... COMMIT).
+  In-transaction checks passed; COMMIT executed. A mismatch at any point
+  would have triggered ROLLBACK — it did not. Warehouse never partially cleaned.
+
+
+6) WARNINGS (out of scope, informational only)
+-----------------------------------------------
+  - Old "test" dashboard cmqy3c0g7 (client cmpb0pfd) now points at data that no
+    longer exists and will render empty. QA artifact; left in place.
+  - Test-client upload records cmqy0d9jm / cmqzgvu9f and their processing-job
+    rows remain in application tables (not warehouse rows). Can be removed on
+    request.
+  - Multiple dashboard rows for Le Gourmet exist from earlier QA runs
+    (cms9fjmhq, cms9foooz, cms9fovll, cms9fovm2, cmsbtggla). They are
+    application artifacts, not warehouse data; the newest (cmsbtggla) matches
+    the current snapshot.
+  - Backup file lives under the QA temp directory:
+    C:/Users/WINDOW~1/AppData/Local/Temp/opencode/bi-qa/backup_bi_cleanup_2026_07_31.sql
+    Consider moving it to durable storage for retention.
+
+
+7) FINAL WAREHOUSE STATUS
+-------------------------
+  Warehouse is CLEAN and PRODUCTION-READY:
+  - 43 pre-fix QA/orphan rows removed; 3122 rows remain, all belonging to the
+    active client snapshot (Restaurant Le Gourmet, 2500 sales + 19 inventory +
+    402 kitchen orders + dims) plus the shared 181-row dim_time reference table.
+  - No unknown-client data, no abandoned exports, no cross-tenant leftovers,
+    no orphaned rows of any category.
+  - The full BI Admin ETL wizard completes end-to-end successfully against a
+    real POS v2.2.0 export ZIP (18/18 checks green).
+  - No architectural or code changes were required or made for this cleanup.
+
+  VERDICT: WAREHOUSE CLEAN — READY FOR PRODUCTION USE.
+=====================================================================
