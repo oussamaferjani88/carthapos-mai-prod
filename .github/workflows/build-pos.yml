@@ -62,15 +62,27 @@ jobs:
             exit 1
           }
       
-      - name: Update license configuration
+      # The backend writes the FULL customized config (modules, theme, license
+      # key/public-key, DB filename, features) into public/app-config.json during
+      # generation, and that file is pushed with the project. We must NOT overwrite
+      # it here — doing so drops module selection, license validation and branding,
+      # yielding a generic/broken installer. Just verify it survived checkout.
+      - name: Verify customized app-config.json present
         working-directory: ./generated-pos/${{ inputs.project_name }}
         run: |
-          $config = @{
-            businessName = "${{ inputs.business_name }}"
-            licenseKey = "${{ inputs.license_key }}"
+          if (Test-Path "public/app-config.json") {
+            Write-Host "Customized app-config.json found"
+            $cfg = Get-Content "public/app-config.json" -Raw | ConvertFrom-Json
+            if ($cfg.theme -and $cfg.modules -and $cfg.security) {
+              Write-Host "Config looks complete (theme present, $($cfg.modules.Count) modules, security present)"
+            } else {
+              Write-Host "WARNING: app-config.json is missing theme/modules/security - the installed app may be broken"
+            }
+          } else {
+            Write-Host "ERROR: public/app-config.json not found in the pushed project!"
+            exit 1
           }
-          $config | ConvertTo-Json | Out-File -FilePath "public/app-config.json" -Encoding UTF8
-      
+
       - name: Build Electron application
         working-directory: ./generated-pos/${{ inputs.project_name }}
         run: npm run build:electron
