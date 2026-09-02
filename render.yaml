@@ -11,10 +11,11 @@ databases:
     region: oregon
 
   # BI data warehouse used by the ETL pipeline (Dim/Fact tables). Read by Metabase.
-  # Free tier: 1 GB storage, 30-day expiry — fine for the demo.
+  # Already provisioned/running on 0.5c-1g from the original Blueprint apply
+  # (Render won't silently downgrade a paid DB back to free via sync).
   - name: carthapos-warehouse-db
     databaseName: pos_system_warehouse
-    plan: free
+    plan: 0.5c-1g
     region: oregon
 
   # Metabase's own application database (dashboards, settings, users).
