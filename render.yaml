@@ -8,18 +8,21 @@ databases:
   - name: carthapos-db
     databaseName: pos_system
     plan: 0.5c-1g
+    region: oregon
 
   # BI data warehouse used by the ETL pipeline (Dim/Fact tables). Read by Metabase.
   # Free tier: 1 GB storage, 30-day expiry — fine for the demo.
   - name: carthapos-warehouse-db
     databaseName: pos_system_warehouse
     plan: free
+    region: oregon
 
   # Metabase's own application database (dashboards, settings, users).
   # Free tier: 1 GB storage, 30-day expiry — fine for the demo.
   - name: carthapos-metabase-db
     databaseName: metabase
     plan: free
+    region: oregon
 
 services:
   # ======================================================================
@@ -28,6 +31,7 @@ services:
   - type: web
     name: carthapos-backend
     runtime: docker
+    region: oregon
     rootDir: .
     dockerContext: .
     dockerfilePath: backend/Dockerfile
@@ -92,6 +96,7 @@ services:
   - type: web
     name: carthapos-frontend
     runtime: static
+    region: oregon
     rootDir: frontend
     buildCommand: npx pnpm install && npx pnpm run build
     staticPublishPath: dist
@@ -105,6 +110,7 @@ services:
   - type: web
     name: carthapos-admin
     runtime: static
+    region: oregon
     rootDir: admin
     buildCommand: npx pnpm install && npx pnpm run build
     staticPublishPath: dist
@@ -118,6 +124,7 @@ services:
   - type: web
     name: carthapos-metabase
     runtime: docker
+    region: oregon
     dockerfilePath: metabase/Dockerfile
     rootDir: .
     dockerContext: .
