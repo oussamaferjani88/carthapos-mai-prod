@@ -3,19 +3,20 @@
 # Databases: carthapos-db (app) · carthapos-warehouse-db (BI warehouse) · carthapos-metabase-db (Metabase)
 
 databases:
+  # Main app DB — kept paid (0.5c-1g) for reliability (licenses, clients, POS
+  # config, BI templates). This is the most important/trafficked database.
   - name: carthapos-db
     databaseName: pos_system
     plan: 0.5c-1g
 
   # BI data warehouse used by the ETL pipeline (Dim/Fact tables). Read by Metabase.
+  # Free tier: 1 GB storage, 30-day expiry — fine for the demo.
   - name: carthapos-warehouse-db
     databaseName: pos_system_warehouse
-    plan: 0.5c-1g
+    plan: free
 
   # Metabase's own application database (dashboards, settings, users).
-  # Kept on the free plan (1 free Postgres per workspace). Free Postgres has a
-  # 30-day expiry and 1 GB storage — fine for the demo, and Metabase's UI/
-  # dashboards are the most re-creatable part of the stack.
+  # Free tier: 1 GB storage, 30-day expiry — fine for the demo.
   - name: carthapos-metabase-db
     databaseName: metabase
     plan: free

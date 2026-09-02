@@ -19,4 +19,8 @@ EXPOSE 3000
 
 # MB_DB_TYPE=postgres + MB_DB_* are injected via render.yaml env vars so
 # Metabase stores its data on the managed postgres instead of an ephemeral H2.
-CMD ["java", "-Xmx512m", "-jar", "/app/metabase/metabase.jar"]
+#
+# -Xmx380m keeps the JVM heap within the free web service's 512 MB RAM limit
+# (the 406MB jar is on disk, not in RAM; Java needs heap + native overhead,
+# so a 512m heap would exceed the container and get OOM-killed with exit 137).
+CMD ["java", "-Xmx380m", "-Xms128m", "-XX:+UseContainerSupport", "-jar", "/app/metabase/metabase.jar"]
