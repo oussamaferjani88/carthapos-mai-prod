@@ -126,13 +126,27 @@ router.post('/generate', async (req, res) => {
     const hasGitHubConfig = !!(process.env.GITHUB_TOKEN && process.env.GITHUB_OWNER && process.env.GITHUB_REPO);
     
     if (!localBuild && hasGitHubConfig) {
-      githubService.triggerBuild({
-        projectName,
-        licenseKey: license.licenseKey,
-        businessName,
-        clientName: license.client.name,
-        modules: license.modules.map(m => m.module?.code || m.name).join(','),
-        theme: license.configuration?.theme || 'modern'
+      // CRITICAL FIX: the workflow must build the backend's FULLY-CUSTOMIZED project
+      // (selected modules, design/theme, patched productName), not a fresh copy of the
+      // generic pos-template. Push the already-generated folder (result.outputPath) to a
+      // short-lived dedicated branch, then dispatch the workflow to check out that branch
+      // and build generated-pos/{projectName} straight from it (no robocopy re-templating).
+      const branch = `pos-build/${projectName}`;
+      githubService.pushProjectToBranch({
+        localPath: result.outputPath,
+        branch,
+        targetDir: `generated-pos/${projectName}`
+      }).then(async () => {
+        logger.info(`Customized project pushed to branch ${branch}`);
+        return githubService.triggerBuild({
+          projectName,
+          licenseKey: license.licenseKey,
+          businessName,
+          clientName: license.client.name,
+          modules: license.modules.map(m => m.module?.code || m.name).join(','),
+          theme: license.configuration?.theme || 'modern',
+          branch
+        });
       }).then(async (workflowRun) => {
         logger.info('GitHub Actions build triggered:', workflowRun?.id);
         try {
@@ -142,7 +156,7 @@ router.post('/generate', async (req, res) => {
           });
         } catch {}
       }).catch(err => {
-        logger.warn('GitHub Actions trigger failed (non-fatal):', err.message);
+        logger.warn('GitHub Actions push/trigger failed (non-fatal):', err.message);
       });
     } else if (!localBuild) {
       logger.info('GitHub Actions not configured — skipping CI build. Source files are ready.');

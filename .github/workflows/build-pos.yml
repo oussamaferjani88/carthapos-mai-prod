@@ -12,23 +12,30 @@ on:
       business_name:
         description: 'Business Name'
         required: true
+      branch:
+        description: 'Branch to check out that contains the customized POS project'
+        required: false
+        default: 'main'
 
 jobs:
   build-windows:
     runs-on: windows-latest
     
     steps:
+      # The backend pushes the fully-customized, generated project (selected modules,
+      # design/theme, patched productName) to this branch BEFORE dispatching the
+      # workflow, so we build exactly the folder the backend produced — no re-templating.
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.branch }}
       
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: '20'
           cache: 'npm'
-          cache-dependency-path: |
-            pos-template/package-lock.json
-            generated-pos/${{ inputs.project_name }}/package-lock.json
+          cache-dependency-path: generated-pos/${{ inputs.project_name }}/package-lock.json
 
       - name: Cache Electron/electron-builder downloads
         uses: actions/cache@v4
@@ -36,18 +43,13 @@ jobs:
           path: |
             ~\AppData\Local\electron\Cache
             ~\AppData\Local\electron-builder\Cache
-          key: ${{ runner.os }}-electron-${{ hashFiles('pos-template/package-lock.json') }}
+          key: ${{ runner.os }}-electron-${{ hashFiles('generated-pos/${{ inputs.project_name }}/package-lock.json') }}
 
-      - name: Install pos-template dependencies
-        working-directory: ./pos-template
+      - name: Install generated project dependencies
+        working-directory: ./generated-pos/${{ inputs.project_name }}
         run: npm ci --legacy-peer-deps
 
-      - name: Create project directory
-        run: |
-          robocopy "pos-template" "generated-pos\${{ inputs.project_name }}" /E /NFL /NDL /NJH /NJS /NP
-          if ($LASTEXITCODE -le 7) { exit 0 } else { exit $LASTEXITCODE }
-      
-      - name: Verify files copied
+      - name: Verify project files
         working-directory: ./generated-pos/${{ inputs.project_name }}
         run: |
           Write-Host "Files in project root:"

@@ -74,7 +74,11 @@ const BINDING_INFO = {
 };
 
 export default function Step5Results({ generationResult, selectedUSB, bindingType, onNewPOS }) {
-  const [buildStatus, setBuildStatus] = useState(generationResult?.posApplication?.buildStatus || 'completed');
+  const [buildStatus, setBuildStatus] = useState(
+    generationResult?.posApplication?.buildStatus === 'source_ready'
+      ? 'building'
+      : generationResult?.posApplication?.buildStatus || 'completed'
+  );
   const [downloadUrl, setDownloadUrl] = useState(null);
   const [elapsedTime, setElapsedTime] = useState(0);
   const [progress, setProgress] = useState(0);
@@ -82,6 +86,11 @@ export default function Step5Results({ generationResult, selectedUSB, bindingTyp
   const [downloadStarted, setDownloadStarted] = useState(false);
 
   const downloadLinkRef = useRef(null);
+
+  // 'source_ready' means a GitHub Actions build was triggered but the backend
+  // only persists the real 'building' status asynchronously after the response.
+  // Treat it as in-progress so the UI isn't blank and polling kicks in.
+  const isBuilding = buildStatus === 'building' || buildStatus === 'source_ready';
 
   const resolvedBinding =
     bindingType ||
@@ -94,7 +103,10 @@ export default function Step5Results({ generationResult, selectedUSB, bindingTyp
 
   // Initialize download URL if executable path exists and build is completed
   useEffect(() => {
-    if (generationResult?.posApplication?.buildStatus === 'building') {
+    if (
+      generationResult?.posApplication?.buildStatus === 'building' ||
+      generationResult?.posApplication?.buildStatus === 'source_ready'
+    ) {
       return;
     }
 
@@ -128,7 +140,7 @@ export default function Step5Results({ generationResult, selectedUSB, bindingTyp
 
   // Timer for elapsed time and progress simulation while building
   useEffect(() => {
-    if (buildStatus === 'building') {
+    if (isBuilding) {
       const ESTIMATED_TIME = 480; // 8 minutes in seconds
 
       const timer = setInterval(() => {
@@ -138,11 +150,11 @@ export default function Step5Results({ generationResult, selectedUSB, bindingTyp
 
       return () => clearInterval(timer);
     }
-  }, [buildStatus]);
+  }, [isBuilding, buildStatus]);
 
   // Auto-poll build status
   useEffect(() => {
-    if (buildStatus === 'building') {
+    if (isBuilding) {
       const interval = setInterval(async () => {
         try {
           const licenseId = generationResult.licenseId || generationResult.license?.id;
@@ -168,7 +180,7 @@ export default function Step5Results({ generationResult, selectedUSB, bindingTyp
 
       return () => clearInterval(interval);
     }
-  }, [buildStatus, generationResult]);
+  }, [isBuilding, generationResult]);
 
   const formatTime = (seconds) => {
     const mins = Math.floor(seconds / 60);
@@ -269,13 +281,13 @@ export default function Step5Results({ generationResult, selectedUSB, bindingTyp
                 <Package className="size-4 text-muted-foreground" />
                 Application POS
               </div>
-              {buildStatus === 'building' && <Badge variant="info">Construction…</Badge>}
+              {isBuilding && <Badge variant="info">Construction…</Badge>}
               {buildStatus === 'failed' && <Badge variant="destructive">Échec</Badge>}
               {buildStatus === 'completed' && downloadUrl && <Badge variant="success">Prête</Badge>}
             </div>
 
             <div className="mt-3">
-              {buildStatus === 'building' && (
+              {isBuilding && (
                 <div className="space-y-3">
                   <div className="flex items-center gap-2 text-sm text-foreground">
                     <Loader2 className="size-4 animate-spin text-muted-foreground" />
