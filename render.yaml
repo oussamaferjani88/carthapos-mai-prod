@@ -93,7 +93,7 @@ services:
     name: carthapos-frontend
     runtime: static
     rootDir: frontend
-    buildCommand: npm i -g pnpm && pnpm install && pnpm run build
+    buildCommand: npx pnpm install && npx pnpm run build
     staticPublishPath: dist
     envVars:
       - key: VITE_API_URL
@@ -106,7 +106,7 @@ services:
     name: carthapos-admin
     runtime: static
     rootDir: admin
-    buildCommand: npm i -g pnpm && pnpm install && pnpm run build
+    buildCommand: npx pnpm install && npx pnpm run build
     staticPublishPath: dist
     envVars:
       - key: VITE_API_URL
