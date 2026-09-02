@@ -1,0 +1,326 @@
+═══════════════════════════════════════════════════════════════════════════════
+                  AUDIT — GESTION DES UTILISATEURS (Users)
+                         Date : 2026-07-20
+═══════════════════════════════════════════════════════════════════════════════
+
+Fichiers concernés :
+  • src/components/UserManagementAdvanced.jsx    (904 lignes — UI principale)
+  • src/pages/UserAdmin.jsx                      (15 lignes — Wrapper)
+  • src/electron/ElectronDatabaseManager.cjs     (1744 lignes — Schema + Migrations)
+  • src/electron/ElectronAuthManager.cjs         (792 lignes — Logique auth)
+  • src/electron/handlers/ipc-auth-handlers.cjs  (414 lignes — IPC handlers)
+  • src/components/POSWithAuth.jsx               (Login + session)
+  • src/pages/SecuritySettings.jsx               (Paramètres sécurité)
+  • public/preload.cjs                           (Bridge preload)
+
+═══════════════════════════════════════════════════════════════════════════════
+                          1. DB SCHEMA
+═══════════════════════════════════════════════════════════════════════════════
+
+Table: users (ElectronDatabaseManager.cjs:779-794)
+
+  Column          Type         Constraints                    Default
+  ──────────────  ───────────  ─────────────────────────────  ────────────────
+  id              INTEGER PK   AUTOINCREMENT
+  username        TEXT          NOT NULL UNIQUE
+  password_hash   TEXT          NOT NULL
+  full_name       TEXT                                         NULL
+  email           TEXT          UNIQUE                         NULL
+  role            TEXT          NOT NULL CHECK IN              'cashier'
+                                ('admin','cashier','manager')
+  badge_id        TEXT          UNIQUE                         NULL
+  pin             TEXT                                         NULL
+  is_active       BOOLEAN                                      1
+  created_at      DATETIME                                    CURRENT_TIMESTAMP
+  updated_at      DATETIME                                    CURRENT_TIMESTAMP
+  last_login      DATETIME                                    NULL
+  created_by      INTEGER       FK → users(id)                NULL
+  phone           TEXT                                         ''
+                  (migration line 1119)
+  is_server       BOOLEAN                                      0
+                  (migration line 1427)
+
+  Table: user_modules (line 798-811)
+  ────────────────────────────────────────
+  id, user_id (FK CASCADE), module_name, can_read, can_create,
+  can_update, can_delete, granted_at, granted_by (FK)
+  UNIQUE(user_id, module_name)
+
+  Indexes :
+  - AUCUN index sur la table users
+  - idx_user_modules_user sur user_modules(user_id)
+
+  FKs référençant users :
+  - users.created_by → users(id)
+  - audit_logs.user_id → users(id)
+  - cash_drawer_events.user_id → users(id)
+  - user_sessions.user_id → users(id)
+  - shifts.user_id → users(id)
+
+═══════════════════════════════════════════════════════════════════════════════
+                        2. BACKEND HANDLERS
+═══════════════════════════════════════════════════════════════════════════════
+
+IPC Handlers (ipc-auth-handlers.cjs) :
+
+  Handler                       Canal                          Statut
+  ───────────────────────────── ────────────────────────────── ──────
+  needs-first-time-setup        needs-first-time-setup          ✅ OK
+  needs-admin-password-reset    needs-admin-password-reset      ✅ OK
+  create-admin-user             create-admin-user               ✅ OK
+  authenticate-user             authenticate-user               ✅ OK
+  change-password               change-password                 🔴 BROKEN
+  update-admin-password         update-admin-password           ✅ OK
+  add-user                      add-user                        ✅ OK
+  update-user                   update-user                     ✅ OK
+  delete-user                   delete-user                     ✅ OK
+  get-users                     get-users                       ✅ OK
+  validate-user-exists          validate-user-exists            ✅ OK
+  logout                        logout                          ✅ OK
+  get-user-modules              get-user-modules                ✅ OK
+  set-user-modules              set-user-modules                ✅ OK
+  check-user-permission         check-user-permission           ✅ OK
+
+  Hashage mot de passe :
+  - Algorithme : bcryptjs
+  - Salt rounds : 10
+  - Verdict : ✅ Solide
+
+  Validation entrées (backend) :
+  - Username : AUCUNE validation (pas de longueur, caractères, format)
+  - Email : AUCUNE validation de format
+  - Phone : AUCUNE validation de format
+  - Password : AUCUNE vérification de complexité/longueur
+  - SQL Injection : ✅ Toutes les requêtes utilisent des paramètres (?)
+
+  Audit logging :
+  - createUser → logs USER_CREATE ✅
+  - updateUser → logs USER_UPDATE ✅
+  - deleteUser → logs USER_DELETE ✅
+  - authenticateUser → ❌ Ne log PAS les tentatives échouées
+  - reactivateUser → ❌ Ne log PAS la réactivation
+
+═══════════════════════════════════════════════════════════════════════════════
+                          3. AUTH / LOGIN
+═══════════════════════════════════════════════════════════════════════════════
+
+  Flux de connexion :
+  1. Production : username + password → IPC authenticate-user
+     → bcrypt.compare → retourne objet utilisateur
+  2. Preview mode : rôles hardcodés (admin123, caissier123, manager123)
+
+  Session Management :
+  - Stockage : localStorage ('pos_auth', 'pos_user')
+  - ❌ Aucun token signé par le backend
+  - Validation au démarrage : vérifie que l'ID existe en DB
+  - ❌ Jamais validé pendant la session (si supprimé → accès maintenu)
+  - Table user_sessions écrite mais JAMAIS vérifiée
+
+  Contrôle d'accès par rôle :
+  - DB CHECK : admin, cashier, manager (3 rôles)
+  - UI UserManagement : admin, manager, cashier, viewer (4 rôles)
+  - UI SecuritySettings : administrator, manager, cashier, readonly (4 rôles)
+  - ❌ DÉSALIGNEMENT CRITIQUE entre DB et UI
+
+═══════════════════════════════════════════════════════════════════════════════
+                     4. FRONTEND (UserManagementAdvanced)
+═══════════════════════════════════════════════════════════════════════════════
+
+  Structure :
+  - Onglets : Utilisateurs + Journal d'activité
+  - KPI cards : Total utilisateurs, En ligne (hardcodé à 2), Administrateurs, Rôles actifs
+  - Table des utilisateurs : Avatar, Nom, Rôle, Badge Serveur, Statut, Dernière connexion, Actions
+  - Dialog Ajout : Username*, Phone, Email, Password*, Rôle, Privilèges, Toggle Serveur
+  - Dialog Édition : Username, Phone, Email, Rôle, Privilèges, Toggle Serveur
+  - Dialog Privilèges : 14 modules, toggle on/off pour chaque
+  - Journal d'activité : logs avec filtres, suppression, détail
+
+  Validation formulaire :
+  - Ajout : vérifie seulement username + password (alert si vide)
+  - Édition : AUCUNE validation
+  - ❌ Pas de validation email, phone, ou password strength
+
+  Privilèges modules :
+  - 14 modules disponibles
+  - Core modules (toujours affichés) : dashboard, sales, products, reports, settings, user-management
+  - Permissions stockées dans user_modules : can_read/can_create/can_update/can_delete
+  - ❌ Le toggle on/off met TOUTES les permissions au même valeur
+
+  alert()/confirm() trouvés :
+  - :143 (confirm — suppression logs)
+  - :191 (alert — erreur privilèges)
+  - :226 (alert — champs requis)
+  - :266 (alert — erreur création)
+  - :312 (alert — erreur modification)
+  - :341 (alert — erreur suppression)
+  - :377 (alert — erreur changement statut)
+
+═══════════════════════════════════════════════════════════════════════════════
+                    5. SECURITY SETTINGS
+═══════════════════════════════════════════════════════════════════════════════
+
+  ⚠️ COMPLÈTEMENT DÉCONNECTÉ DU BACKEND
+
+  - Toutes les données sont hardcodées dans useState
+  - La gestion des utilisateurs est en état local uniquement
+  - Le changement de mot de passe appelle window.showNotification (simulé)
+  - Les logs d'audit sont des données mock
+  - Les paramètres de sécurité sont sauvegardés en localStorage uniquement
+  - Rôles utilisés : administrator, manager, cashier, readonly
+    → ❌ 'administrator' et 'readonly' ne sont PAS dans le CHECK constraint DB
+
+═══════════════════════════════════════════════════════════════════════════════
+                    6. PROBLÈMES TROUVÉS
+═══════════════════════════════════════════════════════════════════════════════
+
+── CRITIQUES (5) ─────────────────────────────────────────────────────────────
+
+#U1  [CRITIQUE] Désalignement des rôles DB ↔ UI
+     DB CHECK : admin, cashier, manager
+     UI UserManagement : + viewer
+     UI SecuritySettings : administrator, readonly (valeurs inexistantes)
+     → Sélectionner 'viewer' ou 'administrator' = échec DB ou violation CHECK
+
+#U2  [CRITIQUE] Handler change-password appelle méthode inexistante
+     ipc-auth-handlers.cjs:83,234 — authManager.changePassword()
+     ElectronAuthManager.cjs n'a PAS de méthode changePassword()
+     → Ce handler PLANTERA à l'exécution
+
+#U3  [CRITIQUE] SecuritySettings.jsx est entièrement factice
+     Aucun appel IPC, aucune interaction backend
+     → Fausse impression de contrôle pour l'utilisateur
+     → Les changements de mot de passe ne sont JAMAIS appliqués
+
+#U4  [CRITIQUE] Aucune protection brute-force
+     authenticateUser n'a ni rate limiting, ni compteur d'échecs, ni lockout
+     SecuritySettings définit loginAttempts:3 et lockoutDuration:15
+     → MAIS ces valeurs ne sont JAMAIS appliquées nulle part
+
+#U5  [CRITIQUE] Aucune authentification/autorisation sur les IPC handlers
+     delete-user, update-user, add-user — tout renderer peut les appeler
+     createdBy est hardcodé à 1 (pas la session réelle)
+     → Un attaquant avec accès renderer peut créer/supprimer des users
+
+── MOYENS (11) ──────────────────────────────────────────────────────────────
+
+#U6  [MOYEN] Double logging d'audit crée des doublons
+     Frontend activityLog.js écrit dans audit_logs via electronAPI.execute()
+     Backend ElectronAuthManager.logAuditEvent() écrit aussi
+     → Chaque création/modification/suppression est loggée DEUX fois
+
+#U7  [MOYEN] Incohérence get-users handler
+     Version classe (line 136) : NE sélectionne PAS phone/is_server
+     Version fonction (line 257) : sélectionne phone/is_server
+     → Selon la version appelée, données incomplètes
+
+#U8  [MOYEN] Collision d'IDs en preview mode
+     UserManagementAdvanced.jsx:271 — ID = users.length + 1
+     Si des users ont été supprimés, collision possible
+
+#U9  [MOYEN] Pas de confirmation avant suppression utilisateur
+     handleDeleteUser appelle directement l'API sans confirm()
+     → Contrairement à la suppression des logs qui utilise confirm()
+
+#U10 [MOYEN] Admin peut être désactivé mais pas supprimé
+     Le bouton delete est masqué pour admin, mais toggleUserStatus ne vérifie pas
+     → Un admin peut désactiver TOUS les comptes admin = lockout système
+
+#U11 [MOYEN] alert()/confirm() utilisés partout
+     7 occurrences dans UserManagementAdvanced.jsx
+     → UI bloquante, pas stylable, UX pauvre
+
+#U12 [MOYEN] Session non validée en cours de session
+     Validée une fois au démarrage (AuthContext.jsx:39)
+     → Si user supprimé/désactivé pendant session = accès maintenu jusqu'au restart
+
+#U13 [MOYEN] Potentiel fuite mémoire
+     loadUsersFromDB, loadLogs, cleanupOldLogs sont async dans useEffect
+     → Pas d'abort/cleanup si le composant se démonte avant completion
+
+#U14 [MOYEN] full_name pas éditable
+     Toujours assigné à username (line 240)
+     → Pas de champ dédié pour le nom complet
+
+#U15 [MOYEN] double enregistrement IPC handlers
+     Classe (line 32-160) et fonction (line 165-408) enregistrent les mêmes canaux
+     → Si les deux sont appelés, conflit ipcMain.handle
+
+#U16 [MOYEN] is_server potentiellement perdu lors de l'édition
+     handleSaveEdit envoie les données selectedUser mais
+     le mapping backend peut ne pas inclure is_server correctement
+
+── BAS (9) ──────────────────────────────────────────────────────────────────
+
+#U17 [BAS] "En ligne" hardcodé à 2
+     UserManagementAdvanced.jsx:491 — pas de vrai suivi de statut en ligne
+
+#U18 [BAS] Méthode change-password absente du preload
+     Le handler IPC existe mais le preload ne l'expose pas
+     → Aucun frontend ne peut l'appeler
+
+#U19 [BAS] Rôles SecuritySettings jamais fonctionnels
+     'administrator' et 'readonly' ne matchent pas le CHECK constraint DB
+
+#U20 [BAS] Pas d'unicité email sur soft-deleted users
+     email UNIQUE bloque les nouvelles inscriptions même après suppression logique
+     → Le path de réactivation ne met pas à jour l'email
+
+#U21 [BAS] badge_id et pin jamais montrés dans l'UI
+     Ces colonnes existent en DB mais sont invisibles dans le frontend
+
+#U22 [BAS] Cleanup logs à 48h trop agressif
+     Les logs sont définitivement supprimés après 48h sans archivage
+
+#U23 [BAS] availableModules par défaut = tous les modules
+     Si config est null, les 14 modules sont affichés (même non licenciés)
+
+#U24 [BAS] Aucun index sur users.role et users.is_active
+     Requêtes filtrant par rôle ou statut ne profitent pas d'index
+
+#U25 [BAS] Les permissions modules sont simplifiées
+     Toggle on/off met can_read/can_create/can_update/can_delete à la même valeur
+     → Pas de granularité CRUD réelle
+
+═══════════════════════════════════════════════════════════════════════════════
+                    7. RÉSUMÉ DES RECOMMANDATIONS
+═══════════════════════════════════════════════════════════════════════════════
+
+  Priorité  Fichier                           Action
+  ────────  ────────────────────────────────  ─────────────────────────────────
+  HA        DB CHECK constraint               Ajouter 'viewer' ou 'server' au CHECK
+  HA        ipc-auth-handlers.cjs             Implémenter changePassword ou supprimer le handler
+  HA        SecuritySettings.jsx              Connecter au vrai backend OU supprimer
+  HA        ElectronAuthManager.cjs           Ajouter rate limiting sur authenticateUser
+  HA        ipc-auth-handlers.cjs             Ajouter vérification session/admin sur IPC sensibles
+  MOY       ipc-auth-handlers.cjs             Unifier les deux versions du handler (classe vs fonction)
+  MOY       UserManagementAdvanced.jsx        Ajouter validation email/phone/password
+  MOY       UserManagementAdvanced.jsx        Remplacer alert()/confirm() par Dialogs
+  MOY       UserManagementAdvanced.jsx        Empêcher désactivation de tous les admins
+  MOY       AuthContext.jsx                   Valider session à chaque action sensible
+  MOY       ElectronAuthManager.cjs           Logger les tentatives échouées
+  MOY       DB users table                    Ajouter index sur role, is_active
+  BAS       UserManagementAdvanced.jsx        Ajouter champ full_name éditable
+  BAS       UserManagementAdvanced.jsx        Résoudre "En ligne" hardcodé
+  BAS       UserManagementAdvanced.jsx        Archiver logs avant suppression
+
+═══════════════════════════════════════════════════════════════════════════════
+                    8. STATISTIQUES
+═══════════════════════════════════════════════════════════════════════════════
+
+  Métrique                              Valeur
+  ─────────────────────────────────────  ──────
+  Total fichiers concernés               8
+  Total lignes (UI principal)            904
+  Total lignes (Backend auth)            792
+  Total handlers IPC                     17
+  Total colonnes users table             14
+  Total migrations users                 2 (phone, is_server)
+  Total rôles DB                         3 (admin, cashier, manager)
+  Total rôles UI                         4 (admin, manager, cashier, viewer)
+  Total modules privilèges               14
+  Problèmes critiques                    5
+  Problèmes moyens                       11
+  Problèmes bas                          9
+  Score global                           4/10
+
+═══════════════════════════════════════════════════════════════════════════════

@@ -1,0 +1,154 @@
+BI ADMIN — ETL WIZARD BUG-FIX REPORT (POST-QA PHASE)
+=====================================================
+Date: 2026-07-31
+Scope: Fix of the 8 confirmed bugs from the QA report
+       (bi-admin-etl-wizard-qa-report.txt) while PRESERVING the existing ETL
+       architecture and the 9-step wizard workflow. No redesign, no new
+       features, no refactoring of working code. The final solution handles
+       real, UNPATCHED POS v2.2.0 export ZIPs (no manual ZIP patching).
+
+Regression status after fixes
+-----------------------------
+  - Full QA suite (phase1-api-tests.js):     40 PASS / 0 FAIL
+  - Bug-fix regression (bugfix-regression.js): 13 PASS / 0 FAIL
+  - Stress regression (8000-sale load):      PASS (load 1.3s, limit 120s)
+  - Admin frontend:                          vite build OK, eslint 0 errors
+
+Fixes by bug
+------------
+
+BUG #1 (CRITICAL) — Schema-version metadata key mismatch
+  Root cause: POS v2 export writes "schema_version": "2.2.0", but
+  _readMetadata only read the legacy key "bi_schema_version" → every real
+  export failed as "export v0.0.0 ≠ server v2.2.0".
+  Fix: read "schema_version" first, fall back to "bi_schema_version"
+  (backward compatible):
+      biSchemaVersion: raw.schema_version ?? raw.bi_schema_version ?? '0.0.0'
+  File: backend/services/etl-pipeline.js (_readMetadata)
+  Regression: REAL unpatched v2.2.0 ZIP validates → 200,
+  metadata.biSchemaVersion === '2.2.0'.
+
+BUG #2 (CRITICAL) — Dashboard generation unreachable via the wizard
+  Root cause: confirm-load left the upload at LOAD_CONFIRMED while both
+  dashboard routes require COMPLETED, and the wizard never creates a
+  BiAnalysisRequest.
+  Fix: loadIntoWarehouse now sets biUpload.status = 'COMPLETED' at the end
+  of the load transaction. generate-from-upload no longer requires a linked
+  BI request — a linked request (if any) must be APPROVED, but request-less
+  wizard uploads are allowed (this mirrors the wizard flow).
+  Files: backend/services/etl-pipeline.js (loadIntoWarehouse),
+         backend/routes/bi-dashboards.js (generate-from-upload guard)
+  Regression: confirm-load → status COMPLETED; generate-from-upload → 201
+  DRAFT dashboard.
+
+BUG #3 (CRITICAL) — bi_dashboard_templates table missing
+  Root cause: the BiDashboardTemplate model was declared in schema.prisma
+  but its migration was never created; prisma migrate deploy had never
+  applied a template table, so all template/dashboard routes 500'd.
+  Fix: created + applied migration
+  backend/prisma/migrations/20260731000000_add_bi_dashboard_templates/
+  (column names use the Prisma @map lowercase names, matching the other BI
+  tables). Also removed the invalid `metabaseDashboardId` field from the
+  biDashboard.create() calls in bi-dashboards.js (that column belongs to the
+  template registry, not to bi_dashboards; the generated Prisma client
+  rejects it with "Unknown argument") — in generate-from-upload and the
+  manual POST /bi/dashboards route; PATCH also no longer tries to write it.
+  Files: backend/prisma/migrations/20260731000000_add_bi_dashboard_templates/migration.sql,
+         backend/routes/bi-dashboards.js
+  Regression: GET /api/bi/dashboard-templates → 200; manual + generated
+  dashboard creation → 201.
+
+BUG #4 (CRITICAL) — Frontend wizard contract mismatches
+  Root cause: Steps 2/3/5/6/7/8 consumed response shapes the backend never
+  returns (report.datasets[] array, data.datasets[] array, corrections batch
+  {dataset,field,oldValue,newValue,reason}, result.datasetsLoaded,
+  upload.dashboards on GET /bi-uploads).
+  Fix (frontend aligned to the real backend contracts):
+    - Step2Validation: render the keyed validation object
+      {<dataset>:{status,rows,duplicateRows,errors,warnings}}; shows schema
+      version and duplicates; advances when all datasets OK.
+    - Step3RawPreview: uses the raw-preview summary object
+      {datasets:{<name>:{columns,rows}}} + per-dataset detail (?key&pageSize)
+      for a real sample table.
+    - Step5TransformationPreview: builds tabs from transformation-preview
+      summary {cleaned,dimensions,facts} + per-table detail
+      (?section&table&pageSize).
+    - Step6Corrections: rewritten to the backend contract — pick section
+      (cleaned/dimensions/facts), pick table, click a row, choose field +
+      new value, apply as {section, table, rowIndex, changes:{field:newValue}}
+      (one request per correction).
+    - Step7LoadConfirm: uses recordsLoaded/elapsed (removed dead
+      datasetsLoaded).
+    - Step8Dashboard: generates the dashboard via
+      POST /bi/dashboards/generate-from-upload, then lists dashboards from
+      GET /bi-uploads data.items[].dashboards (backend includes them).
+    - Step9Success: reads the real report fields (fileName, recordsLoaded,
+      elapsed, status, dashboard).
+    - lib/api.js: correct() now posts the backend payload; added
+      getRawPreview/getTransformationPreview params and a biDashboardsApi
+      client.
+  Files: admin/src/lib/api.js, admin/src/pages/wizard/Step2Validation.jsx,
+         Step3RawPreview.jsx, Step5TransformationPreview.jsx,
+         Step6Corrections.jsx, Step7LoadConfirm.jsx, Step8Dashboard.jsx,
+         Step9Success.jsx
+  Regression: vite build passes, eslint 0 errors; every step now consumes
+  the backend responses verified live in the API suite.
+
+BUG #5 (MAJOR) — Reload duplicates rows instead of replacing
+  Root cause: _loadFacts only INSERTed; no per-tenant snapshot delete.
+  Fix: _loadFacts deletes the previous snapshot for the tenant
+  (fact_sales/fact_inventory/fact_appointments/fact_kitchen_orders) before
+  re-inserting the corrected data — replacement semantics matching Step 7's
+  "remplace les données existantes". Inserts are chunked (1000/batch,
+  skipDuplicates) via a new _insertChunked helper.
+  File: backend/services/etl-pipeline.js (_loadFacts, _insertChunked)
+  Regression: reload leaves fact_sales[client] exactly equal to the ZIP's
+  sales rows (2500), not 2500 + previous accumulation.
+
+BUG #6 (MAJOR) — Cross-tenant dimProduct corruption
+  Root cause: the dimProduct/dimSupplier upsert UPDATE path did not reset
+  tenantId/exportId, so rows whose codes matched another tenant's products
+  kept the wrong tenant's ids (Le Gourmet lost products 1 & 2 to the "test"
+  tenant). Also, the ZIP-embedded client_id leaked into warehouse rows
+  instead of the selected upload client.
+  Fix: dimProduct.update and dimSupplier.update now reset tenantId +
+  exportId (alongside name/category/family/barcode). Route-level: the
+  validate endpoint overrides result.metadata.clientId = upload.clientId
+  after extraction, so the snapshot is attributed to the selected client,
+  never the ZIP's embedded id.
+  Files: backend/services/etl-pipeline.js (_loadDimensions),
+         backend/routes/bi-uploads.js (validate)
+  Regression: dim_products products 1 & 2 now carry tenantId = Le Gourmet;
+  0 rows with id LIKE 'prod_<client>\_%' carry a foreign tenantId.
+
+BUG #7 (MAJOR) — 8000-sale transaction timeout
+  Root cause: Prisma interactive-transaction default timeout (5s) was too
+  short for production volumes → "Transaction already closed … timeout for
+  this transaction was 5000 ms".
+  Fix: explicit { timeout: 120000 } on the run() transaction and the
+  loadIntoWarehouse transaction.
+  File: backend/services/etl-pipeline.js (run, loadIntoWarehouse)
+  Regression: 8000-sale export validate → prepare → confirm-load completes
+  in 1.3s with 9298 records (limit 120s).
+
+BUG #8 (MINOR) — Non-zip upload returns 500 instead of 400
+  Root cause: the multer fileFilter error was unhandled → generic 500.
+  Fix: the POST / route now wraps upload.single('file') and maps errors to
+  400 ("Invalid ZIP file: Only .zip files are allowed"; LIMIT_FILE_SIZE →
+  "File too large. Maximum size is 100 MB.").
+  File: backend/routes/bi-uploads.js
+  Regression: .txt upload → 400 with a meaningful message.
+
+FINAL VERDICT
+-------------
+  APPROVED — all 8 confirmed bugs are fixed and regression-tested against a
+  real, unpatched POS v2.2.0 export ZIP. The BI Admin ETL wizard is now
+  usable end-to-end: upload → validate → preview → prepare → corrections →
+  load (replacing snapshot) → dashboard generation, with 40/40 API checks
+  green and the 8000-sale stress case loading in ~1.3s.
+
+  Remaining data-hygiene note: the warehouse still contains orphan rows
+  accumulated by PRE-FIX QA runs under other tenant ids (fact_sales
+  "unknown-client" 23 + "cmpb0pfd" 2; dim_products "unknown-client" 7 +
+  "cmpb0pfd" 2). These predate the fixes, are not touched by new loads, and
+  should be cleared with a one-off cleanup before production use.
