@@ -28,6 +28,12 @@ class GitHubActionsService {
 
     const url = `https://api.github.com/repos/${this.owner}/${this.repo}/actions/workflows/${this.workflowId}/dispatches`;
 
+    // Capture the moment we dispatch — we'll correlate the newly-created run to
+    // this exact moment, not just whatever GitHub lists as "most recent",
+    // because workflow_dispatch does not return the run id in its response and
+    // concurrent/earlier runs can otherwise be matched by mistake.
+    const dispatchedAt = new Date();
+
     try {
       const response = await axios.post(
         url,
@@ -49,20 +55,17 @@ class GitHubActionsService {
       );
 
       console.log(`✅ GitHub Actions workflow triggered for ${params.projectName}`);
-      
-      // Wait a moment for GitHub to process the dispatch
-      await new Promise(resolve => setTimeout(resolve, 3000));
-      
-      // Fetch the latest run (should be the one we just triggered)
-      const latestRun = await this.getLatestWorkflowRun(this.workflowId);
-      
+
+      // Poll for the run created by THIS dispatch (correlated by timestamp).
+      const run = await this.getDispatchedWorkflowRun(this.workflowId, dispatchedAt);
+
       return {
         success: true,
         message: 'Build triggered on GitHub Actions',
         projectName: params.projectName,
-        id: latestRun.id,
-        runNumber: latestRun.run_number,
-        htmlUrl: latestRun.html_url
+        id: run.id,
+        runNumber: run.run_number,
+        htmlUrl: run.html_url
       };
     } catch (error) {
       console.error('❌ Failed to trigger GitHub Actions:', error.response?.data || error.message);
@@ -99,6 +102,61 @@ class GitHubActionsService {
       console.error('Failed to get latest workflow run:', error.message);
       throw error;
     }
+  }
+
+  /**
+   * Get the workflow run that was created by a specific dispatch.
+   *
+   * Polls the workflow's runs (filtered to event=workflow_dispatch) and returns
+   * the FIRST run whose created_at is >= dispatchedAt. This is the earliest run
+   * created at or after the dispatch moment, which reliably identifies the run
+   * we just triggered even when another run on the same workflow was created
+   * recently or when GitHub's listing lags behind the dispatch.
+   *
+   * @param {string} workflowId - Workflow file name
+   * @param {Date} dispatchedAt - Moment the dispatch was fired (inclusive cutoff)
+   * @param {number} timeoutMs - Max total time to keep polling (default 30000)
+   * @param {number} intervalMs - Delay between polls (default 2500)
+   * @returns {Promise<Object>} The matched run information
+   */
+  async getDispatchedWorkflowRun(workflowId = 'build-pos.yml', dispatchedAt, timeoutMs = 30000, intervalMs = 2500) {
+    const url = `https://api.github.com/repos/${this.owner}/${this.repo}/actions/workflows/${workflowId}/runs`;
+    const cutoff = new Date(dispatchedAt).toISOString();
+    const startedAt = Date.now();
+
+    while (Date.now() - startedAt < timeoutMs) {
+      try {
+        const response = await axios.get(url, {
+          headers: {
+            'Authorization': `Bearer ${this.token}`,
+            'Accept': 'application/vnd.github+json'
+          },
+          params: {
+            event: 'workflow_dispatch',
+            per_page: 10
+          }
+        });
+
+        const runs = response.data.workflow_runs || [];
+        // Workflow runs are newest-first. Find the first (newest) run created at
+        // or after our dispatch cutoff — that is the run we just triggered.
+        const matched = runs.find((r) => r.created_at && new Date(r.created_at) >= new Date(cutoff));
+
+        if (matched) {
+          console.log(`✅ Located dispatched workflow run #${matched.run_number} (id ${matched.id}) for dispatch at ${cutoff}`);
+          return matched;
+        }
+      } catch (error) {
+        console.error('Error polling for dispatched workflow run:', error.response?.data || error.message);
+      }
+
+      await new Promise((resolve) => setTimeout(resolve, intervalMs));
+    }
+
+    const elapsed = Math.round((Date.now() - startedAt) / 1000);
+    throw new Error(
+      `Could not locate the triggered workflow run after ${elapsed}s — check GitHub Actions manually`
+    );
   }
 
   /**
