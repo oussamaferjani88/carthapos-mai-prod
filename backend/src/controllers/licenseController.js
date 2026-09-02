@@ -3,13 +3,28 @@
 const licenseService = require('../services/licenseService');
 const ApiResponse = require('../utils/apiResponse');
 const { asyncHandler } = require('../middleware/errorHandler');
+const { PERMISSION_HOLDER_ROLES } = require('../../middleware/permissions');
 
 class LicenseController {
   // ── Lookups ────────────────────────────────────────────────
 
   // GET /api/v1/licenses
   getAllLicenses = asyncHandler(async (req, res) => {
-    const licenses = await licenseService.getAllLicenses();
+    // Portal/client requests carry no admin JWT, so `req.user` is undefined and
+    // we must scope results to the requesting client. For admin sessions
+    // (SUPER_ADMIN or permission holders) return everything, as before.
+    const isAdminContext =
+      req.user &&
+      (req.user.role === 'SUPER_ADMIN' ||
+        PERMISSION_HOLDER_ROLES.includes(req.user.role));
+
+    // Only filter for portal requests. `userId` (the client's DB id, sent by
+    // the portal) maps to the license `clientId`.
+    const options = !isAdminContext && req.query.userId
+      ? { clientId: String(req.query.userId) }
+      : undefined;
+
+    const licenses = await licenseService.getAllLicenses(options);
     return ApiResponse.success(res, licenses, 'Licenses retrieved successfully');
   });
 

@@ -74,7 +74,9 @@ export default function RequestWizard() {
         if (!res.ok) throw new Error("Failed to load POS");
         const data = await res.json();
         if (!mounted) return;
-        const list = Array.isArray(data) ? data : [];
+        // Backend wraps via ApiResponse.success(): { status, message, data }
+        const body = data as { data?: PosLicense[] };
+        const list = Array.isArray(body?.data) ? body.data : [];
         const options = list.map((license: PosLicense) => ({
           licenseId: license.id,
           businessName: license.configuration?.businessName || license.client?.name || "POS",

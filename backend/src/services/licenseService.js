@@ -50,8 +50,9 @@ class LicenseService {
   // Lookups
   // ──────────────────────────────────────────────────────────────
 
-  async getAllLicenses() {
+  async getAllLicenses({ clientId } = {}) {
     return await licenseRepository.findAll({
+      where: clientId ? { clientId } : undefined,
       include: {
         client: true,
         modules: {

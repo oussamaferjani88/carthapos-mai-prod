@@ -157,8 +157,11 @@ const PosProjects = () => {
         throw new Error("Failed to load POS projects");
       }
 
-      const data = (await response.json()) as License[];
-      const list = Array.isArray(data) ? data : [];
+      // The backend wraps every response via ApiResponse.success() as
+      // { status, message, data }, so the array lives under `body.data` — it is
+      // never a bare array. Reading it directly used to always yield [].
+      const body = (await response.json()) as { data?: License[] };
+      const list = Array.isArray(body?.data) ? body.data : [];
 
       setProjects(
         list.map((license) => ({

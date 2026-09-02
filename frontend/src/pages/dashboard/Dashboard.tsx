@@ -167,7 +167,9 @@ const Dashboard = () => {
       }
 
       const data = (await response.json()) as License[];
-      setLicenses(Array.isArray(data) ? data : []);
+      // Backend wraps via ApiResponse.success(): { status, message, data }
+      const body = data as unknown as { data?: License[] };
+      setLicenses(Array.isArray(body?.data) ? body.data : []);
     } catch (error) {
       console.error(error);
       setLicenses([]);
