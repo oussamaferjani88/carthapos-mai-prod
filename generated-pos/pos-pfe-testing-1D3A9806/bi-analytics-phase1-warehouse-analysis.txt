@@ -1,0 +1,275 @@
+BI ANALYTICS PLATFORM — PHASE 1: WAREHOUSE ANALYSIS
+====================================================
+Date: 2026-08-02
+Scope: Read-only analysis of the Analytics Warehouse (PostgreSQL "pos_system"),
+       the POS export contract, and the existing BI layer, to define the BI
+       platform architecture. NO code was written, NO schema changed.
+
+NOTE ON SCOPE
+-------------
+The ETL Wizard, warehouse loader, transformation preview, corrections,
+validation, upload flow, warehouse tables and warehouse cleanup are now FROZEN.
+This analysis only DEFINES what the new BI Analytics layer can build on top.
+
+--------------------------------------------------------------------
+1. WHAT EXISTS TODAY (as-built)
+--------------------------------------------------------------------
+Warehouse tables (Prisma models) and their actual state:
+
+  DIMENSIONS
+  - dim_clients    : tenantId (unique), exportId, name, businessType
+                     -> 1 row loaded (Restaurant Le Gourmet)
+  - dim_products   : tenantId, exportId, productId, name, category, family, barcode
+                     -> 19 rows loaded; category/family are meaningful
+                     (Plat 8, Boisson 5, Entree 3, Dessert 3)
+  - dim_suppliers  : empty (schema present, never loaded for restaurant)
+  - dim_time       : id = Int YYYYMMDD, date, year, quarter, month, day,
+                     dayOfWeek, isWeekend   -> 181 rows (2026-02-02 .. 2026-08-01)
+                     DAY-level granularity only. No hour/minute.
+
+  FACTS
+  - fact_sales        : tenantId, exportId, saleId, total, tax, discount,
+                        paymentMethod, dimTimeId (date)
+                        -> 2500 rows. Grain = ONE SALE (header).
+                        dimClientId/dimProductId are NULL for every row.
+                        createdAt = INSERT timestamp (NOT sale date).
+  - fact_inventory    : tenantId, exportId, rowIndex, dimProductId, productName,
+                        stock, price, timesSold
+                        -> 19 rows. POINT-IN-TIME snapshot (no dimTimeId).
+  - fact_kitchen_orders: tenantId, exportId, rowIndex, dimTimeId, tableNumber,
+                        items (NULL), priority, status
+                        -> 402 rows. No timestamps (started/ready/completed
+                        are dropped by the ETL).
+  - fact_appointments : empty.
+
+  RELATIONSHIPS (as-built)
+  - fact_sales    -> dim_time (dimTimeId).            OK (date only)
+  - fact_sales    -> dim_products : NOT LINKED (all dimProductId NULL)
+  - fact_sales    -> dim_clients  : NOT LINKED (all dimClientId NULL)
+  - fact_inventory-> dim_products (dimProductId).     OK
+  - fact_inventory-> dim_time : NOT LINKED (snapshot)
+  - fact_kitchen_orders -> dim_time (dimTimeId).      OK
+  - No customer / employee / table / payment dimensions exist.
+
+  DATA HEALTH: clean (post-cleanup), all rows belong to tenant
+  cmoogzf... (Restaurant Le Gourmet), single current export snapshot.
+
+--------------------------------------------------------------------
+2. STAR SCHEMA (as-built vs. ideal)
+--------------------------------------------------------------------
+  AS-BUILT (partial star):
+      dim_time  <-- fact_sales          (measures: total, tax, discount)
+      dim_time  <-- fact_kitchen_orders (measures: count by status/priority/table)
+      dim_products <-- fact_inventory   (measures: stock, price, timesSold)
+      dim_clients, dim_suppliers : no fact links
+
+  IDEAL (required for a professional BI platform):
+      dim_time  <-- fact_sales        <-- dim_products (item grain, missing)
+      dim_client (customer) <-- fact_sales   (missing dimension)
+      dim_employee <-- fact_sales     (missing)
+      dim_table   <-- fact_sales      (missing)
+      dim_time (hour) <-- fact_sales  (missing time-of-day)
+      dim_products <-- fact_sales_item (missing item fact)
+
+  CONCLUSION: the warehouse is a sale-header + inventory-snapshot +
+  kitchen-order warehouse. It does NOT contain item-level, customer-level,
+  employee-level, table-level or time-of-day data.
+
+--------------------------------------------------------------------
+3. AVAILABLE METRICS (computable from the warehouse today)
+--------------------------------------------------------------------
+  From fact_sales (via dimTimeId for dates):
+    - Revenue (sum total), Net revenue (total - discount - tax)
+    - Order count (count of saleId)
+    - Average ticket (total / orders)
+    - Orders & revenue per day / month / quarter / year (dim_time rollups)
+    - Revenue by payment method (cash/card/mobile - real split: 1211/665/624)
+    - Weekday vs weekend split (dim_time.dayOfWeek/isWeekend)
+    - Sales growth / period-over-period comparison
+  From fact_inventory:
+    - Stock valuation (sum stock*price)
+    - Stock by product / category / family
+    - Fast/slow movers (timesSold - lifetime total)
+    - Low-stock / out-of-stock detection (stock = 0 rows exist)
+  From fact_kitchen_orders:
+    - Orders by status (preparing/pending/served/ready/completed - real: 97/82/78/74/71)
+    - Orders by priority, by table number
+    - Kitchen workload by day
+  From fact_appointments (when data exists):
+    - Appointment count by status/service/date, duration
+
+--------------------------------------------------------------------
+4. MISSING METRICS + ROOT CAUSE (why they are missing)
+--------------------------------------------------------------------
+  BEST/WORST SELLERS, revenue by product/category:
+      fact_sales has no dimProductId; sale_items dataset is not loaded.
+  TOP CUSTOMERS, retention, visit frequency:
+      no customer dimension; fact_sales has no customer link.
+  REVENUE BY WAITER / EMPLOYEE:
+      no employee dimension; sales.user_id / cashier fields not loaded.
+  REVENUE BY TABLE:
+      sales.table_id exists in the export but not in fact_sales.
+  PEAK HOURS / time-of-day patterns:
+      dim_time is day-level; sales.created_at time is not loaded.
+  KITCHEN PREPARATION TIME / CANCELLED ORDERS:
+      kitchen_orders has started_at/ready_at/served_at/completed_at +
+      cancel_reason in the export but the ETL drops them.
+  EMPLOYEE SHIFTS / CASH-DRAWER variance:
+      shifts.csv, cash_drawer_events.csv exist in export, not in warehouse.
+  INVENTORY TURNOVER (time series):
+      fact_inventory is a single snapshot (no history, no dimTimeId).
+
+  IMPORTANT: these are NOT fixable inside the frozen ETL/warehouse. They are
+  only reachable through the RETAINED SOURCE DATA (see section 6).
+
+--------------------------------------------------------------------
+5. EXISTING ANALYTICS CODE — ASSESSMENT
+--------------------------------------------------------------------
+  The backend already has:
+  - services/warehouse-service.js  (getDashboardSummary, getRevenueByDay,
+    getTopProducts, getInventoryTurnover, getTableTurnover,
+    getKitchenPerformance, getPeakHours, getAverageTicket, ...)
+  - services/bi-insight-generator.js (generateInsights)
+  - routes/bi-analysis.js  (GET /:id/metrics, POST /:id/generate-insights)
+  - routes/bi-dashboards.js (list/create/generate-from-upload/embed)
+  - bi_dashboard_templates table (EMPTY - no templates registered)
+
+  CRITICAL DEFECTS found in warehouse-service.js:
+  - getRevenueByDay / getAverageTicket / getPeakHours group by fact_sales
+    .createdAt, which is the LOAD/INSERT timestamp, NOT the sale date.
+    Revenue-by-day therefore shows everything on the ingestion day.
+    (Fact verified: all 2500 rows share near-identical createdAt from the
+    load second, while real sale dates live in dimTimeId.)
+  - getTopProducts ranks by inventory.timesSold (lifetime count), not by
+    actual sale revenue.
+  - getPeakHours is impossible from the warehouse (no time-of-day data) and
+    currently produces meaningless load-time distribution.
+  These methods must be REPLACED, not patched, by the new BI layer.
+
+  Frontend: React 18 + Vite + Tailwind v4 + Radix/shadcn + lucide-react +
+  framer-motion + next-themes (dark/light ready) + recharts. Existing BI
+  pages: BiUploadPortal (ETL), BiWizard (9 steps), AdminDashboardViewer
+  (Metabase link holder only), AdminBIAnalystWorkspace. api.js has a clean
+  client pattern to extend.
+
+--------------------------------------------------------------------
+6. KEY OPPORTUNITY — RETAINED SOURCE EXPORT (enrichment source)
+--------------------------------------------------------------------
+  Every COMPLETED upload KEEPS its source ZIP on disk
+  (bi_uploads.filePath -> backend/uploads/bi-zips/*.zip, verified present).
+  The raw ZIP contains the FULL granular data the warehouse lacks:
+
+    sales.csv          : sale_id, total, tax, discount, subtotal, payment_method,
+                         customer_id, customer_name, table_id, user_id,
+                         cashier_name, cashier_full_name, created_at (with TIME)
+    sale_items.csv     : sale_id, product_id, quantity, unit_price, line_total,
+                         vat_rate, vat_amount, product_name, category, family,
+                         sale_date (with TIME)   <- ITEM GRAIN
+    customers.csv      : customer_id, name, loyalty_points, total_spent,
+                         visit_count, last_visit_date, tags
+    kitchen_orders.csv : order_id, table_number, priority, status, sale_id,
+                         total, server_name, department, estimated_minutes,
+                         started_at, ready_at, served_at, completed_at,
+                         cancel_reason, cancelled_by, created_at, updated_at
+                         <- PREPARATION TIME + CANCELLATIONS computable
+    shifts.csv         : user_id, user_name, opened_at, closed_at,
+                         closing_expected, closing_actual, difference,
+                         cash_sales, card_sales, other_sales
+    tables.csv, kitchen_order_items.csv, kitchen_departments.csv,
+    table_reservations.csv, suppliers.csv, services.csv, appointments.csv,
+    stock_movements.csv, cash_drawer_events.csv, z_reports.csv, ...
+
+  This is exactly "reuse everything that already exists": the files are
+  already stored, already validated, and map 1:1 to the current snapshot.
+
+--------------------------------------------------------------------
+7. KPI FEASIBILITY MATRIX (Restaurant / Retail / Service)
+--------------------------------------------------------------------
+  Legend: [W] warehouse-only | [R] needs raw-export enrichment | [-] not feasible
+
+  RESTAURANT
+    Revenue, net revenue, orders, avg ticket ............... [W]
+    Orders/revenue per day/month/year, growth ............. [W]
+    Revenue by payment method ............................. [W]
+    Weekday/weekend split .................................. [W]
+    Best/worst sellers, revenue by product/category ........ [R]
+    Peak hours (hour-of-day) ............................... [R]
+    Revenue by waiter/employee, by table ................... [R]
+    Top customers, frequency, inactive customers ........... [R]
+    Kitchen prep time, cancelled orders, by department ..... [R]
+    Stock valuation, fast/slow movers, low stock ........... [W]
+    Inventory turnover ..................................... [W] (approx)
+
+  RETAIL
+    Revenue, gross sales, avg basket ....................... [W]
+    Top/worst products, category performance ............... [R]
+    Stock valuation, fast/slow movers ...................... [W]
+    Supplier performance ................................... [R]
+    Payment methods, sales by employee ..................... [W]/[R]
+    Customer loyalty ....................................... [R]
+
+  SERVICE BUSINESS
+    Appointments count/status/service/duration ............. [W]
+    Revenue, employee utilization .......................... [R]
+    Cancellation rate, retention ........................... [R]
+
+--------------------------------------------------------------------
+8. POSSIBLE DASHBOARDS
+--------------------------------------------------------------------
+  A. EXECUTIVE (overview for the jury):
+     Revenue, orders, avg ticket, growth cards + revenue trend
+     (day/month), payment mix, weekday/weekend, top categories.
+  B. SALES: revenue/orders by day & hour, peak hours, payment methods,
+     growth curve, drill revenue -> month -> day -> invoices -> details.
+  C. PRODUCTS: best/worst sellers (qty & revenue), category performance,
+     price points, margin proxy, product drill-down.
+  D. CUSTOMERS: top customers, visit frequency, lifetime value, inactive
+     customers, loyalty.
+  E. EMPLOYEES: revenue by cashier/server, shift performance, cash variance.
+  F. INVENTORY: stock valuation, stock by category, low/out-of-stock,
+     fast/slow movers, turnover.
+  G. OPERATIONS (restaurant): kitchen orders by status/priority, prep-time
+     distribution, table utilization, cancelled orders.
+  H. TREND & FORECAST: seasonality, weekday patterns, forecast placeholders.
+
+--------------------------------------------------------------------
+9. RECOMMENDED ARCHITECTURE (decision required)
+--------------------------------------------------------------------
+  OPTION A — WAREHOUSE-ONLY BI
+      Analytics reads ONLY the star schema (fact_sales/inventory/kitchen +
+      dims). Clean star-schema story; but only ~10 KPIs are possible. No
+      best-sellers, no customers, no peak hours, no prep time. Limited jury
+      impact. Low implementation risk.
+
+  OPTION B — HYBRID BI  (RECOMMENDED)
+      Primary source = the warehouse star schema (executive/sales/inventory/
+      kitchen overviews).
+      Secondary source = the RETAINED raw export ZIP of the latest COMPLETED
+      upload, read via a NEW read-only "analytics source" service (in-memory
+      cache keyed by upload file hash) to enable item/customer/employee/table/
+      time-of-day/prep-time analytics.
+      Complies 100% with the frozen ETL/wizard/warehouse rules (no writes,
+      no schema change, additive layer only). Unlocks the FULL KPI suite and
+      real drill-downs. Moderate implementation risk.
+
+  RECOMMENDATION: OPTION B. It delivers a professional, jury-ready BI
+  platform while strictly respecting the "do not modify ETL/warehouse"
+  constraint, and it reuses artifacts that already exist (the ZIPs).
+
+  The KPI spec (Phase 2), dashboard architecture (Phase 3), analytics
+  workspace (Phase 4) and all subsequent phases will be built on top of the
+  chosen option. No schema or ETL change is required in either case.
+
+--------------------------------------------------------------------
+10. PHASE 1 SUMMARY
+--------------------------------------------------------------------
+  - Warehouse = sale-header + inventory-snapshot + kitchen-order facts over
+    day-level dim_time. Clean and production-ready, but coarse-grained.
+  - ~10 KPIs computable from the warehouse alone; the rest (products,
+    customers, employees, tables, hours, kitchen timing) require the raw
+    export which is already retained on disk.
+  - The existing analytics service has a critical date bug (uses createdAt =
+    insert time instead of dimTimeId = sale date) and must be rebuilt.
+  - Frontend stack (React/Tailwind/shadcn/recharts/framer-motion/dark-mode)
+    is ready for a professional analytics workspace.
+  - DECISION NEEDED: Option A (warehouse-only) vs Option B (hybrid, recommended).
