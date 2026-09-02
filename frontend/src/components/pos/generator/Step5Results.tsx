@@ -105,7 +105,12 @@ export default function Step5Results({ generationResult, selectedUSB, bindingTyp
 
   // Initialize download URL if executable path exists and build is completed
   useEffect(() => {
-    if (buildStatus === 'building' || buildStatus === 'source_ready') return;
+    if (
+      generationResult?.posApplication?.buildStatus === 'building' ||
+      generationResult?.posApplication?.buildStatus === 'source_ready'
+    ) {
+      return;
+    }
 
     const licenseId = generationResult?.licenseId || generationResult?.license?.id;
 
@@ -147,7 +152,6 @@ export default function Step5Results({ generationResult, selectedUSB, bindingTyp
 
       return () => clearInterval(timer);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isBuilding, buildStatus]);
 
   // Auto-poll build status
@@ -178,7 +182,6 @@ export default function Step5Results({ generationResult, selectedUSB, bindingTyp
 
       return () => clearInterval(interval);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isBuilding, generationResult]);
 
   const formatTime = (seconds: number) => {
