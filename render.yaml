@@ -69,6 +69,11 @@ services:
         value: https://carthapos.onrender.com
       - key: ADMIN_URL
         value: https://carthapos-admin.onrender.com
+      # Canonical SUPER_ADMIN account (must match the username created by db:create-admin).
+      - key: ADMIN_INITIAL_USERNAME
+        value: carthapos-oussama
+      - key: ADMIN_INITIAL_PASSWORD
+        sync: false
       # Metabase provisioning (backend calls Metabase REST API).
       - key: METABASE_BASE_URL
         value: https://carthapos-metabase.onrender.com
