@@ -434,7 +434,30 @@ router.get('/templates', async (req, res) => {
 router.get('/download', async (req, res) => {
   const requestedPath = req.query.path;
   const licenseIdParam = req.query.licenseId; // Optional: can provide license ID directly
-  
+  // Set when the recovery branch re-fetches + extracts a fresh artifact; may
+  // differ from `requestedPath`, so track it for cleanup after a successful serve.
+  let recoveredPath = null;
+
+  // Clean the local project directory after a successful download. This is the
+  // disk-space-heavy part (node_modules, dist/release output, .exe). The
+  // database record is intentionally left untouched — buildStatus/buildRunId/
+  // buildProjectPath/buildProjectName stay 'completed', so the very next
+  // download for this license re-triggers the "path missing -> recover from
+  // GitHub" logic at the top of this route. Failures are non-fatal: the
+  // response was already sent to the browser by the time this runs.
+  const cleanupProjectDirs = () => {
+    const toDelete = [...new Set([requestedPath, recoveredPath].filter(Boolean))];
+    for (const dir of toDelete) {
+      if (!dir || !fs.existsSync(dir)) continue;
+      try {
+        fs.rmSync(dir, { recursive: true, force: true });
+        console.log(`🧹 Cleaned up project directory after download: ${dir}`);
+      } catch (cleanupError) {
+        console.warn(`⚠️ Cleanup failed for ${dir} (non-fatal): ${cleanupError.message}`);
+      }
+    }
+  };
+
   if (!requestedPath && !licenseIdParam) {
     return res.status(400).json({ error: 'Path parameter or licenseId is required' });
   }
@@ -558,6 +581,10 @@ router.get('/download', async (req, res) => {
             
             if (exeFound) {
               logger.info(`💾 Recovered .exe successfully`);
+              // Track where the recovered artifact was extracted so the post-
+              // download cleanup (below) can remove it, even if it differs from
+              // `requestedPath`. The DB record stays untouched.
+              recoveredPath = actualPath;
               // File restored! Code will continue below to serve it.
             } else {
                throw new Error('No .exe in artifact');
@@ -931,6 +958,10 @@ router.get('/download', async (req, res) => {
       }
     } else {
       console.log(`✅ Successfully downloaded: ${fileName}`);
+      // Free disk space now that the installer reached the browser. The DB is
+      // left untouched so the recovery path can re-serve this on the next
+      // request if needed (buildStatus stays 'completed').
+      cleanupProjectDirs();
     }
   });
 });
