@@ -5,17 +5,20 @@
 databases:
   - name: carthapos-db
     databaseName: pos_system
-    plan: starter
+    plan: 0.5c-1g
 
   # BI data warehouse used by the ETL pipeline (Dim/Fact tables). Read by Metabase.
   - name: carthapos-warehouse-db
     databaseName: pos_system_warehouse
-    plan: starter
+    plan: 0.5c-1g
 
   # Metabase's own application database (dashboards, settings, users).
+  # Kept on the free plan (1 free Postgres per workspace). Free Postgres has a
+  # 30-day expiry and 1 GB storage — fine for the demo, and Metabase's UI/
+  # dashboards are the most re-creatable part of the stack.
   - name: carthapos-metabase-db
     databaseName: metabase
-    plan: starter
+    plan: free
 
 services:
   # ======================================================================
@@ -27,7 +30,7 @@ services:
     rootDir: .
     dockerContext: .
     dockerfilePath: backend/Dockerfile
-    plan: starter
+    plan: free
     healthCheckPath: /api/health
     envVars:
       - key: NODE_ENV
@@ -117,7 +120,7 @@ services:
     dockerfilePath: metabase/Dockerfile
     rootDir: .
     dockerContext: .
-    plan: starter
+    plan: free
     envVars:
       - key: MB_DB_TYPE
         value: postgres
