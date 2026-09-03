@@ -1,0 +1,508 @@
+╔══════════════════════════════════════════════════════════════════════════════╗
+║         BI EXPORT — ROOT CAUSE INVESTIGATION REPORT                         ║
+║         Static analysis only — no code has been modified                    ║
+╚══════════════════════════════════════════════════════════════════════════════╝
+
+Generated: 2026-07-28
+Scope:
+  D:\Carthapos\pos-template\src\electron\handlers\ipc-bi-export-handler.cjs
+  D:\Carthapos\pos-template\src\electron\bi\BiDatasetRegistry.cjs
+  D:\Carthapos\pos-template\src\electron\bi\BiDataMapper.cjs
+  D:\Carthapos\pos-template\src\electron\bi\BiSchemaContract.cjs
+  D:\Carthapos\pos-template\src\electron\bi\BiValidator.cjs
+  D:\Carthapos\pos-template\src\electron\ElectronDatabaseManager.cjs
+  D:\Carthapos\pos-template\src\electron\handlers\ipc-hardware-handlers.cjs
+  D:\Carthapos\pos-template\src\config\app-config.json
+  D:\Carthapos\backend\utils\generators\AssetManager.js
+  D:\Carthapos\backend\utils\generators\ThemeCustomizer.js
+
+
+═══════════════════════════════════════════════════════════════════════════════
+⚠️  CRITICAL PRIMARY FINDING — Applies to Issues 2, 3, 4
+═══════════════════════════════════════════════════════════════════════════════
+
+  The BI export ALWAYS runs with businessType='retail' regardless of
+  the actual business type configured in the Admin portal.
+
+  Root cause chain:
+
+  1. The BI export handler reads the business type at ipc-bi-export-handler.cjs:68:
+
+       const businessType = options.businessType
+         || theme.sector
+         || theme.businessType
+         || 'retail';
+
+  2. The frontend calls the export WITHOUT arguments (BiExportModal.jsx:44):
+
+       const res = await window.electronAPI.exportBiData();
+       //                           ^^ no options object
+
+     → options.businessType is undefined
+
+  3. The app-config.json theme object does NOT contain sector or businessType:
+
+       "theme": {
+         "businessName": "...",
+         "currency": "TND",
+         "language": "fr",
+         "timezone": "Europe/Paris",
+         ...
+         // NO "sector" field
+         // NO "businessType" field
+       }
+
+     → theme.sector is undefined
+     → theme.businessType is undefined
+
+  4. The fallback to 'retail' kicks in:
+
+       const businessType = 'retail';
+
+  5. The AssetManager.js (line 392) does:
+
+       theme: {
+         ...( license.configuration || {}),
+         ...
+       }
+
+     This spreads license.configuration into theme, which COULD contain
+     "sector". Whether it does depends on the Admin portal's data model
+     and whether the admin's configuration object includes a sector field.
+
+  6. The ThemeCustomizer.js (the alternative generation path) does NOT
+     include sector at all in the generated app-config.
+
+  CONSEQUENCE: Every BI export runs as 'retail', which means:
+
+    • kitchen_orders       → EXCLUDED (requires 'restaurant','cafe','bakery')
+    • tables               → EXCLUDED (requires 'restaurant','cafe','hotel')
+    • kitchen_departments  → EXCLUDED (requires 'restaurant','cafe','bakery')
+    • table_reservations   → EXCLUDED (requires 'restaurant','cafe','hotel')
+    • stock_movements      → EXCLUDED (requires 'retail','bakery','pharmacy',...)
+    • suppliers            → EXCLUDED unless businessType starts with 'retail'
+    • categories           → INCLUDED (hardcoded CORE_DATASETS — Issue 4)
+    • cash_drawer_events   → INCLUDED (businessTypes: 'all' — Issue 1)
+
+
+═══════════════════════════════════════════════════════════════════════════════
+ISSUE 1: cash_drawer_events.csv IS EMPTY
+═══════════════════════════════════════════════════════════════════════════════
+
+1.1 Current execution flow
+
+  Business Type (fallback: 'retail')
+    ↓
+  BiDatasetRegistry.resolveExportDatasets('retail', enabledModules)
+    ↓
+  cash_drawer_events included because businessTypes = 'all' (line 375)
+  and module = null (no module guard)
+    ↓
+  SQL at BiDatasetRegistry.cjs:368-373:
+    SELECT cde.id, cde.timestamp, cde.user_id, cde.user_name,
+           cde.action, cde.reason,
+           cde.amount_expected, cde.amount_actual, cde.difference,
+           cde.notes
+    FROM cash_drawer_events cde
+    ORDER BY cde.timestamp DESC
+    ↓
+  SQL executes successfully (table exists, ElectronDatabaseManager.cjs:833-848)
+    ↓
+  Returns empty rows (table has no data)
+    ↓
+  mapCashDrawerEventRows([]) → []
+    ↓
+  CSV generated with headers only → EMPTY FILE
+
+1.2 Where the execution stops
+
+  The SQL runs successfully but returns zero rows because no code
+  writes to cash_drawer_events during normal shift operations.
+
+1.3 Root cause
+
+  DUAL ROOT CAUSE:
+
+  ROOT CAUSE A — Wrong table for the expected data:
+
+    The user's "opened and closed the cash register" operations
+    are SHIFT operations. They write to the `shifts` table via
+    `caisse:open-shift` and `caisse:close-shift` handlers
+    (ipc-cash-register-handlers.cjs:22,44).
+
+    The BI export reads from `cash_drawer_events` table, which is
+    designed for physical cash DRAWER events (drawer open/close/count),
+    not shift events.
+
+    The `shifts.csv` dataset correctly shows all shift data (confirmed
+    by the user). The cash_drawer_events table is a DIFFERENT concept.
+
+  ROOT CAUSE B — Missing user_name in INSERT (minor, only affects
+  physical drawer opens):
+
+    The only handler that writes to cash_drawer_events table is
+    `hardware:openCashDrawer` (ipc-hardware-handlers.cjs:278-292).
+    Its INSERT (line 284) is:
+
+      INSERT INTO cash_drawer_events
+        (user_id, action, amount_expected, amount_actual, notes)
+      VALUES (?, 'open', NULL, NULL, ?)
+
+    The `user_name` column is NOT NULL (per schema at
+    ElectronDatabaseManager.cjs:837) but is OMITTED from the INSERT.
+
+    In SQLite, omitting a NOT NULL column from INSERT is equivalent
+    to inserting NULL, which violates the NOT NULL constraint.
+    The INSERT silently fails (caught at line 290, returns
+    {success: false}).
+
+    EVEN IF this bug were fixed, the user's shift operations would
+    still not populate this table.
+
+1.4 Evidence
+
+  • ipc-cash-register-handlers.cjs:22-41  — caisse:open-shift → writes to `shifts`
+  • ipc-cash-register-handlers.cjs:44-82  — caisse:close-shift → writes to `shifts`
+  • ipc-hardware-handlers.cjs:278-292     — hardware:openCashDrawer → writes to `cash_drawer_events`
+  • ElectronDatabaseManager.cjs:833-848   — cash_drawer_events table schema (user_name NOT NULL)
+  • ElectronAuthManager.cjs:670-697       — logCashDrawerEvent() → writes to cash_drawer_events (9 cols)
+    (but this method is only called from log-cash-drawer-event IPC, which the UI NEVER calls)
+
+1.5 File, function, line numbers
+
+  File                               Function/Line
+  ────────────────────────────────── ─────────────────────────────────────
+  ipc-hardware-handlers.cjs:278-292  openCashDrawer handler — INSERT missing user_name
+  ipc-auth-handlers.cjs:488-497      log-cash-drawer-event handler — exists but UI never calls it
+  ElectronDatabaseManager.cjs:833    cash_drawer_events CREATE TABLE — user_name NOT NULL
+  BiDatasetRegistry.cjs:365-380      cash_drawer_events registry entry — correct SQL
+  BiDataMapper.cjs:162-178           mapCashDrawerEventRows — correct mapping
+  BiSchemaContract.cjs:133-147       cash_drawer_events schema — correct columns
+  BiValidator.cjs:46                 LABELS entry for cash_drawer_events
+
+1.6 Issue type
+
+  Database / Registry / Architecture
+
+  The BI export queries the correct table for what it intends to export
+  (cash_drawer_events), but the data the user expects (shift operations)
+  lives in the `shifts` table. Additionally, the one handler that does
+  write to cash_drawer_events has a bug (missing user_name column).
+
+
+═══════════════════════════════════════════════════════════════════════════════
+ISSUE 2: kitchen_orders.csv IS NOT GENERATED
+═══════════════════════════════════════════════════════════════════════════════
+
+2.1 Current execution flow
+
+  Business Type (fallback: 'retail') ← CRITICAL FLAW
+    ↓
+  BiDatasetRegistry.resolveExportDatasets('retail', ['kitchen', 'tables', ...])
+    ↓
+  For kitchen_orders:
+    • isCore = false (not in CORE_DATASETS)
+    • businessTypes = ['restaurant', 'cafe', 'bakery']
+    • typeMatch check: 'retail' === 'restaurant'? NO. 'retail'.startsWith('restaurant')? NO.
+    • typeMatch = false
+    • CONTINUE → kitchen_orders SKIPPED
+    ↓
+  kitchen_orders NOT in datasetKeys
+    ↓
+  No collection attempt for kitchen_orders
+    ↓
+  No CSV generated
+
+2.2 Where the execution stops
+
+  The dataset is excluded at the business-type filter step in
+  resolveExportDatasets (BiDatasetRegistry.cjs:426-431) because
+  'retail' does not match ['restaurant', 'cafe', 'bakery'].
+
+2.3 Root cause
+
+  The business type defaults to 'retail' (see ⚠️ CRITICAL PRIMARY FINDING).
+  With 'retail' as the business type, kitchen_orders is excluded by
+  the business-type filter.
+
+  The dataset EXISTS in the registry.
+  The SQL is valid.
+  The table EXISTS in the database (ElectronDatabaseManager.cjs:957-967
+  + migrations at lines 1273-1375, 1800-1812).
+  The mapper EXISTS (BiDataMapper.cjs:90-116).
+  The schema EXISTS (BiSchemaContract.cjs:70-94).
+  None of these matter because the dataset is excluded at the top-level
+  filter before any collection code runs.
+
+2.4 Evidence
+
+  BiDatasetRegistry.cjs:
+    Line 26: CORE_DATASETS = [..., 'categories', 'product_families']
+             (kitchen_orders NOT here)
+    Line 237: businessTypes: ['restaurant', 'cafe', 'bakery']
+    Line 236: module: 'kitchen'
+    Line 414-441: resolveExportDatasets — the business-type filter at lines 426-431
+
+  ipc-bi-export-handler.cjs:
+    Line 68: const businessType = options.businessType || theme.sector
+             || theme.businessType || 'retail';
+             (← ALWAYS 'retail' because sector/businessType is missing from theme)
+
+  ElectronDatabaseManager.cjs:957-967 — kitchen_orders table EXISTS
+  ElectronDatabaseManager.cjs:1273-1375 — migrations add all BI-queried columns
+
+2.5 File, function, line numbers
+
+  File                               Function/Line
+  ────────────────────────────────── ─────────────────────────────────────
+  ipc-bi-export-handler.cjs:68       runExport — businessType resolved as 'retail'
+  BiDatasetRegistry.cjs:426-431      resolveExportDatasets — type match filter excludes
+  BiDatasetRegistry.cjs:236-237      kitchen_orders entry — needs 'restaurant','cafe','bakery'
+  BiDatasetRegistry.cjs:25-28        CORE_DATASETS — kitchen_orders NOT here
+
+2.6 Issue type
+
+  Configuration / Data Flow
+
+  The business type is never stored in or passed to the BI export.
+  The export defaults to 'retail', which excludes restaurant-specific
+  datasets.
+
+
+═══════════════════════════════════════════════════════════════════════════════
+ISSUE 3: tables.csv IS NOT GENERATED
+═══════════════════════════════════════════════════════════════════════════════
+
+3.1 Current execution flow
+
+  IDENTICAL to Issue 2:
+
+  Business Type (fallback: 'retail')
+    ↓
+  BiDatasetRegistry.resolveExportDatasets('retail', enabledModules)
+    ↓
+  For tables:
+    • isCore = false
+    • businessTypes = ['restaurant', 'cafe', 'hotel']
+    • typeMatch: 'retail' !== 'restaurant', 'retail'.startsWith('restaurant')? NO
+    • typeMatch = false
+    • CONTINUE → tables SKIPPED
+    ↓
+  tables NOT in datasetKeys
+    ↓
+  No CSV generated
+
+3.2 Where the execution stops
+
+  Same as Issue 2 — excluded at the business-type filter
+  (BiDatasetRegistry.cjs:426-431).
+
+3.3 Root cause
+
+  EXACTLY the same root cause as Issue 2: businessType defaults to 'retail',
+  which does not match the required business types for 'tables'.
+
+3.4 Evidence
+
+  BiDatasetRegistry.cjs:
+    Line 218: tables: businessTypes = ['restaurant', 'cafe', 'hotel']
+    Line 217: module: 'tables'
+    → Excluded because 'retail' is not in the list
+
+  ElectronDatabaseManager.cjs:850-867 — restaurant_tables table EXISTS
+  ElectronDatabaseManager.cjs:1375-1444, 1719-1721 — migrations add BI columns
+
+3.5 File, function, line numbers
+
+  File                               Function/Line
+  ────────────────────────────────── ─────────────────────────────────────
+  ipc-bi-export-handler.cjs:68       runExport — businessType = 'retail'
+  BiDatasetRegistry.cjs:426-431      resolveExportDatasets — type filter excludes 'tables'
+  BiDatasetRegistry.cjs:217-218      tables entry — needs 'restaurant','cafe','hotel'
+
+3.6 Issue type
+
+  Configuration / Data Flow (identical to Issue 2)
+
+
+═══════════════════════════════════════════════════════════════════════════════
+ISSUE 4: categories.csv STILL EXISTS
+═══════════════════════════════════════════════════════════════════════════════
+
+4.1 Current execution flow
+
+  Business Type (fallback: 'retail')
+    ↓
+  BiDatasetRegistry.resolveExportDatasets('retail', enabledModules)
+    ↓
+  For categories:
+    • isCore = true (CORE_DATASETS.includes('categories') → line 26)
+    • SKIPS ALL CHECKS (line 421-424: if isCore → push + continue)
+    ↓
+  categories always included in datasetKeys
+    ↓
+  SQL at BiDatasetRegistry.cjs:185-186:
+    SELECT id, name, description, color, created_at
+    FROM categories ORDER BY name ASC
+    ↓
+  Table EXISTS (ElectronDatabaseManager.cjs:724-731)
+    ↓
+  Returns zero rows (the categories table is NEVER written to — 0 DML)
+    ↓
+  mapCategoryRows([]) → []
+    ↓
+  CSV generated with headers only → categories.csv in ZIP but empty
+
+4.2 Where the execution stops
+
+  The dataset is always included due to CORE_DATASETS hardcoding.
+  The CSV is always generated (empty or with data). The issue is
+  not that it's generated, but that it SHOULD NOT be generated anymore
+  because the data model uses product_families instead.
+
+4.3 Root cause
+
+  The `categories` dataset is listed in CORE_DATASETS (BiDatasetRegistry.cjs:26):
+
+    const CORE_DATASETS = [
+      'sales', 'sale_items', 'products', 'customers', 'inventory',
+      'categories',           ← HARDCODED
+      'product_families',
+    ];
+
+  CORE_DATASETS bypass the business-type and module filters (lines 419-424):
+
+    if (isCore) {
+      result.push(key);
+      continue;  ← skips type and module checks entirely
+    }
+
+  There is no mechanism to exclude it based on:
+    • business type (it's in every BUSINESS_TYPE_DATASETS array)
+    • module (module: null — always included)
+    • data model version (categories vs product_families)
+
+4.4 Is categories genuinely required?
+
+  Investigation across the entire codebase:
+
+  ┌─────────────────────────────────────────────────────────────────────┐
+  │ The `categories` DB table is:                                       │
+  │                                                                     │
+  │ ✓ Created (ElectronDatabaseManager.cjs:724-731)                     │
+  │ ✗ NEVER inserted into (0 INSERT operations across the codebase)    │
+  │ ✗ NEVER updated (0 UPDATE operations)                              │
+  │ ✗ NEVER deleted from (0 DELETE operations)                         │
+  │ ✓ Only read by BI export (1 SELECT at BiDatasetRegistry.cjs:185)   │
+  │ ✓ Listed in DB stats (1 COUNT at ElectronDatabaseManager.cjs:2082) │
+  │                                                                     │
+  │ The `product_families` table is the active family/group model:      │
+  │                                                                     │
+  │ ✓ Created (ElectronDatabaseManager.cjs:695-700)                    │
+  │ ✓ INSERTED into (ipc-database-handlers.cjs:768 — add-family)       │
+  │ ✓ DELETED from (ipc-database-handlers.cjs:842 — delete-family)     │
+  │ ✓ Read by IPC and BI export                                         │
+  │                                                                     │
+  │ categories is an obsolete table from an older data model.           │
+  │ It has zero business logic writing to it.                           │
+  │ It contributes zero value to the BI export.                         │
+  │ Its continued existence in CORE_DATASETS is a leftover.             │
+  └─────────────────────────────────────────────────────────────────────┘
+
+  Files that reference categories (all read-only or non-DB):
+
+    • BiDatasetRegistry.cjs:26    — CORE_DATASETS hardcode
+    • BiDatasetRegistry.cjs:182-193 — registry entry with SQL
+    • BiSchemaContract.cjs:264-273 — BI column schema
+    • BiDataMapper.cjs:311-323    — mapCategoryRows mapper
+    • BiValidator.cjs:25,35       — classified as dimension, label
+    • ElectronDatabaseManager.cjs:724 — CREATE TABLE
+    • ElectronDatabaseManager.cjs:2082 — DB stats COUNT
+    • ipc-hardware-handlers.cjs:334 — backup all-tables list
+    • ipc-bi-export-handler.cjs:92 — PARALLEL_BATCHES hardcode
+
+  The UI uses `products.category` (a TEXT column on the products table)
+  — NOT the `categories` DB table.
+
+4.5 File, function, line numbers
+
+  File                               Function/Line
+  ────────────────────────────────── ─────────────────────────────────────
+  BiDatasetRegistry.cjs:26           CORE_DATASETS — includes 'categories'
+  BiDatasetRegistry.cjs:182-193      categories registry entry
+  BiDatasetRegistry.cjs:419-424      isCore bypass — always included
+  ElectronDatabaseManager.cjs:724    CREATE TABLE categories — exists but never written
+
+4.6 Issue type
+
+  Registry / Schema
+
+  The categories dataset is hardcoded as a core dataset. It has no
+  business logic writing to it and no filtering mechanism to exclude it.
+  It is an obsolete artifact from an older data model.
+
+
+═══════════════════════════════════════════════════════════════════════════════
+CROSS-CUTTING SUMMARY
+═══════════════════════════════════════════════════════════════════════════════
+
+  PRIMARY ROOT CAUSE (Issues 2 & 3):
+  ──────────────────────────────────
+  businessType always defaults to 'retail' in the BI export because:
+  1. The UI calls exportBiData() with no options (BiExportModal.jsx:44)
+  2. The app-config theme has no 'sector' or 'businessType' field
+     (AssetManager.js and ThemeCustomizer.js do not write it)
+  3. The fallback at ipc-bi-export-handler.cjs:68 resolves to 'retail'
+
+  This single issue causes:
+    • kitchen_orders.csv    → excluded  (needs restaurant/cafe/bakery)
+    • tables.csv            → excluded  (needs restaurant/cafe/hotel)
+    • kitchen_departments   → excluded  (same module/type filter)
+    • table_reservations    → excluded  (same module/type filter)
+    • stock_movements       → excluded  (retail is not in this list)
+    • suppliers             → excluded? (partially — only for some types)
+
+  SECONDARY ROOT CAUSE (Issue 1):
+  ────────────────────────────────
+  cash_drawer_events.csv is empty because:
+  1. Shift operations write to `shifts` table, NOT to `cash_drawer_events`
+  2. The hardware:openCashDrawer INSERT is missing the NOT NULL user_name column
+
+  ROOT CAUSE (Issue 4):
+  ─────────────────────
+  categories is hardcoded in CORE_DATASETS (always exported) with no
+  mechanism to exclude it. The table is obsolete (0 DML operations).
+
+X-REF: Fix Locations (do NOT modify yet — research only)
+───────────────────────────────────────────────────────────────────────────────
+
+  Fix 1: Business type flow
+    ipc-bi-export-handler.cjs:68
+      const businessType = options.businessType || theme.sector
+        || theme.businessType || 'retail';
+    → Needs sector/businessType passed from UI or stored in theme
+
+    BiExportModal.jsx:44
+      const res = await window.electronAPI.exportBiData();
+    → Needs to pass businessType or read it from POS configuration
+
+    ThemeCustomizer.js:352-414 (appConfig.theme)
+    → Needs to write sector/businessType to the generated app-config
+
+    AssetManager.js:389-398 (theme)
+    → Already spreads license.configuration, which MAY contain sector
+
+  Fix 2: cash_drawer_events
+    ipc-hardware-handlers.cjs:284-286
+    → INSERT missing user_name column — needs to be added
+
+    OR: Shift operations could also write to cash_drawer_events
+
+  Fix 3: categories in CORE_DATASETS
+    BiDatasetRegistry.cjs:26
+    → Remove 'categories' from CORE_DATASETS
+    → Or make it conditional on a flag/data model version
+
+═══════════════════════════════════════════════════════════════════════════════
+END OF INVESTIGATION REPORT
+═══════════════════════════════════════════════════════════════════════════════
