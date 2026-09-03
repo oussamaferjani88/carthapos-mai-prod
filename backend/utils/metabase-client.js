@@ -232,7 +232,6 @@ async function duplicateDashboard(dashboardId, { name, collectionId }) {
 
 /**
  * Copy a single card (saved question) into a target collection.
- * POST /api/card/:id/copy accepts an optional { name, collection_id } body.
  * Used to duplicate a nested source question (card__NN) per client so each
  * tenant gets their own independent, tenant-filtered copy instead of all
  * clients sharing one unfiltered question. Returns the new card.
@@ -240,15 +239,27 @@ async function duplicateDashboard(dashboardId, { name, collectionId }) {
 async function duplicateCard(cardId, { name, collectionId }) {
   if (!isConfigured()) throw new Error('Metabase is not configured');
   const token = await getSession();
-  const body = {};
-  if (name) body.name = name;
-  if (collectionId != null) body.collection_id = Number(collectionId);
   const data = await request(`/api/card/${cardId}/copy`, {
     method: 'POST',
-    body,
+    body: {},
     token,
   });
   if (!data || !data.id) throw new Error(`Failed to copy Metabase card ${cardId}`);
+
+  // The copy endpoint does not reliably honor `name`/`collection_id` passed
+  // in the POST body (observed on this instance: both are silently ignored —
+  // the copy lands in the source card's own collection, named "Copie de ..."
+  // by Metabase's default locale-aware copy behavior). Unlike
+  // duplicateDashboard's /copy endpoint, which does apply these fields, the
+  // card endpoint needs an explicit follow-up PUT to actually rename it and
+  // move it into the client's collection.
+  const patch = {};
+  if (name) patch.name = name;
+  if (collectionId != null) patch.collection_id = Number(collectionId);
+  if (Object.keys(patch).length > 0) {
+    const updated = await request(`/api/card/${data.id}`, { method: 'PUT', body: patch, token });
+    return updated || data;
+  }
   return data;
 }
 
@@ -356,24 +367,42 @@ function bakeTenantFilter(datasetQuery, tenantFieldId, tenantId) {
   if (q.type === 'native' && q.native && q.native.query) {
     const sql = q.native.query;
     if (sql.includes('"tenantId"') || sql.toLowerCase().includes('tenantid')) return datasetQuery;
-    // Match FROM + table reference + an OPTIONAL alias (bare word, optionally
-    // after AS). Consuming the alias is essential — `FROM public.fact_sales f
-    // JOIN ...` must become `FROM public.fact_sales f WHERE ... JOIN ...`, not
-    // `FROM public.fact_sales WHERE ... f JOIN ...` (invalid SQL).
-    const m = sql.match(/FROM\s+([a-zA-Z0-9_"\[\]\.]+)(\s+(?:AS\s+)?[a-zA-Z_][a-zA-Z0-9_]*)?/i);
-    if (!m) return datasetQuery;
-    const insertAt = m.index + m[0].length;
-    // If the query already carries its own WHERE clause (not expected in the
-    // generated templates, but don't corrupt it if present), inject INTO that
-    // clause rather than emitting a second WHERE keyword.
-    const whereMatch = sql.slice(insertAt).match(/\bWHERE\b/i);
+
+    // Previous approach located "FROM table [alias]" via regex and inserted
+    // WHERE right there. The optional alias group had no notion of SQL
+    // keywords, so on a query with no real alias it swallowed whatever came
+    // next — WHERE, GROUP, JOIN — as if it were the alias, corrupting the
+    // query ("GROUP WHERE ... BY", "WHERE ... JOIN", "WHERE WHERE ..."). It
+    // also assumed WHERE could always go right after the first table, which
+    // is invalid once any JOIN follows (WHERE must come after the full
+    // FROM/JOIN chain, not in the middle of it).
+    //
+    // Robust fix: never touch the FROM/JOIN chain at all. Just find where a
+    // WHERE clause is allowed to live:
+    //   1. an existing WHERE — merge into it with AND;
+    //   2. otherwise, right before the first clause that must follow WHERE
+    //      (GROUP BY / HAVING / ORDER BY / LIMIT / OFFSET);
+    //   3. otherwise, at the end of the statement (before a trailing ';').
+    const whereMatch = sql.match(/\bWHERE\b/i);
     if (whereMatch) {
-      const whereIdx = insertAt + whereMatch.index;
-      q.native.query =
-        `${sql.slice(0, whereIdx + whereMatch[0].length)} "tenantId" = '${escaped}' AND` +
-        `${sql.slice(whereIdx + whereMatch[0].length)}`;
+      const idx = whereMatch.index + whereMatch[0].length;
+      q.native.query = `${sql.slice(0, idx)} "tenantId" = '${escaped}' AND${sql.slice(idx)}`;
+      return q;
+    }
+
+    const clauseMatch = sql.match(/\b(GROUP\s+BY|HAVING|ORDER\s+BY|LIMIT|OFFSET)\b/i);
+    if (clauseMatch) {
+      const idx = clauseMatch.index;
+      q.native.query = `${sql.slice(0, idx)}WHERE "tenantId" = '${escaped}' ${sql.slice(idx)}`;
+      return q;
+    }
+
+    const trailing = sql.match(/;\s*$/);
+    if (trailing) {
+      const idx = sql.length - trailing[0].length;
+      q.native.query = `${sql.slice(0, idx)} WHERE "tenantId" = '${escaped}'${sql.slice(idx)}`;
     } else {
-      q.native.query = `${sql.slice(0, insertAt)} WHERE "tenantId" = '${escaped}'${sql.slice(insertAt)}`;
+      q.native.query = `${sql.trimEnd()} WHERE "tenantId" = '${escaped}'`;
     }
     return q;
   }
