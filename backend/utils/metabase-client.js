@@ -231,6 +231,28 @@ async function duplicateDashboard(dashboardId, { name, collectionId }) {
 }
 
 /**
+ * Copy a single card (saved question) into a target collection.
+ * POST /api/card/:id/copy accepts an optional { name, collection_id } body.
+ * Used to duplicate a nested source question (card__NN) per client so each
+ * tenant gets their own independent, tenant-filtered copy instead of all
+ * clients sharing one unfiltered question. Returns the new card.
+ */
+async function duplicateCard(cardId, { name, collectionId }) {
+  if (!isConfigured()) throw new Error('Metabase is not configured');
+  const token = await getSession();
+  const body = {};
+  if (name) body.name = name;
+  if (collectionId != null) body.collection_id = Number(collectionId);
+  const data = await request(`/api/card/${cardId}/copy`, {
+    method: 'POST',
+    body,
+    token,
+  });
+  if (!data || !data.id) throw new Error(`Failed to copy Metabase card ${cardId}`);
+  return data;
+}
+
+/**
  * Find a dashboard by name inside a collection (direct children only).
  * Used for idempotent provisioning: retry reuses the previously created copy.
  */
@@ -334,10 +356,25 @@ function bakeTenantFilter(datasetQuery, tenantFieldId, tenantId) {
   if (q.type === 'native' && q.native && q.native.query) {
     const sql = q.native.query;
     if (sql.includes('"tenantId"') || sql.toLowerCase().includes('tenantid')) return datasetQuery;
-    const m = sql.match(/FROM\s+([a-zA-Z0-9_"\[\]\.]+)/i);
+    // Match FROM + table reference + an OPTIONAL alias (bare word, optionally
+    // after AS). Consuming the alias is essential — `FROM public.fact_sales f
+    // JOIN ...` must become `FROM public.fact_sales f WHERE ... JOIN ...`, not
+    // `FROM public.fact_sales WHERE ... f JOIN ...` (invalid SQL).
+    const m = sql.match(/FROM\s+([a-zA-Z0-9_"\[\]\.]+)(\s+(?:AS\s+)?[a-zA-Z_][a-zA-Z0-9_]*)?/i);
     if (!m) return datasetQuery;
     const insertAt = m.index + m[0].length;
-    q.native.query = `${sql.slice(0, insertAt)} WHERE "tenantId" = '${escaped}'${sql.slice(insertAt)}`;
+    // If the query already carries its own WHERE clause (not expected in the
+    // generated templates, but don't corrupt it if present), inject INTO that
+    // clause rather than emitting a second WHERE keyword.
+    const whereMatch = sql.slice(insertAt).match(/\bWHERE\b/i);
+    if (whereMatch) {
+      const whereIdx = insertAt + whereMatch.index;
+      q.native.query =
+        `${sql.slice(0, whereIdx + whereMatch[0].length)} "tenantId" = '${escaped}' AND` +
+        `${sql.slice(whereIdx + whereMatch[0].length)}`;
+    } else {
+      q.native.query = `${sql.slice(0, insertAt)} WHERE "tenantId" = '${escaped}'${sql.slice(insertAt)}`;
+    }
     return q;
   }
 
@@ -357,6 +394,7 @@ module.exports = {
   getDashboard,
   moveDashboard,
   duplicateDashboard,
+  duplicateCard,
   findDashboardByName,
   getCard,
   updateCardDatasetQuery,

@@ -308,6 +308,13 @@ async function provisionClientDashboard({
   //    the client's own collection.
   const databaseId = firstCardDatabase(provisioned) || firstCardDatabase(master) || Number(process.env.METABASE_DATABASE_ID);
   const tableFieldMap = await metabaseClient.tenantFieldIdByTable(databaseId);
+
+  // Per-run memo: shared nested source question id → this client's duplicated
+  // card id. Two wrapper cards referencing the SAME shared card__NN must reuse
+  // one per-client copy instead of duplicating it twice. Reset per provision
+  // (per tenant), never shared across clients.
+  const nestedCardMemo = new Map();
+
   let cardCount = 0;
   for (const dashcard of (provisioned.dashcards || [])) {
     const card = dashcard.card || dashcard;
@@ -329,6 +336,33 @@ async function provisionClientDashboard({
     const sourceTable = datasetQuery.type === 'query' && datasetQuery.query
       ? datasetQuery.query['source-table']
       : null;
+
+    // Nested question reference: source-table is the STRING "card__NN" (a saved
+    // question based on another saved question), not a numeric table id. These
+    // nested questions are SHARED across every client and were never tenant
+    // filtered — duplicate the referenced question per client, bake the tenant
+    // filter into the copy (recursively if it chains further), then repoint this
+    // wrapper card at the per-client copy.
+    const nestedRef = typeof sourceTable === 'string' && sourceTable.match(/^card__(\d+)$/);
+    if (nestedRef) {
+      const perClientCardId = await ensureNestedCard({
+        originalCardId: Number(nestedRef[1]),
+        tenant,
+        databaseId,
+        tableFieldMap,
+        containerCollectionId,
+        memo: nestedCardMemo,
+        depth: 0,
+      });
+      const rebaked = JSON.parse(JSON.stringify(datasetQuery));
+      rebaked.query['source-table'] = `card__${perClientCardId}`;
+      if (JSON.stringify(rebaked) !== JSON.stringify(datasetQuery)) {
+        await metabaseClient.updateCardDatasetQuery(card.id, rebaked);
+        cardCount += 1;
+      }
+      continue;
+    }
+
     const tenantFieldId = sourceTable != null ? tableFieldMap[sourceTable] : null;
 
     const baked = metabaseClient.bakeTenantFilter(datasetQuery, tenantFieldId, tenant);
@@ -364,6 +398,89 @@ function firstCardDatabase(dashboard) {
     if (dq && dq.database != null) return dq.database;
   }
   return null;
+}
+
+/**
+ * Is `datasetQuery` a reference to another saved question via the card__NN
+ * ("question based on a saved question") pattern? Returns the referenced card
+ * id (a number) when the MBQL source-table is the STRING "card__NN", else null.
+ */
+function nestedSourceCardId(datasetQuery) {
+  if (!datasetQuery || datasetQuery.type !== 'query' || !datasetQuery.query) return null;
+  const st = datasetQuery.query['source-table'];
+  if (typeof st !== 'string') return null;
+  const m = st.match(/^card__(\d+)$/);
+  return m ? Number(m[1]) : null;
+}
+
+/**
+ * Duplicate a shared nested source question (card__NN) per tenant and bake the
+ * tenant filter into the copy, recursively following any further nesting until
+ * a real data card (native SQL or MBQL against an actual table) is reached.
+ *
+ * The memo (per provisionClientDashboard run) guarantees each shared original
+ * card is duplicated at most once per client, so multiple wrapper cards that
+ * reference the same card__NN all share the same per-client copy.
+ *
+ * @param {object} opts.originalCardId  shared nested question id to duplicate
+ * @returns {Promise<number>} the per-client (tenant-filtered) copy's card id
+ */
+async function ensureNestedCard({
+  originalCardId,
+  tenant,
+  databaseId,
+  tableFieldMap,
+  containerCollectionId,
+  memo,
+  depth,
+}) {
+  if (depth > 10) {
+    throw new Error(`Nested card nesting too deep while provisioning card ${originalCardId}`);
+  }
+  if (memo.has(originalCardId)) return memo.get(originalCardId);
+
+  const src = await metabaseClient.getCard(originalCardId);
+  const srcQuery = src.dataset_query;
+  const innerRef = nestedSourceCardId(srcQuery);
+
+  let bakedQuery;
+  if (innerRef != null) {
+    // This shared question is itself a wrapper chaining to another card — recurse
+    // to get that card's per-client copy, then repoint this one at it.
+    const innerCopyId = await ensureNestedCard({
+      originalCardId: innerRef,
+      tenant,
+      databaseId,
+      tableFieldMap,
+      containerCollectionId,
+      memo,
+      depth: depth + 1,
+    });
+    bakedQuery = JSON.parse(JSON.stringify(srcQuery));
+    bakedQuery.query['source-table'] = `card__${innerCopyId}`;
+  } else {
+    // Real data card: resolve its actual table's tenant field id (if any) and
+    // bake the filter with the (alias-aware) native SQL handling in
+    // bakeTenantFilter.
+    const innerTable = srcQuery && srcQuery.type === 'query' && srcQuery.query
+      ? srcQuery.query['source-table']
+      : null;
+    const innerTenantFieldId = innerTable != null ? tableFieldMap[innerTable] : null;
+    bakedQuery = metabaseClient.bakeTenantFilter(srcQuery, innerTenantFieldId, tenant);
+  }
+
+  // Copy the shared question into this client's collection (independent card),
+  // then persist the (recursively) tenant-baked query onto the copy.
+  const copy = await metabaseClient.duplicateCard(originalCardId, {
+    collectionId: containerCollectionId,
+    name: `${src.name || `question_${originalCardId}`} (${tenant})`,
+  });
+  if (JSON.stringify(bakedQuery) !== JSON.stringify(srcQuery)) {
+    await metabaseClient.updateCardDatasetQuery(copy.id, bakedQuery);
+  }
+
+  memo.set(originalCardId, copy.id);
+  return copy.id;
 }
 
 module.exports = {
