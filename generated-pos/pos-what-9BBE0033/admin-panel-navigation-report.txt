@@ -1,0 +1,130 @@
+ADMIN PANEL — NAVIGATION SECTIONS AND THEIR ROLES
+==================================================
+Date: 2026-07-30
+Source: admin/src/components/layout/Layout.jsx (allNavigation list)
+
+The admin sidebar contains 12 navigation sections. They can be grouped
+into 4 logical groups: Global Management, POS Generation, BI Workflow,
+and System Administration.
+
+
+GROUP 1 — GLOBAL MANAGEMENT
+---------------------------
+
+  1. Tableau de bord  (route: /)
+     Icon: LayoutDashboard — Access: Admin + User
+     Role: Overview home page. Aggregates KPIs (total clients, licenses,
+     active licenses, modules, estimated revenue, monthly growth) and
+     renders charts (client growth, license types/status, module usage)
+     plus recent licenses and clients. Data auto-refreshes every 5 minutes.
+
+  2. Clients  (route: /clients)
+     Icon: Users — Access: Admin only
+     Role: Full CRUD management of client records (name, email, phone,
+     address). Lets admins register, edit, and remove clients of the
+     POS platform.
+
+  3. Licences  (route: /licenses)
+     Icon: FileText — Access: Admin only
+     Role: Manages client POS licenses. Lists licenses by sector with
+     license keys, status badges (Active / Expiring / Expired / Lifetime),
+     view details, and a "Download license" action that generates a
+     downloadable .key license file.
+
+  4. Modules  (route: /modules)
+     Icon: Package — Access: Admin only
+     Role: CRUD management of POS software modules, grouped by category
+     (core, inventory, restaurant, service, customer, payment, specialized).
+     Defines which feature modules can be bundled into a POS build.
+
+
+GROUP 2 — POS GENERATION
+------------------------
+
+  5. Générateur POS  (route: /pos-generator)
+     Icon: Settings — Access: Admin + User
+     Role: Main orchestrator of a 5-step wizard that generates a fully
+     customized POS system:
+       Step 1 — Basic config (client, sector)
+       Step 2 — Module selection by category
+       Step 3 — Template / customization with realtime preview
+       Step 4 — License configuration (type, expiration, machine binding,
+                USB target, portable mode)
+       Step 5 — Results with generation progress bar
+     Backed by hooks (useClients, useSectors, usePOSModules,
+     usePOSConfiguration, usePOSGenerator, useUSBDrives).
+
+
+GROUP 3 — BI WORKFLOW
+---------------------
+
+  6. Demandes BI  (route: /bi-requests)
+     Icon: BarChart3 — Access: Admin only
+     Role: Tracks custom BI dashboard requests submitted by clients, with
+     search, status filter (PENDING_REVIEW / APPROVED / REJECTED /
+     REQUEST_INFO), sort, and pagination. Admin actions: update status,
+     verify or reject payment, approve/reject the request, request more
+     info — all with admin notes.
+
+  7. Portail BI  (route: /bi-upload-portal)
+     Icon: Upload — Access: Admin only
+     Role: Legacy upload portal. Admins upload BI ZIP exports coming from
+     client POS systems, follow ETL processing progress (queue status,
+     logs, dashboards), cancel/delete uploads, approve requests quickly
+     for walk-in clients, generate dashboards, and view ETL logs.
+     Includes an "Assistant d'import" button linking to the new wizard.
+
+  8. Import BI  (route: /bi-wizard)
+     Icon: WandSparkles — Access: Admin only
+     Role: NEW — ETL Management Console. A 9-step wizard replacing the
+     manual upload flow:
+       Step 1 — Drag & drop ZIP upload + client/business type
+       Step 2 — Validation report (per-dataset pass/fail)
+       Step 3 — Raw CSV data preview (tabs per dataset)
+       Step 4 — Warehouse preparation
+       Step 5 — Transformation preview (dimension/fact tables)
+       Step 6 — Manual corrections editor
+       Step 7 — Irreversible warehouse load confirmation
+       Step 8 — Available dashboards viewer
+       Step 9 — Final report with stats
+
+  9. Analyse BI  (route: /bi-analysis)
+     Icon: Search — Access: Admin only
+     Role: BI Analyst Workspace. Admin-side analyst queue for processing
+     BI requests: start analysis (status UNDER_ANALYSIS), complete it
+     (auto-generates insights, then marks COMPLETED), or reject with a
+     reason.
+
+  10. Validation BI  (route: /bi-review)
+     Icon: CheckSquare — Access: Admin only
+     Role: BI Review Queue. Admins approve or reject dashboards that are
+     READY_FOR_REVIEW, with preview, across statuses DRAFT, IN_PROGRESS,
+     READY_FOR_REVIEW, PUBLISHED, ARCHIVED.
+
+  The three sections 6 → 9 → 10 form the BI lifecycle:
+    Request tracking → Analysis → Dashboard publication review.
+
+
+GROUP 4 — SYSTEM ADMINISTRATION
+-------------------------------
+
+  11. Gestion Utilisateurs  (route: /user-management)
+     Icon: Shield — Access: Admin only
+     Role: Advanced user administration. Create, edit, and delete users
+     with roles (ADMIN, MANAGER, CASHIER, KITCHEN), custom permissions,
+     and password management.
+
+  12. Gestion USB  (route: /usb-manager)
+     Icon: Usb — Access: Admin only
+     Role: Manages USB drives and license file distribution. Detects
+     connected USB drives, writes license .key files to a drive, and
+     verifies existing licenses on USB (capacity + verification badges).
+
+
+ACCESS MODE NOTES
+-----------------
+- User mode (isUserMode): only "Tableau de bord" and "Générateur POS"
+  are visible; the rest are admin-only.
+- If running in user mode inside an iframe, the sidebar is hidden
+  completely and only the page content is rendered.
+- When in user mode, all routes except /pos-generator redirect to it.

@@ -1,0 +1,806 @@
+================================================================================
+         CarthaPOS BI Export Engine — Complete Audit Report (Phase 1)
+================================================================================
+Date: 2026-07-28
+Status: ANALYSIS ONLY — No modifications made
+Scope: Full technical audit of the BI Export Engine
+
+================================================================================
+TABLE OF CONTENTS
+================================================================================
+
+ 1. Export Architecture
+ 2. Export Flow (Step by Step)
+ 3. Business Type Awareness
+ 4. Dataset Validation — Business-Type Compatibility Matrix
+ 5. Module Awareness Audit
+ 6. Data Completeness Audit — Column-Level Analysis
+ 7. SQL Extraction Audit
+ 8. Data Mapping Audit
+ 9. Validation Audit
+10. Metadata Audit
+11. Scalability Assessment
+12. Security Audit
+13. Performance Audit
+14. Risks Identified
+15. Critical Issues
+16. Medium Issues
+17. Minor Issues
+18. Recommendations (Before Phase 2)
+
+================================================================================
+1. EXPORT ARCHITECTURE
+================================================================================
+
+FILE INVENTORY (Core BI):
+
+  File                                Lines  Role
+  ─────────────────────────────────── ────── ─────────────────────────────────
+  ipc-bi-export-handler.cjs           401    Main orchestrator, SQL, CSV, ZIP
+  BiSchemaContract.cjs                203    Canonical schema definitions
+  BiDataMapper.cjs                    245    DB row -> BI object mapping
+  BiValidator.cjs                     139    Pre-export validation
+  BiExportModal.jsx                   229    Frontend UI (4 states)
+  preload.cjs                         line   IPC bridge (exportBiData)
+  electron-modular.cjs                line   Handler registration
+  Reports.jsx                         line   Entry point (button click)
+
+ARCHITECTURE DIAGRAM:
+
+  ┌─────────────────────────────────────────────────────────────────┐
+  │  FRONTEND                                                       │
+  │                                                                 │
+  │  Reports.jsx (line 1805)                                        │
+  │       └── BiExportModal.jsx                                     │
+  │               └── window.electronAPI.exportBiData()              │
+  │                       └── ipcRenderer.invoke('bi:export')       │
+  ├─────────────────────────────────────────────────────────────────┤
+  │  PRELOAD BRIDGE                                                 │
+  │  preload.cjs:144  ->  exportBiData: createIpcHandler('bi:export')│
+  ├─────────────────────────────────────────────────────────────────┤
+  │  MAIN PROCESS                                                   │
+  │                                                                 │
+  │  electron-modular.cjs:159                                       │
+  │       └── registerBiExportHandlers(databaseManager)             │
+  │                                                                 │
+  │  ipc-bi-export-handler.cjs                                      │
+  │       └── IPCBiExportHandler.runExport(options)                 │
+  │           ├── _loadAppConfig()        <- reads app-config.json  │
+  │           ├── _getClientId()          <- reads license/clientId  │
+  │           ├── enabledModules filter   <- module gating          │
+  │           │                                                   │
+  │           ├── --- DATA COLLECTION (8-9 collectors) --------    │
+  │           │    _collectSales(db)        -> mapSalesRows         │
+  │           │    _collectProducts(db)     -> mapProductRows       │
+  │           │    _collectCustomers(db)    -> mapCustomerRows      │
+  │           │    _collectInventory(db)    -> mapInventoryRows     │
+  │           │    _collectTables(db)       -> mapTableRows         │
+  │           │    _collectKitchenOrders(db)-> mapKitchenOrderRows  │
+  │           │    _collectSuppliers(db)    -> mapSupplierRows      │
+  │           │    _collectServices(db)     -> mapServiceRows       │
+  │           │    _collectAppointments(db) -> mapAppointmentRows   │
+  │           │                                                   │
+  │           ├── BiValidator.validateAll(datasets)                 │
+  │           │                                                   │
+  │           ├── _biRowsToCsv() x N     <- CSV generation         │
+  │           │    └── BiSchemaContract.getColumnNames()            │
+  │           │                                                   │
+  │           ├── metadata.json           <- JSON metadata          │
+  │           │                                                   │
+  │           └── _createZip(files)       <- pure Node.js ZIP      │
+  │                                                                 │
+  ├─────────────────────────────────────────────────────────────────┤
+  │  DATA LAYER                                                     │
+  │                                                                 │
+  │  BiSchemaContract.cjs    -> 9 dataset schemas (SCHEMAS object)  │
+  │  BiDataMapper.cjs        -> 9 specific mappers (mapXxxRow)      │
+  │  BiValidator.cjs         -> validateDataset / validateAll       │
+  │  ElectronDatabaseManager -> SQLite (pos-data.db)                │
+  └─────────────────────────────────────────────────────────────────┘
+
+
+================================================================================
+2. EXPORT FLOW (Step by Step)
+================================================================================
+
+  1. User clicks "Export BI" button in Reports.jsx (line 1805)
+  2. setShowBiExport(true) -> BiExportModal opens
+  3. User clicks "Generer l'export" in modal
+  4. handleExport() -> window.electronAPI.exportBiData()
+  5. preload.cjs -> ipcRenderer.invoke('bi:export')
+  6. IPCBiExportHandler.runExport(options) executes:
+     a. _loadAppConfig() -> reads app-config.json from disk
+     b. Extracts modules[], theme.sector or theme.businessType
+     c. Filters enabledModules (isEnabled !== false)
+     d. dbManager.getDatabase() -> SQLite handle
+     e. _collectSales(db) -> SQL JOIN sales LEFT JOIN customers -> mapSalesRows()
+     f. _collectProducts(db) -> SQL SELECT products -> mapProductRows()
+     g. _collectCustomers(db) -> SQL SELECT customers -> mapCustomerRows()
+     h. _collectInventory(db) -> SQL SELECT products + subquery times_sold -> mapInventoryRows()
+     i. IF module includes 'tables' -> _collectTables(db) -> mapTableRows()
+     j. IF module includes 'kitchen' -> _collectKitchenOrders(db) -> mapKitchenOrderRows()
+     k. IF module includes 'suppliers' -> _collectSuppliers(db) -> mapSupplierRows()
+     l. IF module includes 'services' OR 'appointments' -> _collectServices(db) + _collectAppointments(db)
+  7. BiValidator.validateAll(datasets) -> checks all rows against schema
+  8. For each dataset -> _biRowsToCsv(key, rows) using BiSchemaContract.getColumnNames()
+  9. metadata.json appended to files array
+  10. _createZip(files, outputPath) -> writes to ~/Documents/CarthaPOS/BI_Exports/bi_export_{timestamp}.zip
+  11. Returns { success, filePath, fileName, fileSize, metadata, stats }
+  12. BiExportModal shows success card with file info
+
+
+================================================================================
+3. BUSINESS TYPE AWARENESS — CRITICAL FINDING
+================================================================================
+
+HOW THE SYSTEM CURRENTLY DECIDES WHAT TO EXPORT:
+
+  // ipc-bi-export-handler.cjs:51
+  const businessType = theme.sector || theme.businessType || 'retail';
+
+PROBLEM: businessType is EXTRACTED but NEVER USED.
+
+The variable businessType is computed at line 51 but only stored into metadata at
+line 102. It has ZERO influence on:
+  - Which datasets are collected
+  - Which SQL queries are executed
+  - Which CSVs are generated
+  - Any conditional logic anywhere
+
+MODULE GATING uses only module name matching (line 69-78):
+
+  if (enabledModules.some(m => m.includes('tables')))
+    datasets.tables = await this._collectTables(db);
+  if (enabledModules.some(m => m.includes('kitchen')))
+    datasets.kitchen_orders = await this._collectKitchenOrders(db);
+  if (enabledModules.some(m => m.includes('suppliers')))
+    datasets.suppliers = await this._collectSuppliers(db);
+  if (enabledModules.some(m => m.includes('services') || m.includes('appointments'))) {
+    datasets.services = await this._collectServices(db);
+    datasets.appointments = await this._collectAppointments(db);
+  }
+
+VERDICT:
+  - Module-level gating EXISTS but is INCOMPLETE — uses .includes() substring matching
+  - Business-type awareness DOES NOT EXIST — businessType is metadata-only
+  - Core datasets (sales, products, customers, inventory) ALWAYS export
+  - No concept of "this dataset is wrong for this business type" exists anywhere
+
+
+================================================================================
+4. DATASET VALIDATION — Business-Type Compatibility Matrix
+================================================================================
+
+COMPLETE DATABASE TABLES vs EXPORTED DATASSETS:
+
+  DB Table            Exported As          Always?  Retail  Restaurant  Pharmacy  Bakery  Salon  Hotel  Clinic
+  ─────────────────── ──────────────────── ──────── ─────── ─────────── ────────  ──────  ─────  ─────  ──────
+  sales               sales.csv            YES      YES     YES         YES       YES     YES    YES    YES
+  products            products.csv         YES      YES     YES         YES       YES     YES    YES    YES
+  customers           customers.csv        YES      YES     YES         YES       YES     YES    YES    YES
+  products+sales      inventory.csv        YES      YES     YES         YES       YES     YES    YES    YES
+  restaurant_tables   tables.csv           module   NO      YES         NO        NO      NO     NO     NO
+  kitchen_orders      kitchen_orders.csv   module   NO      YES         NO        YES     NO     NO     NO
+  suppliers           suppliers.csv        module   *       YES         YES       YES     *      *      *
+  services            services.csv         module   NO      *           NO        NO      YES    YES    YES
+  appointments        appointments.csv     module   NO      NO          *         NO      YES    NO     YES
+
+  * = depends on business sub-type
+
+
+MISSING DATASETS (tables NOT exported that SHOULD be):
+
+  DB Table            Business Value       Exported?
+  ─────────────────── ──────────────────── ─────────
+  sale_items          HIGH — Line items    NO *** CRITICAL ***
+  stock_movements     HIGH — Inv history   NO
+  table_reservations  MED  — Reservations  NO
+  shifts              MED  — Shift perf    NO
+  cash_drawer_events  MED  — Cash mgmt     NO
+  z_reports           MED  — Day summaries NO
+  kitchen_departments LOW  — Reference     NO
+  vat_rates           LOW  — Tax config    NO
+  categories          LOW  — Hierarchy     NO
+  product_families    LOW  — Hierarchy     NO
+
+
+================================================================================
+5. MODULE AWARENESS AUDIT
+================================================================================
+
+CURRENT MODULE GATING LOGIC (ipc-bi-export-handler.cjs:49-78):
+
+  const enabledModules = modules
+    .filter(m => m.isEnabled !== false)
+    .map(m => m.name || m);
+
+  Gating:
+    m.includes('tables')         -> tables
+    m.includes('kitchen')        -> kitchen_orders
+    m.includes('suppliers')      -> suppliers
+    m.includes('services') || m.includes('appointments') -> services + appointments
+
+
+ISSUES FOUND:
+
+  #   ID   Severity  Description
+  ─── ──── ───────── ─────────────────────────────────────────────────────────
+  M1  ---  HIGH      Substring matching is fragile. m.includes('kitchen') would
+                     match 'kitchen-printer' AND any future module containing
+                     'kitchen'. Same for 'tables' matching 'table-management'.
+  M2  ---  MEDIUM    Missing module: loyalty-program. If loyalty is disabled,
+                     customers.csv could/should exclude loyalty fields.
+  M3  ---  LOW       Missing module: pos-core. Always enabled, never checked.
+  M4  ---  LOW       Missing module: reports. If reports module is disabled,
+                     the BI export should be blocked entirely.
+  M5  ---  MEDIUM    services + appointments gated together. A salon has services
+                     WITHOUT appointments. A clinic has appointments WITHOUT
+                     services. Both are always exported together.
+  M6  ---  LOW       No gift-cards module exists.
+
+
+app-config.json Module Names vs Export Matching:
+
+  Config Module Name    Includes Check    Matches?
+  ──────────────────── ───────────────── ─────────
+  pos-core              (not checked)     N/A
+  inventory             (not checked)     N/A (always exported)
+  reports               (not checked)     N/A
+  kitchen-printer       'kitchen'         YES (substring)
+  table-management      'tables'          YES (substring)
+  loyalty-program       (not checked)     N/A
+  suppliers             'suppliers'       YES (exact)
+
+
+================================================================================
+6. DATA COMPLETENESS AUDIT — Column-Level Analysis
+================================================================================
+
+6.1 sales.csv
+─────────────
+  Schema: sale_id, total, tax, discount, payment_method, customer_id, table_id,
+          customer_name, customer_email, created_at
+
+  SQL: s.id, s.total, s.tax, s.discount, s.payment_method, s.customer_id,
+       s.table_id, s.created_at, c.name, c.email
+
+  DB Column (sales)     In Schema?  In SQL?  In Mapper?  Issue
+  ───────────────────── ─────────── ──────── ──────────  ──────────────────────
+  id                    YES (sale_id) YES   YES         —
+  total                 YES          YES    YES         —
+  tax                   YES          YES    YES         —
+  discount              YES          YES    YES         —
+  payment_method        YES          YES    YES         —
+  customer_id           YES          YES    YES         —
+  table_id              YES          YES    YES         —
+  created_at            YES          YES    YES         —
+  user_id               NO           NO     NO          CRITICAL: No cashier attribution
+  shift_id              NO           NO     NO          Cannot link sales to shifts
+  status                NO           NO     NO          Cannot distinguish refunds/cancellations
+  receipt_number        NO           NO     NO          Low priority
+  subtotal              NO           NO     NO          Not exported
+  notes                 NO           NO     NO          Low priority
+  kitchen_status        NO           NO     NO          Low priority
+
+
+6.2 products.csv
+────────────────
+  Schema: product_id, name, price, category, family, barcode, stock, description,
+          image, created_at, updated_at
+
+  DB Column (products)  In Schema?  In SQL?  In Mapper?  Issue
+  ───────────────────── ─────────── ──────── ──────────  ──────────────────────
+  id                    YES (product_id) YES YES         —
+  name                  YES          YES    YES         —
+  price                 YES          YES    YES         —
+  category              YES          YES    YES         —
+  family                YES          YES    YES         —
+  barcode               YES          YES    YES         —
+  stock                 YES          YES    YES         —
+  description           YES          YES    YES         —
+  image                 YES          YES    YES         —
+  created_at            YES          YES    YES         —
+  updated_at            YES          YES    YES         —
+  cost_price            NO           NO     NO          HIGH: Critical for margin analysis
+  unit                  NO           NO     NO          MEDIUM
+  supplier              NO           NO     NO          MEDIUM
+  min_stock             NO           NO     NO          MEDIUM — reorder analysis
+  vat_rate_id           NO           NO     NO          LOW
+  price_type            NO           NO     NO          LOW
+  requires_kitchen      NO           NO     NO          LOW
+  preparation_department NO          NO     NO          LOW
+  preparation_time      NO           NO     NO          LOW
+  image_settings        NO           NO     NO          N/A (UI-only)
+
+
+6.3 customers.csv
+─────────────────
+  Schema: customer_id, name, email, phone, address, created_at
+
+  DB Column (customers) In Schema?  In SQL?  In Mapper?  Issue
+  ───────────────────── ─────────── ──────── ──────────  ──────────────────────
+  id                    YES (customer_id) YES YES        —
+  name                  YES          YES    YES         —
+  email                 YES          YES    YES         —
+  phone                 YES          YES    YES         —
+  address               YES          YES    YES         —
+  created_at            YES          YES    YES         —
+  loyalty_points        NO           NO     NO          HIGH: Loyalty businesses
+  total_spent           NO           NO     NO          HIGH: Customer value analysis
+  visit_count           NO           NO     NO          HIGH: Customer frequency
+  last_visit_date       NO           NO     NO          HIGH: RFM recency
+  notes                 NO           NO     NO          LOW
+  tags                  NO           NO     NO          MEDIUM: Segmentation
+  is_active             NO           NO     NO          MEDIUM: Active vs churned
+  updated_at            NO           NO     NO          LOW
+
+
+6.4 inventory.csv
+─────────────────
+  Schema: product_id, product_name, stock, category, family, price, times_sold
+
+  Issues:
+  - SQL uses correlated subquery for times_sold (performance concern)
+  - Missing cost_price (cannot compute inventory value)
+  - Missing min_stock (cannot identify reorder needs)
+  - Missing supplier (cannot link to suppliers)
+  - No stock_movements data (no historical movements)
+  - times_sold has no date range filtering
+
+
+6.5 kitchen_orders.csv
+──────────────────────
+  Schema (20 columns): order_id, table_number, items, notes, priority, status,
+          sale_id, total, server_name, customer_name, department,
+          estimated_minutes, started_at, ready_at, served_at, completed_at,
+          cancel_reason, cancelled_by, created_at, updated_at
+
+  SQL SELECT (line 257): id, table_number, items, notes, priority, status,
+                         created_at, updated_at
+
+  In Schema?  In SQL?  Issue
+  ─────────── ──────── ──────────────────────────────────────────────
+  order_id    YES      —
+  table_number YES     —
+  items       YES      —
+  notes       YES      —
+  priority    YES      —
+  status      YES      —
+  created_at  YES      —
+  updated_at  YES      —
+  sale_id     NO       CRITICAL: Cannot link kitchen orders to sales
+  total       NO       CRITICAL: Cannot compute kitchen revenue
+  server_name NO       Cannot identify who placed the order
+  customer_name NO     Cannot identify customer
+  department  NO       Cannot analyze by kitchen station
+  estimated_minutes NO Cannot analyze SLA compliance
+  started_at  NO       Cannot compute preparation duration
+  ready_at    NO       Cannot compute wait times
+  served_at   NO       Cannot compute service times
+  completed_at NO      Cannot compute total cycle time
+  cancel_reason NO     Cannot analyze cancellations
+  cancelled_by NO      Cannot audit cancellations
+
+  RESULT: Only 8 of 20 schema columns are actually selected in SQL.
+          The mapper maps all 20 but the 12 missing fields will all be null.
+
+
+6.6 tables.csv
+──────────────
+  Schema: table_id, table_number, capacity, status, created_at
+
+  In Schema?  In SQL?  Issue
+  ─────────── ──────── ──────────────────────────────────────────────
+  table_id    YES      —
+  table_number YES     DB stores as TEXT, schema says integer (TYPE MISMATCH)
+  capacity    YES      —
+  status      YES      —
+  created_at  YES      —
+  zone        NO       MEDIUM: Cannot analyze by restaurant zone
+  area_name   NO       MEDIUM
+  waiter      NO       MEDIUM: Cannot analyze server load
+  current_order_id NO  LOW
+  notes       NO       LOW
+  merged_tables NO     LOW
+
+
+6.7 suppliers.csv
+─────────────────
+  All 7 columns matched. No issues.
+  Missing from export: notes, is_active (DB has them, schema/mapper don't)
+
+
+6.8 services.csv
+────────────────
+  All columns matched. No issues.
+
+
+6.9 appointments.csv
+────────────────────
+  All columns matched. No issues.
+
+
+================================================================================
+7. SQL EXTRACTION AUDIT
+================================================================================
+
+  #   Severity  File:Line  Description
+  ─── ───────── ────────── ────────────────────────────────────────────────────
+  S1  CRITICAL  handler:257 kitchen_orders SQL misses 12 columns. Only selects
+                         8 of 20 columns. sale_id, total, server_name,
+                         customer_name, department, all timestamps except
+                         created_at/updated_at — all missing.
+  S2  OK        ---        No N+1 issues detected. All queries are single-shot
+                         db.all() calls.
+  S3  MEDIUM    handler:240 inventory times_sold subquery is a correlated
+                         subquery running once per product. For 1000+ products
+                         this could be slow.
+  S4  MEDIUM    handler:208 sales query has ORDER BY created_at DESC but no
+                         WHERE clause. Exports ALL historical data. No way to
+                         export "last 30 days".
+  S5  LOW       ---        No tenant/business isolation. Single-tenant design.
+                         Not an issue now but blocks multi-tenant.
+  S6  LOW       ---        ORDER BY inconsistency. Sales DESC, products ASC,
+                         customers ASC, inventory has no ORDER BY.
+  S7  OK        handler:211 LEFT JOIN on customers for sales is correct — sales
+                         without customers still appear.
+
+
+================================================================================
+8. DATA MAPPING AUDIT
+================================================================================
+
+ARCHITECTURE: Two mapper patterns exist.
+
+  Pattern A — Generic mapRow() (BiDataMapper.cjs:18-27):
+    function mapRow(datasetKey, rawRow) {
+      row[col.name] = rawRow[col.name] ?? rawRow[col.name.replace(/^[a-z]+_/, '')] ?? null;
+    }
+    This generic mapper strips prefix (e.g., sale_id -> tries rawRow['id']).
+    Works as fallback but is NEVER ACTUALLY USED by the export handler.
+
+  Pattern B — Specific mappers (e.g., mapSaleRow):
+    Each dataset has its own mapper. Manually written and correct.
+
+
+MAPPER AUDIT BY DATASET:
+
+  Dataset          Mapper                Fields  Fallback        Issues
+  ──────────────── ───────────────────── ─────── ─────────────── ──────────
+  sales            mapSaleRow            10/10   row.x ?? null   OK
+  products         mapProductRow         11/11   row.x ?? null   OK
+  customers        mapCustomerRow        6/6     row.x ?? null   Only 6 fields
+  inventory        mapInventoryRow       7/7     dual fallback   OK
+  tables           mapTableRow           5/5     row.x ?? null   OK
+  kitchen_orders   mapKitchenOrderRow    20/20   row.x ?? null   Maps 20 but SQL gives 8
+  suppliers        mapSupplierRow        7/7     row.x ?? null   OK
+  services         mapServiceRow         6/6     row.x ?? null   OK
+  appointments     mapAppointmentRow     8/8     row.x ?? null   OK
+
+
+MAPPER ISSUES:
+
+  #   ID   Severity  Description
+  ─── ──── ───────── ─────────────────────────────────────────────────────────
+  MP1 ---  CRITICAL  Kitchen mapper maps 20 fields, SQL provides 8.
+                     12 fields always null in export despite being in schema.
+  MP2 ---  LOW       Generic mapRow()/mapRows() in BiDataMapper never called.
+                     Dead code — could be removed or used.
+  MP3 ---  LOW       Inconsistent null handling. Some mappers use ?? '' (products
+                     name, suppliers name) while others use ?? null (customers
+                     name). Not consistent.
+
+
+================================================================================
+9. VALIDATION AUDIT
+================================================================================
+
+BiValidator LOGIC:
+
+  validateDataset(key, rows, label):
+    1. Check schema exists -> error if unknown
+    2. Check if rows empty -> warning (not error)
+    3. Check first 100 rows:
+       a. All expected columns present -> error per missing column
+       b. Required fields non-null -> warning per null required value
+       c. Type hints (integer, real) -> warning per mismatch
+    4. Check extra columns in first row -> warning
+
+
+VALIDATION ISSUES:
+
+  #   ID   Severity  Description
+  ─── ──── ───────── ─────────────────────────────────────────────────────────
+  V1  ---  MEDIUM    Empty dataset = warning, not error. Exporting an empty
+                     sales.csv is allowed. A POS with zero sales generates a
+                     valid export with 0-row CSVs for everything.
+  V2  ---  LOW       Only checks first 100 rows. If row 101 has a missing
+                     required field, it's silently missed.
+  V3  ---  LOW       Type checking is basic. Number.isInteger(Number(val)) for
+                     integer type — but Number('') is 0 which passes.
+                     Empty string in integer column passes validation.
+  V4  ---  MEDIUM    No cross-dataset validation. No check that
+                     sale_items.product_id references an existing products.id.
+  V5  ---  LOW       No date format validation. datetime type columns are not
+                     validated. Any string passes.
+  V6  ---  OK        Errors block export, warnings don't. Good design.
+  V7  ---  LOW       Empty required string. name is required for products but
+                     mapper defaults to '' (empty string). '' is not null so
+                     it passes validation. Technically valid but wrong.
+
+
+================================================================================
+10. METADATA AUDIT
+================================================================================
+
+CURRENT METADATA (handler:100-110):
+
+  {
+    "client_id": "unknown-client | from config",
+    "business_type": "retail | from theme.sector",
+    "business_name": "from theme.businessName",
+    "enabled_modules": ["pos-core", "inventory", ...],
+    "pos_version": "1.0.0",
+    "bi_schema_version": "1.0.0",
+    "export_timestamp": "ISO 8601",
+    "total_files": 9,
+    "file_list": ["sales.csv", "products.csv", ...]
+  }
+
+
+METADATA ISSUES:
+
+  #   ID   Severity  Description
+  ─── ──── ───────── ─────────────────────────────────────────────────────────
+  MD1 ---  HIGH      Missing: currency. Export contains monetary values but
+                     metadata doesn't declare the currency. A BI system cannot
+                     interpret total: 15.50 without knowing EUR vs TND vs USD.
+  MD2 ---  HIGH      Missing: timezone. Dates in CSVs are SQLite
+                     CURRENT_TIMESTAMP format (UTC). Metadata doesn't declare
+                     timezone.
+  MD3 ---  MEDIUM    Missing: language/locale. Column headers and text values
+                     are in French. BI system needs to know.
+  MD4 ---  MEDIUM    Missing: export version. No schema evolution version for
+                     the export format itself (distinct from bi_schema_version).
+  MD5 ---  LOW       Row counts not in metadata.json. stats is returned to
+                     frontend but NOT embedded in metadata.json. The ZIP
+                     consumer only gets metadata.json.
+  MD6 ---  MEDIUM    Missing: tax rate. Config has taxRate: 20.0 but metadata
+                     doesn't include it.
+  MD7 ---  LOW       pos_version hardcoded to '1.0.0'. Should read from
+                     package.json or a version constant.
+
+
+================================================================================
+11. SCALABILITY ASSESSMENT
+================================================================================
+
+CURRENT ARCHITECTURE STRENGTHS:
+
+  1. Clean separation — Schema, Mapper, Validator, Handler are separate files
+  2. Schema contract — BiSchemaContract is the single source of truth
+  3. CSV generation is schema-driven — Uses getColumnNames() for header + row
+  4. Module gating exists — Even if incomplete, the pattern is there
+
+
+CURRENT ARCHITECTURE WEAKNESSES:
+
+  #   ID   Severity  Description
+  ─── ──── ───────── ─────────────────────────────────────────────────────────
+  SC1 ---  MEDIUM    Adding a new dataset requires changes in 4+ files:
+                     BiSchemaContract (schema), BiDataMapper (mapper),
+                     BiValidator (labels), handler (collector + SQL + gating).
+                     Not DRY.
+  SC2 ---  HIGH      No dataset registry pattern. No central registry that says
+                     "this dataset exists, belongs to this module, requires this
+                     SQL, uses this mapper." Each dataset is ad-hoc wired.
+  SC3 ---  HIGH      Module gating uses substring matching. m.includes('kitchen')
+                     is fragile. Should use exact module name matching or a
+                     datasets config.
+  SC4 ---  MEDIUM    No dynamic dataset discovery. If someone adds a schema to
+                     BiSchemaContract, they also need to write a collector, SQL,
+                     mapper, and gating logic. Nothing auto-discovers.
+  SC5 ---  OK        CSV generation tied to schema contract. Adding a column to
+                     schema auto-includes it in CSV output.
+  SC6 ---  LOW       ZIP is hand-rolled (300+ lines of buffer manipulation).
+                     Works but fragile.
+  SC7 ---  MEDIUM    All queries are sequential, not parallelized. Could be
+                     3-5x faster with Promise.all().
+
+
+================================================================================
+12. SECURITY AUDIT
+================================================================================
+
+  #   Check                       Status  Description
+  ─── ─────────────────────────── ─────── ─────────────────────────────────────
+  SEC1 Password hashes exported?   NO     users table is never queried. Good.
+  SEC2 PINs exported?              NO     Not queried. Good.
+  SEC3 Security settings exported? NO     Not queried by BI export. Good.
+  SEC4 Settings table exported?    NO     Not queried. Good.
+  SEC5 Audit logs exported?        NO     Not queried. Good — contains IPs.
+  SEC6 User sessions exported?     NO     Not queried. Good.
+  SEC7 Image file paths exported?  YES*   products.image is exported — contains
+                                          filesystem paths. Low risk (on-device).
+  SEC8 Customer PII exported?      YES*   name, email, phone, address exported.
+                                          Expected for BI but should be documented.
+  SEC9 Client ID from license      YES*   Reads config.clientId or
+                                          config.license.clientId. Expected.
+  SEC10 Export location            GOOD   Exports to ~/Documents/CarthaPOS/BI_Exports/
+  SEC11 No external transfers      GOOD   All data stays on device.
+                                          BiExportModal explicitly states this.
+
+
+================================================================================
+13. PERFORMANCE AUDIT
+================================================================================
+
+  #   Severity  Description
+  ─── ───────── ──────────────────────────────────────────────────────────────
+  P1  MEDIUM    Sequential data collection. 8-9 DB queries run sequentially.
+                Could run 4-6 in parallel with Promise.all().
+  P2  MEDIUM    Inventory subquery per product. times_sold uses correlated
+                subquery. For 1000 products, this executes 1000 subqueries.
+  P3  LOW       No pagination/streaming. All rows loaded into memory. Fine for
+                typical POS volumes (10K-100K rows). Issue at 1M+.
+  P4  LOW       ZIP in-memory construction. All file buffers concatenated.
+                Fine for small exports (<50MB).
+  P5  LOW       No query result caching. Repeated exports re-query everything.
+  P6  LOW       Row count calculation uses f.data.split('\n').length - 1.
+                Splitting entire CSV string just to count rows.
+
+
+================================================================================
+14. RISKS IDENTIFIED
+================================================================================
+
+  Risk                               Severity  Description
+  ────────────────────────────────── ───────── ─────────────────────────────
+  Incomplete kitchen_orders SQL      CRITICAL  12 of 20 schema columns null
+  Missing sale_items                 CRITICAL  No product-level analytics
+  No business-type filtering         HIGH      All types export same datasets
+  No currency in metadata            HIGH      BI cannot interpret money values
+  Module gating substring matching   HIGH      Fragile module name matching
+  Missing cost_price                 HIGH      Cannot compute margins
+  Missing customer loyalty/spending  HIGH      RFM analysis impossible
+  Missing stock_movements            MEDIUM    No inventory history
+  Missing shifts/cash_drawer data    MEDIUM    No employee performance data
+  Services + appointments coupled    MEDIUM    Cannot separate them
+  Metadata missing timezone          MEDIUM    Dates are UTC but no tz declared
+
+
+================================================================================
+15. CRITICAL ISSUES
+================================================================================
+
+  #   ID        Issue                                             Impact
+  ─── ───────── ──────────────────────────────────────────────────────────────
+  1   S1/MP1    kitchen_orders SQL only selects 8 of 20 columns   Kitchen analytics
+                — 12 fields always null                          dashboard will have
+                                                                  massive gaps
+  2   ---       sale_items table not exported at all              NO product-level
+                                                                  sales analysis
+                                                                  possible
+  3   ---       businessType extracted but never used in logic    All business types
+                                                                  export identical
+                                                                  datasets. A pharmacy
+                                                                  gets kitchen_orders.csv
+
+
+================================================================================
+16. MEDIUM ISSUES
+================================================================================
+
+  #   ID        Issue                                             Impact
+  ─── ───────── ──────────────────────────────────────────────────────────────
+  4   ---       cost_price not exported from products             Cannot compute
+                                                                  margins/profitability
+  5   ---       Customer loyalty_points, total_spent,             RFM analysis and
+                visit_count, last_visit_date not exported         segmentation impossible
+  6   ---       stock_movements not exported                      No inventory history
+  7   ---       Module gating uses .includes() substring matching Fragile matching
+  8   ---       Metadata missing currency and timezone            Cannot interpret
+                                                                  money/dates
+  9   MD5       Row counts not in metadata.json                   ZIP consumer has no
+                                                                  way to know sizes
+  10  ---       services + appointments always exported together  Cannot separate
+  11  ---       reports module not checked                        BI export available
+                                                                  even if reports disabled
+  12  SC7       Queries are sequential, not parallel              3-5x slower than
+                                                                  necessary
+  13  ---       shifts and cash_drawer_events not exported        No shift-level or
+                                                                  cash management data
+  14  ---       table_reservations not exported                   Restaurant
+                                                                  reservation analytics
+                                                                  impossible
+  15  ---       z_reports not exported                            End-of-day summaries
+                                                                  lost
+
+
+================================================================================
+17. MINOR ISSUES
+================================================================================
+
+  #   ID        Issue                                             Impact
+  ─── ───────── ──────────────────────────────────────────────────────────────
+  16  SC6       ZIP hand-rolled (300+ lines buffer manipulation)  Fragile, hard to
+                                                                  maintain
+  17  V2        Validator only checks first 100 rows              Row 101+ can have
+                                                                  missing fields
+  18  V3        Type validation passes empty strings for integers Number('') === 0
+                                                                  passes integer check
+  19  V7        Required string fields accept empty string ''     Semantically invalid
+  20  MD7       pos_version hardcoded to '1.0.0'                  Stale after release
+  21  MP3       Inconsistent null vs empty string defaults        Mixed conventions
+  22  ---       table_number is TEXT in DB but integer in schema  Type mismatch
+  23  ---       BiExportModal progress is fake (10->30->100)      No real progress
+  24  ---       settings:export is separate from BI export        Could confuse
+  25  ---       Generic mapRow()/mapRows() never called            Dead code
+
+
+================================================================================
+18. RECOMMENDATIONS (Before Phase 2 Implementation)
+================================================================================
+
+MUST-HAVE (Critical for BI to be functional):
+
+  1. Add sale_items.csv — Without line items, the BI layer cannot do
+     product-level analysis. Schema, SQL, mapper, and validator all needed.
+
+  2. Fix kitchen_orders SQL — Select ALL 20 columns, not just 8. The mapper
+     and schema are already complete.
+
+  3. Add currency and timezone to metadata — Read from app-config.json
+     theme section.
+
+  4. Add cost_price to products.csv — Essential for margin analysis.
+
+  5. Add customer spending data — total_spent, visit_count, last_visit_date,
+     loyalty_points to customers.csv.
+
+  6. Create a dataset registry pattern — Instead of ad-hoc wiring, each
+     dataset should declare: { key, sql, mapper, module, businessTypes }.
+     This makes adding new datasets a single-file change.
+
+  7. Replace substring module gating with exact name matching — Use
+     enabledModules.includes('table-management') instead of
+     m.includes('tables').
+
+
+SHOULD-HAVE (Medium priority):
+
+  8. Add stock_movements.csv — Export inventory history.
+
+  9. Add shifts.csv and/or cash_drawer_events.csv — Employee performance.
+
+  10. Add table_reservations.csv — Restaurant reservation analytics.
+
+  11. Add z_reports.csv — Daily summary data.
+
+  12. Add business-type filtering — Define which datasets each business
+      type should export. Don't export empty CSVs for irrelevant modules.
+
+  13. Parallelize queries — Use Promise.all() for independent queries.
+
+  14. Add real progress tracking — Send progress events from main process
+      to renderer via event.sender.send().
+
+
+NICE-TO-HAVE (Low priority):
+
+  15. Add date range filter — Allow exporting "last 30 days".
+
+  16. Replace hand-rolled ZIP with a library (archiver or jszip).
+
+  17. Add categories.csv and product_families.csv — Reference data.
+
+  18. Add export format options — CSV, JSON, Parquet.
+
+  19. Clean up dead code — Remove generic mapRow()/mapRows().
+
+  20. Fix table_number type — Schema says integer, DB column is TEXT.
+
+
+================================================================================
+                          END OF AUDIT REPORT
+================================================================================

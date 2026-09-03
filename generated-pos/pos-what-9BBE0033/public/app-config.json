@@ -1,0 +1,285 @@
+{
+  "license": {
+    "id": "cmtlg5w45003b4s64xgbstag2",
+    "key": "254A1FCB-9BBE0033-217FF3B3-9803B87C",
+    "clientId": "cmtlfmmsz002x4s64iovwzqvl",
+    "client": "test pfe"
+  },
+  "modules": [
+    {
+      "name": "pos-core",
+      "displayName": "pos-core",
+      "isEnabled": true,
+      "description": ""
+    },
+    {
+      "name": "user-management",
+      "displayName": "user-management",
+      "isEnabled": true,
+      "description": ""
+    },
+    {
+      "name": "reports",
+      "displayName": "reports",
+      "isEnabled": true,
+      "description": ""
+    },
+    {
+      "name": "tables",
+      "displayName": "tables",
+      "isEnabled": true,
+      "description": ""
+    },
+    {
+      "name": "kitchen",
+      "displayName": "kitchen",
+      "isEnabled": true,
+      "description": ""
+    },
+    {
+      "name": "customer-management",
+      "displayName": "customer-management",
+      "isEnabled": true,
+      "description": ""
+    },
+    {
+      "name": "inventory",
+      "displayName": "inventory",
+      "isEnabled": true,
+      "description": ""
+    },
+    {
+      "name": "customers",
+      "displayName": "customers",
+      "isEnabled": true,
+      "description": ""
+    },
+    {
+      "name": "reporting",
+      "displayName": "reporting",
+      "isEnabled": true,
+      "description": ""
+    }
+  ],
+  "theme": {
+    "businessName": "what",
+    "sector": "restaurant",
+    "appTitle": "what",
+    "footerText": "Powered by what",
+    "welcomeText": "Bienvenue chez what",
+    "logo": null,
+    "favicon": null,
+    "colors": {
+      "primary": "#3B82F6",
+      "secondary": "#1E40AF",
+      "accent": "#F59E0B",
+      "background": "#FFFFFF",
+      "text": "#1F2937",
+      "textMuted": "#6B7280",
+      "border": "#e5e7eb",
+      "cardBackground": "#FFFFFF"
+    },
+    "currency": "TND",
+    "currencyPosition": "after",
+    "taxRate": 20,
+    "language": "fr",
+    "timezone": "Europe/Paris",
+    "dateFormat": "DD/MM/YYYY",
+    "timeFormat": "24h",
+    "primaryColor": "#3B82F6",
+    "secondaryColor": "#1E40AF",
+    "accentColor": "#F59E0B",
+    "backgroundColor": "#FFFFFF",
+    "textColor": "#1F2937",
+    "textMutedColor": "#6B7280",
+    "cardBorderColor": "#e5e7eb",
+    "cardBackgroundColor": "#FFFFFF",
+    "fontFamily": "Inter",
+    "fontSize": "14px",
+    "fontWeight": "normal",
+    "animations": true,
+    "animationType": "slide",
+    "animationSpeed": "normal",
+    "shadows": true,
+    "shadowIntensity": 1,
+    "borderRadius": "medium",
+    "gradientBackgrounds": false,
+    "glassEffect": false,
+    "highContrastMode": false,
+    "largeTextMode": false,
+    "compactMode": false,
+    "sidebarCollapsible": true,
+    "showBreadcrumbs": true,
+    "navbarPosition": "left",
+    "navbarWidth": "64px",
+    "navbarHeight": "48px",
+    "navbarStyle": "modern",
+    "dashboardLayout": "grid",
+    "showQuickStats": true,
+    "showRecentOrders": true,
+    "showTopProducts": true,
+    "enableTableManagement": true,
+    "enableCustomerDisplay": true,
+    "autoRefreshInterval": 30,
+    "showProductImages": true,
+    "enableBarcode": true,
+    "enableInventoryTracking": true,
+    "enableCash": true,
+    "enableCard": true,
+    "enableMobile": true,
+    "enableGiftCards": false,
+    "enableMultiLocation": false,
+    "enableUserRoles": false,
+    "enableAuditLog": false,
+    "enableNotifications": true,
+    "enableCaching": true,
+    "lazyLoading": true,
+    "keyboardNavigation": true,
+    "reducedMotion": false,
+    "spacingScale": 1,
+    "maxWidth": "1200px",
+    "navbarCollapsible": true,
+    "components": {
+      "cards": {
+        "borderRadius": "medium",
+        "padding": 1,
+        "shadowStyle": "default"
+      },
+      "buttons": {
+        "style": "default",
+        "size": "medium",
+        "hoverEffects": true
+      },
+      "grid": {
+        "columns": 3,
+        "gap": 4
+      },
+      "forms": {
+        "inputStyle": "default",
+        "inputSize": "medium",
+        "focusRing": true
+      }
+    }
+  },
+  "businessInfo": {
+    "name": "what",
+    "address": "",
+    "phone": "",
+    "email": "",
+    "website": "",
+    "taxId": "",
+    "logo": null
+  },
+  "receipt": {
+    "enabled": true,
+    "header": "what",
+    "footer": "Merci de votre visite!",
+    "autoPrint": false,
+    "paperWidth": 80,
+    "showLogo": true,
+    "showBusinessInfo": true,
+    "showQR": false,
+    "qrContent": "website",
+    "copies": 1
+  },
+  "database": {
+    "type": "sqlite",
+    "filename": "what.db"
+  },
+  "security": {
+    "requireUSBLicense": false,
+    "licenseFileName": "license.key",
+    "licensePublicKey": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAEv2Y++QsAPmpfB5k8iTMCwG4UGzRKQ6R/TQe2NEuZVk=\n-----END PUBLIC KEY-----",
+    "licenseServerUrl": "https://carthapos-backend-spqq.onrender.com"
+  },
+  "licenseFile": {
+    "format": "carthapos-license",
+    "version": 1,
+    "publicKeyFingerprint": "f8a377b81c47fe0f",
+    "payload": {
+      "version": 1,
+      "licenseId": "cmtlg5w45003b4s64xgbstag2",
+      "licenseKey": "254A1FCB-9BBE0033-217FF3B3-9803B87C",
+      "clientId": "cmtlfmmsz002x4s64iovwzqvl",
+      "clientName": "test pfe",
+      "sector": "restaurant",
+      "licenseType": "LIFETIME",
+      "bindingType": "MACHINE",
+      "machineFingerprint": null,
+      "usbDeviceId": null,
+      "modules": [
+        {
+          "id": "cmtkhjr24000z32nviacyypvr",
+          "name": "pos-core",
+          "displayName": "Caisse de base",
+          "category": "core",
+          "isCore": true,
+          "isEnabled": true
+        },
+        {
+          "id": "cmtkhjr29001032nvnyjz7y2q",
+          "name": "user-management",
+          "displayName": "Gestion des utilisateurs",
+          "category": "administration",
+          "isCore": false,
+          "isEnabled": true
+        },
+        {
+          "id": "cmtkhjr2b001132nvurpxdro0",
+          "name": "reports",
+          "displayName": "Rapports",
+          "category": "core",
+          "isCore": true,
+          "isEnabled": true
+        },
+        {
+          "id": "cmtkhjr4u001b32nv0gfqwxl5",
+          "name": "tables",
+          "displayName": "Gestion des tables",
+          "category": "restaurant",
+          "isCore": false,
+          "isEnabled": true
+        },
+        {
+          "id": "cmtkhjr4x001c32nvfjau1h0m",
+          "name": "kitchen",
+          "displayName": "Cuisine",
+          "category": "restaurant",
+          "isCore": false,
+          "isEnabled": true
+        },
+        {
+          "id": "cmtkhjr57001g32nv1gifepac",
+          "name": "customer-management",
+          "displayName": "Gestion des clients",
+          "category": "customer",
+          "isCore": false,
+          "isEnabled": true
+        }
+      ],
+      "configuration": {
+        "businessName": "what",
+        "logo": null,
+        "currency": "TND",
+        "language": "fr",
+        "timezone": "Europe/Paris",
+        "taxRate": 20
+      },
+      "issuedAt": "2026-09-03T11:33:56.309Z",
+      "expirationDate": null,
+      "status": "ISSUED"
+    },
+    "signature": "fXznnswRtB6a7Fl7O1sBawp9q7GjKf+15OXkPKx/FFu1wlmPY//SsrlF1h3DZ3X/EHBvpCYSRCyp3KtbU2EVBg=="
+  },
+  "printer": {
+    "enabled": true,
+    "autoprint": false,
+    "paperWidth": 80
+  },
+  "features": {
+    "inventory": true,
+    "customers": true,
+    "reporting": true,
+    "multiLocation": false
+  }
+}
