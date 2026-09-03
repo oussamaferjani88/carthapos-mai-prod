@@ -17,6 +17,63 @@ const METABASE_BASE_URL = process.env.METABASE_BASE_URL || 'http://localhost:300
 const METABASE_PUBLIC_URL = process.env.METABASE_PUBLIC_URL || METABASE_BASE_URL;
 const METABASE_EMBED_ENABLED = process.env.METABASE_EMBED_ENABLED === 'true';
 
+// Shared "provision and persist" step used by both /:id/provision and
+// /:id/publish. Looks up the BiDashboard (with tenant/template context), resolves
+// the registered BiDashboardTemplate for its businessType, deep-copies the
+// master Metabase dashboard into the client collection via provisionClientDashboard,
+// and persists the resulting per-client Metabase dashboard id onto the BiDashboard.
+// Throws with a .status property so callers can map to an HTTP error.
+async function provisionAndPersistDashboard(prisma, dashboardId, overrides = {}) {
+  const dashboard = await prisma.biDashboard.findUnique({
+    where: { id: dashboardId },
+    include: {
+      client: { select: { id: true, name: true } },
+      request: { select: { id: true, businessName: true, businessType: true, status: true } },
+      upload: { select: { businessName: true } },
+    },
+  });
+  if (!dashboard) {
+    const err = new Error('Dashboard not found');
+    err.status = 404;
+    throw err;
+  }
+  if (!dashboard.businessType) {
+    const err = new Error('Dashboard has no businessType — cannot resolve a template.');
+    err.status = 400;
+    throw err;
+  }
+  const template = await prisma.biDashboardTemplate.findUnique({
+    where: { businessType: dashboard.businessType },
+  });
+  if (!template || template.metabaseDashboardId == null) {
+    const err = new Error(`No registered Metabase master template for businessType "${dashboard.businessType}".`);
+    err.status = 409;
+    throw err;
+  }
+  const result = await provisionClientDashboard({
+    prisma,
+    dashboard,
+    template,
+    masterDashboardId: overrides.masterDashboardId != null ? Number(overrides.masterDashboardId) : null,
+    businessCollectionId: overrides.businessCollectionId != null ? Number(overrides.businessCollectionId) : null,
+    tenantId: overrides.tenantId || dashboard.clientId,
+    businessName: overrides.businessName || null,
+  });
+  // Persist the generated client Metabase dashboard id, and rename the
+  // CarthaPOS dashboard row with the client/business name so it matches the
+  // renamed Metabase copy.
+  const updated = await prisma.biDashboard.update({
+    where: { id: dashboard.id },
+    data: {
+      metabaseDashboardId: result.metabaseDashboardId,
+      templateUsed: dashboard.businessType,
+      generatedAt: dashboard.generatedAt || new Date(),
+      name: result.dashboardName || result.businessName || dashboard.name,
+    },
+  });
+  return { dashboard: updated, provisioning: result };
+}
+
 // ─── GET /api/bi/dashboards — List dashboards ───────────────────
 // `assignedOnly=true` makes BiDashboardAssignment the authoritative source of
 // ownership: only dashboards with an ACTIVE assignment for the client are
@@ -293,7 +350,7 @@ router.post('/generate-from-upload', async (req, res) => {
 
 router.post('/:id/publish', async (req, res) => {
   try {
-    const dashboard = await prisma.biDashboard.findUnique({
+    let dashboard = await prisma.biDashboard.findUnique({
       where: { id: req.params.id },
       include: { request: { select: { id: true, clientId: true, status: true } } },
     });
@@ -303,6 +360,26 @@ router.post('/:id/publish', async (req, res) => {
       return res.status(400).json({
         error: `Cannot publish dashboard with status "${dashboard.status}". Only DRAFT / READY_FOR_REVIEW can be published.`,
       });
+    }
+
+    // Ensure a real per-client Metabase dashboard exists BEFORE marking this
+    // dashboard PUBLISHED. The BI Requests flow only calls /publish (unlike the
+    // Import BI wizard, which calls /provision first), so the provisioning must
+    // happen here server-side. If the dashboard already has a provisioned
+    // metabaseDashboardId, skip provisioning. If provisioning fails we fail
+    // loudly and DO NOT publish, rather than storing a PUBLISHED row with no
+    // real dashboard behind it.
+    if (dashboard.metabaseDashboardId == null) {
+      try {
+        const provisioned = await provisionAndPersistDashboard(prisma, dashboard.id, {
+          tenantId: dashboard.clientId,
+        });
+        dashboard = provisioned.dashboard;
+      } catch (provisionError) {
+        return res.status(provisionError.status || 500).json({
+          error: `Provisioning failed before publish — dashboard was NOT published. ${provisionError.message}`,
+        });
+      }
     }
 
     // Atomic guard: only the winning publisher proceeds.
@@ -641,50 +718,11 @@ router.get('/:id/embed', async (req, res) => {
 // template + discovery. Idempotent: re-running reuses the existing instance.
 router.post('/:id/provision', async (req, res) => {
   try {
-    const dashboard = await prisma.biDashboard.findUnique({
-      where: { id: req.params.id },
-      include: {
-        client: { select: { id: true, name: true } },
-        request: { select: { id: true, businessName: true, businessType: true, status: true } },
-        upload: { select: { businessName: true } },
-      },
-    });
-    if (!dashboard) return res.status(404).json({ error: 'Dashboard not found' });
-
-    if (!dashboard.businessType) {
-      return res.status(400).json({ error: 'Dashboard has no businessType — cannot resolve a template.' });
-    }
-
-    const template = await prisma.biDashboardTemplate.findUnique({
-      where: { businessType: dashboard.businessType },
-    });
-    if (!template || template.metabaseDashboardId == null) {
-      return res.status(409).json({
-        error: `No registered Metabase master template for businessType "${dashboard.businessType}".`,
-      });
-    }
-
-    const result = await provisionClientDashboard({
-      prisma,
-      dashboard,
-      template,
+    const { dashboard: updated, provisioning: result } = await provisionAndPersistDashboard(prisma, req.params.id, {
       masterDashboardId: req.body?.metabaseDashboardId != null ? Number(req.body.metabaseDashboardId) : null,
       businessCollectionId: req.body?.collectionId != null ? Number(req.body.collectionId) : null,
       tenantId: req.body?.tenantId || null,
       businessName: req.body?.businessName || null,
-    });
-
-    // Persist the generated client Metabase dashboard id, and rename the
-    // CarthaPOS dashboard row with the client/business name so it matches the
-    // renamed Metabase copy.
-    const updated = await prisma.biDashboard.update({
-      where: { id: dashboard.id },
-      data: {
-        metabaseDashboardId: result.metabaseDashboardId,
-        templateUsed: dashboard.businessType,
-        generatedAt: dashboard.generatedAt || new Date(),
-        name: result.dashboardName || result.businessName || dashboard.name,
-      },
     });
 
     res.json({
@@ -699,7 +737,7 @@ router.post('/:id/provision', async (req, res) => {
     });
   } catch (error) {
     console.error('[DASHBOARDS] Provision failed:', error.message);
-    const status = /template|master|not found|not configured|collection/i.test(error.message) ? 400 : 500;
+    const status = error.status || (/template|master|not found|not configured|collection/i.test(error.message) ? 400 : 500);
     res.status(status).json({ error: error.message });
   }
 });
