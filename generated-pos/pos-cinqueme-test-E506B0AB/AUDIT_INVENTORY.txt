@@ -1,0 +1,477 @@
+================================================================================
+  AUDIT — GESTION DES STOCKS (INVENTORY MANAGEMENT)
+  Date: 2026-07-20
+  Scope: Backend (DB, IPC handlers, preload) + UI (Inventory.jsx)
+================================================================================
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  PART 1 — DATABASE TABLES
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+1A. products (core inventory table)
+──────────────────────────────────────
+  id            INTEGER PRIMARY KEY AUTOINCREMENT
+  name          TEXT NOT NULL
+  price         DECIMAL(10,2) NOT NULL
+  cost_price    DECIMAL(10,2) DEFAULT 0           ← migration-added
+  category      TEXT
+  family        TEXT
+  description   TEXT
+  barcode       TEXT UNIQUE
+  image         TEXT
+  unit          TEXT DEFAULT 'unit'                ← migration-added
+  stock         INTEGER DEFAULT 0
+  min_stock     INTEGER DEFAULT 0
+  supplier      TEXT DEFAULT ''                    ← migration-added (denormalized text, NOT FK)
+  created_at    DATETIME DEFAULT CURRENT_TIMESTAMP
+  updated_at    DATETIME DEFAULT CURRENT_TIMESTAMP
+  vat_rate_id   INTEGER DEFAULT NULL               ← migration-added
+  price_type    TEXT DEFAULT 'ttc'                  ← migration-added
+
+  NOTES:
+  - stock = current on-hand quantity (INTEGER, no decimals)
+  - min_stock = low-stock threshold for alert display
+  - supplier = plain text name (no foreign key to suppliers table)
+  - cost_price = purchase cost per unit (for margin calculations)
+
+
+1B. stock_movements (movement history log)
+──────────────────────────────────────────
+  id             INTEGER PRIMARY KEY AUTOINCREMENT
+  product_id     INTEGER NOT NULL → FK → products(id)
+  product_name   TEXT
+  movement_type  TEXT NOT NULL CHECK(movement_type IN (
+    'in','out','adjustment','initial','correction',
+    'purchase','waste','return','sale'
+  ))
+  quantity       INTEGER NOT NULL
+  stock_before   INTEGER DEFAULT 0
+  stock_after    INTEGER DEFAULT 0
+  reason         TEXT
+  reference      TEXT
+  user_name      TEXT
+  created_at     DATETIME DEFAULT CURRENT_TIMESTAMP
+
+  Movement types:
+    'in'          Stock received / inbound
+    'out'         Stock removed / outbound
+    'adjustment'  Manual correction
+    'initial'     Initial stock count
+    'correction'  System correction
+    'purchase'    Purchase order received
+    'waste'       Damaged / spoiled / discarded
+    'return'      Customer return (stock increases)
+    'sale'        Decremented at point of sale
+
+  NOTES:
+  - NO indexes on product_id, movement_type, or created_at (performance risk)
+  - All queries use LIMIT 100/200 as safety net
+  - quantity is always INTEGER (no decimal quantities)
+
+
+1C. suppliers
+─────────────
+  id          INTEGER PRIMARY KEY AUTOINCREMENT
+  name        TEXT NOT NULL
+  contact     TEXT
+  phone       TEXT
+  email       TEXT
+  address     TEXT
+  notes       TEXT DEFAULT ''                    ← migration-added
+  is_active   BOOLEAN DEFAULT 1
+  created_at  DATETIME DEFAULT CURRENT_TIMESTAMP
+
+  Index: idx_suppliers_name ON suppliers(name)
+
+
+1D. product_families
+────────────────────
+  id          INTEGER PRIMARY KEY AUTOINCREMENT
+  name        TEXT NOT NULL UNIQUE
+  description TEXT
+  icon        TEXT DEFAULT ''                    ← migration-added
+  created_at  DATETIME DEFAULT CURRENT_TIMESTAMP
+
+
+1E. categories
+──────────────
+  id          INTEGER PRIMARY KEY AUTOINCREMENT
+  name        TEXT NOT NULL UNIQUE
+  description TEXT
+  color       TEXT DEFAULT '#3B82F6'
+  created_at  DATETIME DEFAULT CURRENT_TIMESTAMP
+
+
+1F. sale_items (links products to sales)
+─────────────────────────────────────────
+  id          INTEGER PRIMARY KEY AUTOINCREMENT
+  sale_id     INTEGER NOT NULL → FK → sales(id)
+  product_id  INTEGER NOT NULL → FK → products(id)
+  quantity    INTEGER NOT NULL
+  price       DECIMAL(10,2) NOT NULL
+  vat_rate    DECIMAL(5,2) DEFAULT 0             ← migration-added
+  vat_amount  DECIMAL(10,2) DEFAULT 0            ← migration-added
+
+
+1G. vat_rates
+──────────────
+  id          INTEGER PRIMARY KEY AUTOINCREMENT
+  name        TEXT NOT NULL
+  rate        DECIMAL(5,2) NOT NULL DEFAULT 0
+  is_active   BOOLEAN DEFAULT 1
+  created_at  DATETIME DEFAULT CURRENT_TIMESTAMP
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  PART 2 — IPC HANDLERS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+2A. Product Handlers (ipc-database-handlers.cjs)
+─────────────────────────────────────────────────
+  Channel              Params                 Description
+  ──────────────────── ────────────────────── ─────────────────────────────────
+  get-products         none                   SELECT * FROM products ORDER BY name
+  add-product          (product, userRole)    INSERT (admin/manager only)
+  update-product       (id, product, userRole) UPDATE (admin/manager only)
+  delete-product       (id, userRole)         DELETE (admin/manager only)
+
+
+2B. Stock Handlers (ipc-stock-handlers.cjs)
+────────────────────────────────────────────
+  Channel                       Params                  Description
+  ───────────────────────────── ─────────────────────── ─────────────────────
+  stock:get-movements           (filters)               Get movements with filters
+                                                      (product_id, movement_type,
+                                                       startDate, endDate, search)
+                                                      LIMIT 200, JOIN → products
+
+  stock:add-movement            (data)                  Insert movement record
+                                                      {product_id, product_name,
+                                                       movement_type, quantity,
+                                                       stock_before, stock_after,
+                                                       reason, reference, user_name}
+
+  stock:get-summary             none                    Last 30 days aggregate:
+                                                      total_movements, total_in,
+                                                      total_out, total_adjustments
+
+  stock:get-product-movements   (productId, filters)    Per-product movements
+                                                      LIMIT 100
+
+  stock:most-consumed           none                    Top 15 most consumed (out)
+                                                      in last 90 days
+                                                      JOIN → products
+
+
+2C. Supplier Handlers (ipc-supplier-handlers.cjs)
+──────────────────────────────────────────────────
+  Channel                   Params               Description
+  ───────────────────────── ──────────────────── ──────────────────────
+  get-suppliers             none                 List all suppliers
+  add-supplier              (supplier)           INSERT supplier
+  update-supplier           (id, supplier)       UPDATE supplier
+  delete-supplier           (id)                 DELETE supplier
+  update-supplier-status    (id, isActive)       Toggle active/inactive
+
+
+2D. Sale Handlers — Stock Logic (ipc-sales-handlers.cjs)
+─────────────────────────────────────────────────────────
+  Channel: add-sale
+  Stock decrement is ATOMIC (inside databaseManager.runTransaction):
+
+  1. Find active shift for user
+  2. INSERT sale header
+  3. For EACH item:
+     a. INSERT sale_items row
+     b. SELECT stock FROM products WHERE id = ?
+     c. stock_after = max(0, stock_before - quantity)
+     d. UPDATE products SET stock = ? WHERE id = ?
+     e. INSERT stock_movements (movement_type='sale', reason="Vente #<id>")
+  4. Free restaurant table (if table_id)
+  5. Update customer stats (if customer_id)
+  6. Update shift cash/card/other totals
+  7. Create kitchen order (if table_id)
+
+  If ANY step fails → entire transaction ROLLBACK.
+
+
+2E. Family Handlers (ipc-database-handlers.cjs)
+────────────────────────────────────────────────
+  get-families    none                 SELECT FROM product_families
+  add-family      (name, desc, icon)   INSERT OR IGNORE
+  delete-family   (name)               Transaction: UPDATE products SET family=NULL
+                                      then DELETE FROM product_families
+
+
+2F. VAT Handlers (ipc-database-handlers.cjs)
+─────────────────────────────────────────────
+  get-vat-rates    none               SELECT FROM vat_rates
+  add-vat-rate     (rate)             INSERT
+  update-vat-rate  (id, rate)         UPDATE
+  delete-vat-rate  (id)               DELETE
+
+
+2G. Generic Handlers
+────────────────────
+  database:query      (sql, params)       Raw SQL SELECT
+  database:execute    (sql, params)       Raw SQL INSERT/UPDATE/DELETE
+  database:transaction (queries)          BEGIN/queries/COMMIT (atomic)
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  PART 3 — PRELOAD BRIDGE (public/preload.cjs)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  Methods exposed to renderer (window.electronAPI.*):
+
+  PRODUCTS
+  ────────
+  getProducts()                    → get-products
+  addProduct(product, userRole)    → add-product
+  updateProduct(id, product, role) → update-product
+  deleteProduct(id, userRole)      → delete-product
+
+  FAMILIES
+  ────────
+  getFamilies()                    → get-families
+  addFamily(name, desc, icon)      → add-family
+  deleteFamily(name)               → delete-family
+
+  SUPPLIERS
+  ─────────
+  getSuppliers()                   → get-suppliers
+  addSupplier(supplier)            → add-supplier
+  updateSupplier(id, supplier)     → update-supplier
+  deleteSupplier(id)               → delete-supplier
+  updateSupplierStatus(id, active) → update-supplier-status
+
+  VAT
+  ───
+  getVatRates()                    → get-vat-rates
+  addVatRate(rate)                 → add-vat-rate
+  updateVatRate(id, rate)          → update-vat-rate
+  deleteVatRate(id)                → delete-vat-rate
+
+  SALES (contain stock logic)
+  ───────────────────────────
+  addSale(sale)                    → add-sale (decrements stock)
+  getSales()                       → get-sales
+
+  GENERIC
+  ───────
+  query(sql, params)               → database:query
+  execute(sql, params)             → database:execute
+  invoke(channel, ...args)         → any IPC channel
+
+  DEAD / UNREGISTERED (no backend handler found)
+  ──────────────────────────────────────────────
+  getProductsData()                → get-products-data  ❌ NO HANDLER
+  getInventoryData()               → get-inventory-data ❌ NO HANDLER
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  PART 4 — UI (Inventory.jsx — 529 lines)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+4A. Structure
+─────────────
+  The page has 3 tabs:
+    1. Inventaire    — Product list with stock levels
+    2. Mouvements    — Stock movement history
+    3. Rapports       — Most consumed products
+
+  Stats bar (4 cards):
+    - Total Produits (count)
+    - Stock faible (low stock count)
+    - Ruptures (out of stock count)
+    - Valeur Stock (total cost value)
+
+
+4B. Tab 1 — Inventaire
+───────────────────────
+  FEATURES:
+  - Table with columns: Produit, Catégorie, Stock, Unité, Prix vente,
+    Prix achat, Valeur stock, Fournisseur, Statut, Actions
+  - Search by name or category
+  - Filter toggle: "Stock faible" (shows only products where stock <= min_stock)
+  - "Ajuster" button per product → opens stock adjustment dialog
+  - "Historique" button per product → opens per-product movement dialog
+
+  STOCK ADJUSTMENT DIALOG:
+  - Shows current stock (read-only)
+  - Two modes: "Ajuster (+/-)" and "Définir" (set absolute value)
+  - Optional "Raison" text input
+  - On confirm:
+    1. Computes new stock
+    2. Calls updateProduct(id, { ...product, stock: newStock })
+    3. Calls addStockMovement(...) if stock changed
+    4. Reloads product list
+
+  BUGS / ISSUES:
+  ⚠ Line 104-105: Search filters on product.category, but products table uses
+     'family' column, not 'category'. Search by category will ALWAYS FAIL
+     if family field is used instead.
+  ⚠ Line 129: Stock adjustment calls updateProduct without userRole param.
+     If role check is enforced on backend, this could silently fail.
+  ⚠ Line 178: formatCurrency uses Euro sign (€) hardcoded instead of
+     respecting POSConfiguration currency.
+
+
+4C. Tab 2 — Mouvements
+───────────────────────
+  FEATURES:
+  - Full movement history table
+  - Columns: Date/Heure, Produit, Type, Qté, Avant, Après, Raison, Référence, Utilisateur
+  - Type filter dropdown (Tous, Entrées, Sorties, Achats, Ventes, Ajustements, Déchets, Retours, Initial, Corrections)
+  - Search by text (triggers on Enter key)
+  - Refresh button
+  - Summary bar: Entrées / Sorties / Total counts (last 30 days)
+
+  DATA LOADING:
+  - Calls window.electronAPI.getStockMovements({ movement_type, search })
+  - Calls window.electronAPI.getStockSummary()
+  - NOTE: preload.js exposes getStockMovements as invoke('stock:get-movements', filters)
+    — this works via the generic invoke bridge
+
+  BUGS / ISSUES:
+  ⚠ Line 398: movementFilter change triggers setTimeout(loadMovements, 0) —
+     hacky async pattern; should use useEffect instead.
+  ⚠ No date range filter in UI (backend supports startDate/endDate but UI
+     doesn't expose it).
+  ⚠ Movement type badges don't cover all types consistently:
+     'purchase' maps to "Achat" (default green), 'waste' maps to "Déchet/Perte",
+     but display logic on line 454 only checks for 'in' to color green —
+     'purchase' and 'return' won't be green in the quantity column.
+
+
+4D. Tab 3 — Rapports
+─────────────────────
+  FEATURES:
+  - "Produits les plus consommés" table
+  - Shows top 15 products by outbound stock in last 90 days
+  - Columns: #, Produit, Catégorie, Unité, Total sorti, Stock actuel, Seuil min, Statut
+  - Refresh button
+
+  DATA LOADING:
+  - Calls window.electronAPI.getMostConsumedProducts()
+  - Maps to invoke('stock:most-consumed')
+
+  BUGS / ISSUES:
+  ⚠ Line 499: Column header says "Catégorie" but the query returns 'category'
+     which is actually the old category field. If products use 'family' now,
+     this column shows nothing meaningful.
+  ⚠ No pagination — only 15 results max (hardcoded in backend LIMIT).
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  PART 5 — ARCHITECTURE & DATA FLOW
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  Renderer (React: Inventory.jsx)
+       │
+       ▼
+  preload.cjs (electronAPI bridge)
+       │
+       ├── getProducts()           → ipc-database-handlers → products table
+       ├── updateProduct(id, p)    → ipc-database-handlers → products table
+       ├── getStockMovements(f)    → ipc-stock-handlers     → stock_movements table
+       ├── getStockSummary()       → ipc-stock-handlers     → stock_movements (aggregate)
+       ├── getProductMovements(id) → ipc-stock-handlers     → stock_movements table
+       ├── getMostConsumedProducts → ipc-stock-handlers     → stock_movements + products
+       ├── addStockMovement(d)     → ipc-stock-handlers     → stock_movements table
+       └── addSale(sale)           → ipc-sales-handlers     → products + stock_movements
+                                                              (atomic transaction)
+
+  Database: SQLite (WAL mode, synchronous=FULL)
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  PART 6 — ISSUES FOUND
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  CRITICAL
+  ────────
+  1. search filters on product.category but products use 'family' column
+     → search by category will miss products entirely
+     Location: Inventory.jsx:104-105
+
+  2. Stock adjustment calls updateProduct without userRole param
+     → may fail silently if backend role check is enforced
+     Location: Inventory.jsx:129
+
+  3. getProductsData() and getInventoryData() preload methods have NO
+     backend handler registered → calling them returns undefined/errors
+     Location: preload.js
+
+  MEDIUM
+  ──────
+  4. formatCurrency hardcoded to € sign instead of using POSConfiguration
+     → inconsistent with rest of POS (uses DT or configured currency)
+     Location: Inventory.jsx:178
+
+  5. No indexes on stock_movements table → slow queries as data grows
+     → should add: idx_stock_movements_product_id, idx_stock_movements_created_at
+
+  6. 'purchase' and 'return' movement types show correct badge but quantity
+     color logic only checks for 'in' → purchase/return quantities won't
+     be colored green in the movements table
+     Location: Inventory.jsx:454
+
+  7. Most consumed report shows "Catégorie" column header but queries the
+     'category' field which may be empty (products use 'family')
+     Location: Inventory.jsx:499
+
+  LOW
+  ───
+  8. No date range filter in movements tab (backend supports it, UI doesn't)
+
+  9. No pagination on any table → performance risk with many products
+
+  10. Movement filter uses setTimeout(loadMovements, 0) hack instead of
+      useEffect dependency
+
+  11. Stock value calculated as (cost_price || price) * stock → falls back
+      to selling price if cost_price is 0, which inflates the displayed
+      inventory value
+
+  12. No auto-refresh when products change in other tabs (Sales, etc.)
+      → user must manually switch tabs or reload
+
+  13. Dead preload methods (getProductsData, getInventoryData) should be
+      removed or have handlers registered
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  PART 7 — MISSING FEATURES (compared to what backend supports)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  1. Supplier management tab — backend has full CRUD (add/update/delete/toggle)
+     but Inventory.jsx has NO supplier management UI
+
+  2. Bulk stock operations — no way to import/export stock adjustments via CSV
+
+  3. Stock alerts / notifications — no alert table, no auto-notifications,
+     no threshold configuration beyond min_stock per product
+
+  4. Stock movement from purchases — no purchase order workflow
+     (movement_type 'purchase' exists but no UI triggers it)
+
+  5. Waste / discard tracking — movement_type 'waste' exists but no UI
+     to record waste with photos/reasons
+
+  6. Return processing — movement_type 'return' exists but no automated
+     stock increment (caller must do both updateProduct + addStockMovement)
+
+  7. Stock valuation report — total value is shown but no per-family or
+     per-period valuation breakdown
+
+  8. Stock history export — no way to export movement history to CSV/PDF
+
+  9. Barcode scanning for stock adjustment — no scan-to-adjust workflow
+
+  10. Multi-location / warehouse support — single stock integer only
+
+================================================================================
+  END OF AUDIT
+================================================================================

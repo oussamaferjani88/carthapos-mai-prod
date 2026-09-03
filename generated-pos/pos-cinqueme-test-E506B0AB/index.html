@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="./favicon.svg" />
+    <link rel="alternate icon" href="./favicon.ico" />
+    <link rel="alternate icon" href="./favicon.ico" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>cinqueme test</title>
+
+    <!-- Dynamic branding from app-config.json.
+         Prefers the Electron IPC path (window.electronAPI.getAppConfig, exposed
+         by preload before this script runs) - it goes through Node's fs, which
+         is asar-unpack-aware. Falls back to a plain fetch only outside Electron
+         (browser preview mode), where that path doesn't exist. -->
+    <script>
+      (function() {
+        function applyBranding(cfg) {
+          var name = cfg.theme && (cfg.theme.businessName || cfg.theme.appTitle) || cfg.businessInfo && cfg.businessInfo.name || 'POS System';
+          document.title = name;
+          var color = cfg.theme && (cfg.theme.primaryColor || cfg.theme.colors && cfg.theme.colors.primary) || '#3B82F6';
+          var link = document.querySelector('link[rel*="icon"]');
+          if (link) {
+            var initials = name.substring(0, 2).toUpperCase();
+            var svg = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><rect width="32" height="32" rx="6" fill="' + color + '"/><text x="16" y="22" text-anchor="middle" font-family="Arial,sans-serif" font-size="14" font-weight="bold" fill="white">' + initials + '</text></svg>';
+            var blob = new Blob([svg], { type: 'image/svg+xml' });
+            link.href = URL.createObjectURL(blob);
+          }
+        }
+
+        if (window.electronAPI && window.electronAPI.getAppConfig) {
+          window.electronAPI.getAppConfig().then(applyBranding).catch(function(e) {
+            console.warn('Could not load app-config.json for branding:', e);
+          });
+        } else {
+          fetch('app-config.json').then(function(res) {
+            return res.ok ? res.json() : Promise.reject(new Error('Failed to load app-config.json'));
+          }).then(applyBranding).catch(function(e) {
+            console.warn('Could not load app-config.json for branding:', e);
+          });
+        }
+      })();
+    </script>
+
+    <!-- Support pour configurations de test en développement -->
+    <script>
+      if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
+        var s = document.createElement('script');
+        s.src = '/test-configs.js';
+        document.head.appendChild(s);
+      }
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.jsx"></script>
+  </body>
+</html>

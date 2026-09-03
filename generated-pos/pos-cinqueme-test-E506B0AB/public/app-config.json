@@ -1,0 +1,285 @@
+{
+  "license": {
+    "id": "cmtl9kqo9001rlnt3nty6du1d",
+    "key": "ADF5D00B-E506B0AB-4400D573-0F35207C",
+    "clientId": "cmtkice4j0011m6sai8nnpf4g",
+    "client": "Oussama"
+  },
+  "modules": [
+    {
+      "name": "pos-core",
+      "displayName": "pos-core",
+      "isEnabled": true,
+      "description": ""
+    },
+    {
+      "name": "user-management",
+      "displayName": "user-management",
+      "isEnabled": true,
+      "description": ""
+    },
+    {
+      "name": "reports",
+      "displayName": "reports",
+      "isEnabled": true,
+      "description": ""
+    },
+    {
+      "name": "tables",
+      "displayName": "tables",
+      "isEnabled": true,
+      "description": ""
+    },
+    {
+      "name": "kitchen",
+      "displayName": "kitchen",
+      "isEnabled": true,
+      "description": ""
+    },
+    {
+      "name": "customer-management",
+      "displayName": "customer-management",
+      "isEnabled": true,
+      "description": ""
+    },
+    {
+      "name": "inventory",
+      "displayName": "inventory",
+      "isEnabled": true,
+      "description": ""
+    },
+    {
+      "name": "customers",
+      "displayName": "customers",
+      "isEnabled": true,
+      "description": ""
+    },
+    {
+      "name": "reporting",
+      "displayName": "reporting",
+      "isEnabled": true,
+      "description": ""
+    }
+  ],
+  "theme": {
+    "businessName": "cinqueme test",
+    "sector": "restaurant",
+    "appTitle": "cinqieme test",
+    "footerText": "Powered by cinqueme test",
+    "welcomeText": "Bienvenue chez cinqueme test",
+    "logo": null,
+    "favicon": null,
+    "colors": {
+      "primary": "#F97316",
+      "secondary": "#EA580C",
+      "accent": "#DC2626",
+      "background": "#FFF7ED",
+      "text": "#9A3412",
+      "textMuted": "#C2410C",
+      "border": "#e5e7eb",
+      "cardBackground": "#FFEDD5"
+    },
+    "currency": "TND",
+    "currencyPosition": "after",
+    "taxRate": 20,
+    "language": "fr",
+    "timezone": "Europe/Paris",
+    "dateFormat": "DD/MM/YYYY",
+    "timeFormat": "24h",
+    "primaryColor": "#F97316",
+    "secondaryColor": "#EA580C",
+    "accentColor": "#DC2626",
+    "backgroundColor": "#FFF7ED",
+    "textColor": "#9A3412",
+    "textMutedColor": "#C2410C",
+    "cardBorderColor": "#e5e7eb",
+    "cardBackgroundColor": "#FFEDD5",
+    "fontFamily": "Inter",
+    "fontSize": "14px",
+    "fontWeight": "normal",
+    "animations": true,
+    "animationType": "slide",
+    "animationSpeed": "normal",
+    "shadows": true,
+    "shadowIntensity": 1,
+    "borderRadius": "large",
+    "gradientBackgrounds": false,
+    "glassEffect": false,
+    "highContrastMode": false,
+    "largeTextMode": false,
+    "compactMode": false,
+    "sidebarCollapsible": true,
+    "showBreadcrumbs": true,
+    "navbarPosition": "left",
+    "navbarWidth": "64px",
+    "navbarHeight": "48px",
+    "navbarStyle": "modern",
+    "dashboardLayout": "grid",
+    "showQuickStats": true,
+    "showRecentOrders": true,
+    "showTopProducts": true,
+    "enableTableManagement": true,
+    "enableCustomerDisplay": true,
+    "autoRefreshInterval": 30,
+    "showProductImages": true,
+    "enableBarcode": true,
+    "enableInventoryTracking": true,
+    "enableCash": true,
+    "enableCard": true,
+    "enableMobile": true,
+    "enableGiftCards": false,
+    "enableMultiLocation": false,
+    "enableUserRoles": false,
+    "enableAuditLog": false,
+    "enableNotifications": true,
+    "enableCaching": true,
+    "lazyLoading": true,
+    "keyboardNavigation": true,
+    "reducedMotion": false,
+    "spacingScale": 1,
+    "maxWidth": "1200px",
+    "navbarCollapsible": true,
+    "components": {
+      "cards": {
+        "borderRadius": "medium",
+        "padding": 1,
+        "shadowStyle": "default"
+      },
+      "buttons": {
+        "style": "default",
+        "size": "medium",
+        "hoverEffects": true
+      },
+      "grid": {
+        "columns": 3,
+        "gap": 4
+      },
+      "forms": {
+        "inputStyle": "default",
+        "inputSize": "medium",
+        "focusRing": true
+      }
+    }
+  },
+  "businessInfo": {
+    "name": "cinqueme test",
+    "address": "",
+    "phone": "",
+    "email": "",
+    "website": "",
+    "taxId": "",
+    "logo": null
+  },
+  "receipt": {
+    "enabled": true,
+    "header": "cinqueme test",
+    "footer": "Merci de votre visite!",
+    "autoPrint": false,
+    "paperWidth": 80,
+    "showLogo": true,
+    "showBusinessInfo": true,
+    "showQR": false,
+    "qrContent": "website",
+    "copies": 1
+  },
+  "database": {
+    "type": "sqlite",
+    "filename": "cinqueme-test.db"
+  },
+  "security": {
+    "requireUSBLicense": false,
+    "licenseFileName": "license.key",
+    "licensePublicKey": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAEv2Y++QsAPmpfB5k8iTMCwG4UGzRKQ6R/TQe2NEuZVk=\n-----END PUBLIC KEY-----",
+    "licenseServerUrl": "https://carthapos-backend-spqq.onrender.com"
+  },
+  "licenseFile": {
+    "format": "carthapos-license",
+    "version": 1,
+    "publicKeyFingerprint": "f8a377b81c47fe0f",
+    "payload": {
+      "version": 1,
+      "licenseId": "cmtl9kqo9001rlnt3nty6du1d",
+      "licenseKey": "ADF5D00B-E506B0AB-4400D573-0F35207C",
+      "clientId": "cmtkice4j0011m6sai8nnpf4g",
+      "clientName": "Oussama",
+      "sector": "restaurant",
+      "licenseType": "LIFETIME",
+      "bindingType": "MACHINE",
+      "machineFingerprint": null,
+      "usbDeviceId": null,
+      "modules": [
+        {
+          "id": "cmtkhjr24000z32nviacyypvr",
+          "name": "pos-core",
+          "displayName": "Caisse de base",
+          "category": "core",
+          "isCore": true,
+          "isEnabled": true
+        },
+        {
+          "id": "cmtkhjr29001032nvnyjz7y2q",
+          "name": "user-management",
+          "displayName": "Gestion des utilisateurs",
+          "category": "administration",
+          "isCore": false,
+          "isEnabled": true
+        },
+        {
+          "id": "cmtkhjr2b001132nvurpxdro0",
+          "name": "reports",
+          "displayName": "Rapports",
+          "category": "core",
+          "isCore": true,
+          "isEnabled": true
+        },
+        {
+          "id": "cmtkhjr4u001b32nv0gfqwxl5",
+          "name": "tables",
+          "displayName": "Gestion des tables",
+          "category": "restaurant",
+          "isCore": false,
+          "isEnabled": true
+        },
+        {
+          "id": "cmtkhjr4x001c32nvfjau1h0m",
+          "name": "kitchen",
+          "displayName": "Cuisine",
+          "category": "restaurant",
+          "isCore": false,
+          "isEnabled": true
+        },
+        {
+          "id": "cmtkhjr57001g32nv1gifepac",
+          "name": "customer-management",
+          "displayName": "Gestion des clients",
+          "category": "customer",
+          "isCore": false,
+          "isEnabled": true
+        }
+      ],
+      "configuration": {
+        "businessName": "cinqueme test",
+        "logo": null,
+        "currency": "TND",
+        "language": "fr",
+        "timezone": "Europe/Paris",
+        "taxRate": 20
+      },
+      "issuedAt": "2026-09-03T08:29:31.784Z",
+      "expirationDate": null,
+      "status": "ISSUED"
+    },
+    "signature": "BoNMQJyB3To1mFZTRSsXj9qD1YfmjFZaqxXBhJAkan+dZWsgAALNizUizQQA8xguwz90eoWryzUNFLPDoFrnDA=="
+  },
+  "printer": {
+    "enabled": true,
+    "autoprint": false,
+    "paperWidth": 80
+  },
+  "features": {
+    "inventory": true,
+    "customers": true,
+    "reporting": true,
+    "multiLocation": false
+  }
+}

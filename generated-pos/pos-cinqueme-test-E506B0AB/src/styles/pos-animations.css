@@ -1,0 +1,185 @@
+/* ============================================
+   POS PERSONALIZATION ANIMATIONS
+   Dynamic animation classes for POSConfiguration
+   ============================================ */
+
+/* Animation Type Classes - Navigation */
+.pos-animation-slide {
+  transition: transform var(--animation-duration, 200ms) ease-out,
+              opacity var(--animation-duration, 200ms) ease-out;
+}
+
+.pos-animation-slide:hover {
+  transform: translateX(4px);
+}
+
+.pos-animation-glow {
+  transition: box-shadow var(--animation-duration, 200ms) ease-out,
+              background-color var(--animation-duration, 200ms) ease-out;
+}
+
+.pos-animation-glow:hover {
+  box-shadow: 0 0 20px var(--color-primary, #3b82f6);
+  background-color: var(--color-primary-hover, rgba(59, 130, 246, 0.1));
+}
+
+.pos-animation-fade {
+  transition: opacity var(--animation-duration, 200ms) ease-out;
+}
+
+.pos-animation-fade:hover {
+  opacity: 0.8;
+}
+
+.pos-animation-border-pulse {
+  transition: border-color var(--animation-duration, 200ms) ease-out,
+              box-shadow var(--animation-duration, 200ms) ease-out;
+}
+
+.pos-animation-border-pulse:hover {
+  border-color: var(--color-primary, #3b82f6);
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.2);
+  animation: pulse-border 1.5s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+@keyframes pulse-border {
+  0%, 100% {
+    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.2);
+  }
+  50% {
+    box-shadow: 0 0 0 6px rgba(59, 130, 246, 0.1);
+  }
+}
+
+.pos-animation-elastic {
+  transition: transform var(--animation-duration, 200ms) cubic-bezier(0.68, -0.55, 0.265, 1.55);
+}
+
+.pos-animation-elastic:hover {
+  transform: scale(1.05);
+}
+
+.pos-animation-rotate {
+  transition: transform var(--animation-duration, 200ms) ease-out;
+}
+
+.pos-animation-rotate:hover {
+  transform: rotate(2deg) scale(1.02);
+}
+
+/* Animation Speed Classes */
+.pos-animation-speed-slow {
+  --animation-duration: 300ms;
+}
+
+.pos-animation-speed-normal {
+  --animation-duration: 200ms;
+}
+
+.pos-animation-speed-fast {
+  --animation-duration: 100ms;
+}
+
+/* Card Animation Classes */
+.pos-card-animation-slide {
+  transition: transform var(--card-animation-duration, 200ms) ease-out,
+              box-shadow var(--card-animation-duration, 200ms) ease-out;
+}
+
+.pos-card-animation-slide:hover {
+  transform: translateY(-4px);
+  box-shadow: var(--shadow-style, 0 10px 25px -5px rgba(0, 0, 0, 0.1));
+}
+
+.pos-card-animation-glow {
+  transition: box-shadow var(--card-animation-duration, 200ms) ease-out,
+              border-color var(--card-animation-duration, 200ms) ease-out;
+}
+
+.pos-card-animation-glow:hover {
+  box-shadow: 0 0 30px var(--color-primary, #3b82f6);
+  border-color: var(--color-primary, #3b82f6);
+}
+
+.pos-card-animation-fade {
+  transition: opacity var(--card-animation-duration, 200ms) ease-out,
+              background-color var(--card-animation-duration, 200ms) ease-out;
+}
+
+.pos-card-animation-fade:hover {
+  opacity: 0.9;
+  background-color: var(--color-card-hover, rgba(255, 255, 255, 0.95));
+}
+
+.pos-card-animation-border-pulse {
+  transition: border-color var(--card-animation-duration, 200ms) ease-out,
+              box-shadow var(--card-animation-duration, 200ms) ease-out;
+}
+
+.pos-card-animation-border-pulse:hover {
+  border-color: var(--color-primary, #3b82f6);
+  animation: card-pulse-border 1.5s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+@keyframes card-pulse-border {
+  0%, 100% {
+    box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.3),
+                var(--shadow-style, 0 4px 6px -1px rgba(0, 0, 0, 0.1));
+  }
+  50% {
+    box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.2),
+                var(--shadow-style, 0 10px 15px -3px rgba(0, 0, 0, 0.1));
+  }
+}
+
+.pos-card-animation-elastic {
+  transition: transform var(--card-animation-duration, 200ms) cubic-bezier(0.68, -0.55, 0.265, 1.55),
+              box-shadow var(--card-animation-duration, 200ms) ease-out;
+}
+
+.pos-card-animation-elastic:hover {
+  transform: scale(1.03);
+  box-shadow: var(--shadow-style, 0 10px 25px -5px rgba(0, 0, 0, 0.1));
+}
+
+.pos-card-animation-rotate {
+  transition: transform var(--card-animation-duration, 200ms) ease-out,
+              box-shadow var(--card-animation-duration, 200ms) ease-out;
+}
+
+.pos-card-animation-rotate:hover {
+  transform: rotate(1deg) scale(1.02);
+  box-shadow: var(--shadow-style, 0 10px 25px -5px rgba(0, 0, 0, 0.1));
+}
+
+/* Card Animation Speed Classes */
+.pos-card-animation-speed-slow {
+  --card-animation-duration: 300ms;
+}
+
+.pos-card-animation-speed-normal {
+  --card-animation-duration: 200ms;
+}
+
+.pos-card-animation-speed-fast {
+  --card-animation-duration: 100ms;
+}
+
+/* Disable animations when user prefers reduced motion */
+@media (prefers-reduced-motion: reduce) {
+  .pos-animation-slide,
+  .pos-animation-glow,
+  .pos-animation-fade,
+  .pos-animation-border-pulse,
+  .pos-animation-elastic,
+  .pos-animation-rotate,
+  .pos-card-animation-slide,
+  .pos-card-animation-glow,
+  .pos-card-animation-fade,
+  .pos-card-animation-border-pulse,
+  .pos-card-animation-elastic,
+  .pos-card-animation-rotate {
+    transition: none;
+    animation: none;
+  }
+}
