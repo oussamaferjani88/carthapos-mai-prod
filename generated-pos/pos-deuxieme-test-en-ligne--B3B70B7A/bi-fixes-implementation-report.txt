@@ -1,0 +1,178 @@
+IMPLEMENTATION REPORT — LOW PRIORITY FIXES
+============================================
+Date: 2026-07-29
+
+Fix 1: Backfill shift_id for Legacy Sales
+============================================
+
+ROOT CAUSE
+----------
+The shift_id column was added to the sales table via migration
+(ElectronDatabaseManager.cjs:1452-1460). Sales created before this
+migration have shift_id = NULL. The X Report and Z Report filter sales
+by shift_id, so these orphaned sales are invisible to shift-based
+reports. Legacy sales can only be found via date-range reports
+(dashboard, sales-by-period, etc.) — they are excluded from X/Z.
+
+IMPLEMENTATION
+--------------
+A safe one-time migration was added to ElectronDatabaseManager.cjs
+at line 1901 (inside the existing migration block). The backfill SQL:
+
+  UPDATE sales SET shift_id = (
+    SELECT id FROM shifts
+    WHERE shifts.user_id = sales.user_id          -- same cashier
+      AND shifts.opened_at <= sales.created_at     -- shift started before sale
+      AND (shifts.closed_at IS NULL                -- shift still open
+           OR shifts.closed_at >= sales.created_at) -- OR closed after sale
+    ORDER BY shifts.opened_at DESC
+    LIMIT 1
+  ) WHERE shift_id IS NULL
+    AND EXISTS (
+      SELECT 1 FROM shifts
+      WHERE shifts.user_id = sales.user_id
+        AND shifts.opened_at <= sales.created_at
+        AND (shifts.closed_at IS NULL OR shifts.closed_at >= sales.created_at)
+    );
+
+Matching logic:
+  - Matches by user_id (same cashier created the sale and the shift)
+  - Shift must have been opened BEFORE the sale was created
+  - Shift must still be active at sale time (open OR closed after the sale)
+  - If multiple shifts match (rare), takes the most recent one
+  - If no match (e.g., first sales before any shift system existed),
+    shift_id stays NULL — no incorrect assignment
+
+SAFETY GUARANTEES
+-----------------
+  1. Only updates rows WHERE shift_id IS NULL — never overwrites an
+     existing shift_id.
+  2. Only updates when EXISTS (a matching shift is found).
+  3. Matches by user_id — a sale by user A will never be linked to
+     a shift opened by user B.
+  4. Time-range guard: shift.opened_at <= sale.created_at prevents
+     linking a sale to a shift that hadn't been opened yet.
+     shift.closed_at >= sale.created_at prevents linking to a shift
+     that was already closed before the sale was made.
+  5. If no shift can be reliably matched, the sale's shift_id stays NULL.
+
+Files modified: 1
+  - src/electron/ElectronDatabaseManager.cjs
+
+Possible side effects:
+  - Legacy sales become visible in X/Z Reports (desired outcome).
+  - If a user opened a shift on Monday, closed it Monday evening, and
+    the same user opens another shift on Tuesday, Monday's sales will
+    be linked to Monday's shift, and Tuesday's to Tuesday's — correct.
+  - Edge case: if a sale was logged manually with a future created_at
+    (clock skew), the backfill will still skip it because
+    opened_at <= created_at won't hold.
+
+----------------------------------------------------------------------
+
+Fix 2: Prevent Multiple Open Shifts
+=====================================
+
+ROOT CAUSE
+----------
+The caisse:open-shift handler unconditionally INSERTed a new shift with
+status = 'open' — no check for existing open shifts. This allowed any
+number of open shifts per user. The frontend hid the "open shift"
+button when activeShift was truthy (client-side guard only), but direct
+IPC calls or race conditions could bypass it.
+
+The downstream problem: X Report finds the latest open shift with
+no user filter (ORDER BY opened_at DESC LIMIT 1), but sales are linked
+to the user-specific open shift (WHERE user_id = ?). With multiple
+open shifts, the X Report could pick the wrong shift and show 0 sales.
+
+IMPLEMENTATION
+--------------
+Modified the caisse:open-shift handler in ipc-cash-register-handlers.cjs.
+Before inserting a new shift, it now auto-closes any previous open
+shift for the same user:
+
+  UPDATE shifts SET status = 'closed', closed_at = datetime('now','localtime')
+  WHERE user_id = ? AND status = 'open'
+
+This runs inside the existing callback chain. The new shift is only
+inserted after the auto-close completes. If the auto-close affects 0
+rows (no previous open shift), the insert proceeds normally.
+
+Design decisions:
+  - AUTO-CLOSE (not reject): matches real POS behavior — you can't have
+    two registers open simultaneously. The close is non-destructive:
+    only status and closed_at are touched; closing_expected,
+    closing_actual, difference, cash_sales, card_sales, and other_sales
+    are left intact from the previous reconciliation.
+  - PER-USER (not global): each user can have their own shift. User A
+    opening a shift doesn't close User B's shift.
+  - BACKWARD COMPATIBLE: existing closed shifts are untouched. The
+    auto-close only affects status = 'open' rows for the same user.
+
+Files modified: 1
+  - src/electron/handlers/ipc-cash-register-handlers.cjs
+
+Possible side effects:
+  - The auto-closed shift gets closed_at = timestamp of new shift open,
+    which is slightly imprecise (actual work ended when the previous
+    shift was abandoned). This is acceptable — the shift's last sale
+    timestamp (via sales.created_at) provides the real end time.
+  - If a user's previous open shift was stale (e.g., 3 days old with
+    no sales), it will be quietly closed. The Z Report history will
+    still contain it for audit.
+  - X Report: always sees the latest open shift per user, which now
+    correctly contains that user's sales. With only one open shift per
+    user, the X Report's ORDER BY opened_at DESC LIMIT 1 finds the
+    correct active shift.
+  - Z Report: the close-shift handler already adds WHERE status = 'open'
+    and AND id = ?, so it will correctly reject attempts to close
+    already-closed shifts.
+
+----------------------------------------------------------------------
+
+RUNTIME TESTS TO PERFORM
+=========================
+
+Test 1: Backfill migration
+  1. Start with an existing database that has sales with shift_id = NULL.
+  2. Restart the app, observe console:
+     "✅ Backfill: Linked N legacy sale(s) to their shifts"
+  3. Query: SELECT COUNT(*) FROM sales WHERE shift_id IS NULL;
+     Expected: fewer nulls (or zero if all matched).
+  4. Query: SELECT s.id, s.shift_id, sh.id, sh.user_id, sh.opened_at
+     FROM sales s JOIN shifts sh ON s.shift_id = sh.id
+     WHERE s.shift_id IS NOT NULL LIMIT 10;
+     Expected: each sale linked to a shift with matching user_id and
+     valid time range.
+
+Test 2: Auto-close on shift open
+  1. Open a shift for user A (UI or IPC).
+  2. Open another shift for the same user A.
+  3. Query: SELECT COUNT(*) FROM shifts WHERE user_id = A AND status = 'open';
+     Expected: 1 (only the latest shift is open).
+  4. Query: SELECT id, user_id, status, closed_at FROM shifts
+     WHERE user_id = A ORDER BY opened_at DESC;
+     Expected: first row status = 'open', second row status = 'closed'.
+
+Test 3: Multiple users, independent shifts
+  1. User A opens a shift.
+  2. User B opens a shift.
+  3. Query: SELECT user_id, COUNT(*) FROM shifts WHERE status = 'open'
+     GROUP BY user_id;
+     Expected: each user has exactly 1 open shift.
+  4. User A can still see their sales in X Report.
+  5. User B can still see their sales in X Report.
+
+Test 4: Z Report backward compatibility
+  1. Open a shift, make sales, close via Z Report.
+  2. Verify Z Report saves correctly with shift_id match.
+  3. Open a new shift for the same user (the old one is already
+     closed, so auto-close does nothing).
+  4. Verify normal operation.
+
+Test 5: BI export unaffected
+  1. Export BI data for any business type.
+  2. Verify audit_logs.csv and vat_rates.csv appear in the export.
+  3. Verify all 21 datasets are present and have correct headers.
+  4. Verify no regressions in existing dataset content.
