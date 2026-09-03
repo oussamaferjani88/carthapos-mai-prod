@@ -1,11 +1,9 @@
 import { useState, useEffect, useCallback } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import {
-  LayoutDashboard,
   ArrowLeft,
   RefreshCw,
   AlertTriangle,
-  ExternalLink,
   Database,
 } from "lucide-react";
 import {
@@ -16,6 +14,7 @@ import {
 } from "../components/ui/card";
 import { Button } from "../components/ui/button";
 import { Badge } from "../components/ui/badge";
+import EmbeddedDashboardContainer from "../components/dashboard/EmbeddedDashboardContainer";
 import api from "../lib/api";
 import { useClientNameMap } from "../hooks/useClientNameMap";
 
@@ -34,8 +33,6 @@ const DASHBOARD_STATUS = {
   ARCHIVED: { label: "Archived", color: "bg-red-100 text-red-700" },
   FAILED: { label: "Failed", color: "bg-red-100 text-red-700" },
 };
-
-const METABASE_BASE_URL = "http://localhost:3000";
 
 function formatDate(iso) {
   if (!iso) return "\u2014";
@@ -160,48 +157,8 @@ export default function AdminDashboardViewer() {
         </div>
       </div>
 
-      {/* Metabase link section */}
-      {dashboard.metabaseDashboardId ? (
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base flex items-center gap-2">
-              <Database className="h-5 w-5 text-primary" />
-              Metabase Dashboard
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p className="text-sm text-muted-foreground mb-4">
-              Ce dashboard est lié au Metabase dashboard #
-              {dashboard.metabaseDashboardId}. Ouvrez-le dans Metabase pour
-              modifier les graphiques, filtres et la disposition.
-            </p>
-            <Button
-              variant="default"
-              onClick={() =>
-                window.open(
-                  `${METABASE_BASE_URL}/dashboard/${dashboard.metabaseDashboardId}`,
-                  "_blank",
-                )
-              }
-            >
-              <ExternalLink className="mr-2 h-4 w-4" /> Ouvrir dans Metabase
-            </Button>
-          </CardContent>
-        </Card>
-      ) : (
-        <Card>
-          <CardContent className="py-8 text-center">
-            <LayoutDashboard className="h-12 w-12 mx-auto text-muted-foreground mb-2" />
-            <p className="text-muted-foreground">
-              Ce dashboard n'est pas encore lié à un Metabase dashboard.
-            </p>
-            <p className="text-xs text-muted-foreground mt-1">
-              Associez-le depuis le gestionnaire de dashboards ou enregistrez un
-              template pour son type d'activité.
-            </p>
-          </CardContent>
-        </Card>
-      )}
+      {/* Live embedded Metabase dashboard (same view the client sees) */}
+      <EmbeddedDashboardContainer dashboardId={dashboard.id} />
 
       {/* Dashboard info */}
       <Card>
