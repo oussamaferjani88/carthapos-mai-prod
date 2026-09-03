@@ -1,0 +1,538 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ALL @import statements MUST come FIRST (PostCSS requirement) */
+@import './custom.css';
+@import './navbar-fix.css';
+@import "tailwindcss";
+
+/* POS Template - Complete CSS Configuration */
+
+/* CSS Custom Properties - Variables par défaut qui seront remplacées par la génération */
+:root {
+  /* Couleurs par défaut */
+  --color-primary: #3B82F6;
+  --color-primary-foreground: #FFFFFF;
+  --color-secondary: #6B7280;
+  --color-secondary-foreground: #FFFFFF;
+  --color-accent: #10B981;
+  --color-accent-foreground: #FFFFFF;
+  --color-background: #FFFFFF;
+  --color-card-background: #F9FAFB;
+  --color-text: #111827;
+  --color-text-muted: #6B7280;
+  --color-border: #E5E7EB;
+  
+  /* Typographie par défaut */
+  --font-family: Inter;
+  --font-size: 14px;
+  --font-weight: normal;
+  
+  /* Effets par défaut */
+  --border-radius: 8px;
+  --shadow-intensity: 1;
+  --opacity: 1;
+  
+  /* Layout par défaut */
+  --navbar-position: left;
+  --spacing-scale: 1;
+  --max-width: 1200px;
+}
+
+/* Base styling pour l'application */
+* {
+  box-sizing: border-box;
+}
+
+/* Scrollbar hiding utilities */
+.scrollbar-hide {
+  -ms-overflow-style: none;  /* Internet Explorer 10+ */
+  scrollbar-width: none;  /* Firefox */
+}
+
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;  /* Safari and Chrome */
+}
+
+/* Hide all notification elements */
+#notification-container,
+[id^="notification-"],
+.notification-item,
+.notification,
+.alert,
+.error-overlay,
+.error-notification {
+  display: none !important;
+  visibility: hidden !important;
+  opacity: 0 !important;
+  pointer-events: none !important;
+}
+
+/* Force dashboard cards to display side-by-side */
+.dashboard-stats-grid {
+  display: grid !important;
+  grid-template-columns: 1fr !important;
+  gap: 1.5rem !important;
+}
+
+@media (min-width: 768px) {
+  .dashboard-stats-grid {
+    grid-template-columns: repeat(2, 1fr) !important;
+  }
+}
+
+@media (min-width: 1280px) {
+  .dashboard-stats-grid {
+    grid-template-columns: repeat(4, 1fr) !important;
+  }
+}
+
+/* Force sales grid layout */
+.sales-main-grid {
+  display: grid !important;
+  grid-template-columns: 1fr !important;
+  gap: 0.75rem !important;
+}
+
+@media (min-width: 640px) {
+  .sales-main-grid {
+    grid-template-columns: 2fr 1fr !important;
+  }
+}
+
+/* Products and cart sections */
+.products-section {
+  min-width: 0;
+}
+
+.cart-section {
+  min-width: 300px;
+  max-width: 350px;
+}
+
+@media (max-width: 639px) {
+  .cart-section {
+    min-width: auto;
+    max-width: none;
+  }
+}
+
+/* Product cards styling */
+.product-card {
+  height: 6rem !important;
+  min-height: 6rem !important;
+  max-height: 6rem !important;
+}
+
+.product-card h3 {
+  display: -webkit-box !important;
+  -webkit-line-clamp: 2 !important;
+  line-clamp: 2 !important;
+  -webkit-box-orient: vertical !important;
+  overflow: hidden !important;
+}
+
+/* Cart styling */
+.cart-item {
+  font-size: 0.875rem !important;
+}
+
+.cart-item .quantity-controls button {
+  width: 1.5rem !important;
+  height: 1.5rem !important;
+  font-size: 0.75rem !important;
+}
+
+body {
+  margin: 0;
+  padding: 0;
+  font-family: var(--font-family), 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue', sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  background-color: var(--color-background);
+  color: var(--color-text);
+}
+
+/* Application principale */
+.pos-application {
+  min-height: 100vh;
+  background-color: var(--color-background);
+  color: var(--color-text);
+  opacity: var(--opacity);
+}
+
+/* Classes utilitaires personnalisées */
+.text-primary { color: var(--color-primary) !important; }
+.text-secondary { color: var(--color-secondary) !important; }
+.text-accent { color: var(--color-accent) !important; }
+.text-main { color: var(--color-text) !important; }
+.text-muted { color: var(--color-text-muted) !important; }
+
+.bg-primary { background-color: var(--color-primary) !important; }
+.bg-secondary { background-color: var(--color-secondary) !important; }
+.bg-accent { background-color: var(--color-accent) !important; }
+.bg-background { background-color: var(--color-background) !important; }
+.bg-card-background { background-color: var(--color-card-background) !important; }
+
+.border-main { border-color: var(--color-border) !important; }
+.border-primary { border-color: var(--color-primary) !important; }
+
+.rounded-dynamic { border-radius: var(--border-radius) !important; }
+
+/* Navigation dynamique basée sur la position */
+.navbar-right .nav-sidebar {
+  order: 2;
+}
+
+.navbar-right .nav-content {
+  order: 1;
+}
+
+.navbar-top .nav-wrapper {
+  flex-direction: column;
+}
+
+.navbar-top .nav-sidebar {
+  width: 100%;
+  height: auto;
+}
+
+.navbar-bottom .nav-wrapper {
+  flex-direction: column-reverse;
+}
+
+.navbar-bottom .nav-sidebar {
+  width: 100%;
+  height: auto;
+}
+
+/* Mode compact */
+.compact-mode .card {
+  padding: 0.75rem;
+  margin: 0.5rem;
+}
+
+.compact-mode .btn {
+  padding: 0.5rem 1rem;
+  font-size: 0.875rem;
+}
+
+/* Animations conditionnelles */
+.animations-enabled {
+  transition: all 0.3s ease;
+}
+
+.animations-enabled .card,
+.animations-enabled .btn,
+.animations-enabled .nav-item {
+  transition: all 0.2s ease;
+}
+
+.animations-disabled,
+.animations-disabled * {
+  transition: none !important;
+  animation: none !important;
+}
+
+/* Animations personnalisées */
+@keyframes fadeIn {
+  from { 
+    opacity: 0; 
+    transform: translateY(10px); 
+  }
+  to { 
+    opacity: 1; 
+    transform: translateY(0); 
+  }
+}
+
+.fade-in {
+  animation: fadeIn 0.5s ease-in-out;
+}
+
+/* Ombres conditionnelles */
+.shadows-enabled .card {
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+.shadows-enabled .card:hover {
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+}
+
+/* Mode sombre */
+.dark-theme {
+  --color-background: #1F2937;
+  --color-card-background: #374151;
+  --color-text: #F9FAFB;
+  --color-text-muted: #D1D5DB;
+  --color-border: #4B5563;
+}
+
+/* Thème par défaut (mode clair) */
+.light-theme {
+  --color-background: #FFFFFF;
+  --color-card-background: #F9FAFB;
+  --color-text: #111827;
+  --color-text-muted: #6B7280;
+  --color-border: #E5E7EB;
+}
+
+/* ========================================
+   🎨 CLASSES D'ANIMATION MODERNES (Preview Style)
+   ======================================== */
+
+/* Glass Effect - Effet verre moderne */
+.pos-glass-effect,
+.pos-glass-card {
+  background: rgba(255, 255, 255, 0.8) !important;
+  backdrop-filter: blur(10px) !important;
+  -webkit-backdrop-filter: blur(10px) !important;
+  border: 1px solid rgba(255, 255, 255, 0.3) !important;
+}
+
+.dark-theme .pos-glass-effect,
+.dark-theme .pos-glass-card {
+  background: rgba(31, 41, 55, 0.8) !important;
+  border: 1px solid rgba(255, 255, 255, 0.1) !important;
+}
+
+/* Gradient Backgrounds */
+.pos-gradient-subtle {
+  background: linear-gradient(135deg, rgba(59, 130, 246, 0.05) 0%, rgba(147, 51, 234, 0.05) 100%) !important;
+}
+
+.pos-gradient-primary {
+  background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%) !important;
+}
+
+.pos-gradient-accent {
+  background: linear-gradient(135deg, #10b981 0%, #059669 100%) !important;
+}
+
+/* Shadow Intensity Levels */
+.pos-shadow-none {
+  box-shadow: none !important;
+}
+
+.pos-shadow-light {
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05) !important;
+}
+
+.pos-shadow-medium {
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1) !important;
+}
+
+.pos-shadow-heavy {
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.15) !important;
+}
+
+/* Animation Type Classes */
+.animation-slide {
+  animation: slideIn 0.3s ease-out;
+}
+
+.animation-fade {
+  animation: fadeIn 0.3s ease-out;
+}
+
+.animation-scale {
+  animation: scaleIn 0.3s ease-out;
+}
+
+/* Animation Speed Classes */
+.animation-slow {
+  animation-duration: 0.5s !important;
+  transition-duration: 0.5s !important;
+}
+
+.animation-normal {
+  animation-duration: 0.3s !important;
+  transition-duration: 0.3s !important;
+}
+
+.animation-fast {
+  animation-duration: 0.15s !important;
+  transition-duration: 0.15s !important;
+}
+
+/* Keyframe Animations */
+@keyframes slideIn {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes slideInRight {
+  from {
+    opacity: 0;
+    transform: translateX(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes scaleIn {
+  from {
+    opacity: 0;
+    transform: scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+/* Hover Effects */
+.pos-hover-lift {
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.pos-hover-lift:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 16px rgba(0, 0, 0, 0.1);
+}
+
+.pos-hover-glow:hover {
+  box-shadow: 0 0 20px rgba(59, 130, 246, 0.4);
+}
+
+/* Card Styles */
+.pos-card {
+  background: var(--color-card-background);
+  border: 1px solid var(--color-border);
+  border-radius: var(--border-radius);
+  padding: 1rem;
+  transition: all 0.2s ease;
+}
+
+.pos-card-hover:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+}
+
+/* Notification Toast Styles */
+.pos-notification-toast {
+  position: fixed;
+  top: 1rem;
+  right: 1rem;
+  z-index: 9999;
+  padding: 1rem 1.5rem;
+  border-radius: 0.5rem;
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.2);
+  animation: slideInRight 0.3s ease-out;
+  max-width: 400px;
+}
+
+.pos-notification-success {
+  background: #10b981;
+  color: white;
+}
+
+.pos-notification-error {
+  background: #ef4444;
+  color: white;
+}
+
+.pos-notification-info {
+  background: #3b82f6;
+  color: white;
+}
+
+/* Backdrop Overlay */
+.pos-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.3);
+  backdrop-filter: blur(2px);
+  z-index: 40;
+  animation: fadeIn 0.2s ease-out;
+}
+
+/* Sidebar Overlay Modern Style */
+.pos-sidebar-overlay {
+  position: fixed;
+  left: 0;
+  top: 0;
+  height: 100%;
+  width: 256px;
+  z-index: 50;
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.3);
+  animation: slideInRight 0.3s ease-out;
+}
+
+/* Navbar Icon Bar */
+.pos-navbar-icons {
+  width: 64px;
+  background: var(--color-primary);
+  box-shadow: 2px 0 10px rgba(0, 0, 0, 0.1);
+}
+
+.pos-navbar-icons .icon-button {
+  position: relative;
+  transition: background 0.2s ease;
+}
+
+.pos-navbar-icons .icon-button:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.pos-navbar-icons .icon-button.active {
+  background: rgba(255, 255, 255, 0.2);
+}
+
+.pos-navbar-icons .icon-button.active::after {
+  content: '';
+  position: absolute;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  width: 4px;
+  background: white;
+  border-radius: 2px 0 0 2px;
+}
+
+/* Smooth Transitions */
+.pos-transition-all {
+  transition: all 0.3s ease;
+}
+
+.pos-transition-colors {
+  transition: background-color 0.2s ease, color 0.2s ease;
+}
+
+.pos-transition-transform {
+  transition: transform 0.2s ease;
+}
+
+/* Responsive Utilities */
+@media (max-width: 768px) {
+  .pos-sidebar-overlay {
+    width: 80%;
+    max-width: 300px;
+  }
+  
+  .pos-notification-toast {
+    right: 0.5rem;
+    left: 0.5rem;
+    max-width: none;
+  }
+}
+
+/* Print Styles */
+@media print {
+  .pos-navbar,
+  .pos-header,
+  .pos-footer,
+  .pos-notification-toast {
+    display: none !important;
+  }
+}
+
