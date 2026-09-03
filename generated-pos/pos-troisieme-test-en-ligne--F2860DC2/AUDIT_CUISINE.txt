@@ -1,0 +1,187 @@
+# AUDIT — Module CUISINE (Kitchen Display)
+# Date: 2026-07-21
+# Score: 4.9 / 10
+# Files: Kitchen.jsx (527L), ipc-kitchen-handlers.cjs (142L), ipc-sales-handlers.cjs (kitchen creation), ElectronDatabaseManager.cjs (schema)
+
+═══════════════════════════════════════════════════════════════
+ HA (HIGH) — 3 issues
+═══════════════════════════════════════════════════════════════
+
+HA-01  `in_progress` vs CHECK Constraint Mismatch
+  File: ipc-kitchen-handlers.cjs:98,104 | ElectronDatabaseManager.cjs:964
+  DB CHECK allows: pending|preparing|ready|served|completed|cancelled
+  IPC handler accepts: in_progress (normalizes to preparing)
+  Risk: Any other code path writing in_progress = constraint violation
+
+HA-02  No JSON.parse Error Handling in IPC Handlers
+  File: ipc-kitchen-handlers.cjs:36,63,75
+  JSON.parse(row.items) with no try-catch. Malformed JSON crashes the entire IPC call.
+
+HA-03  XSS Vulnerability in Print Function
+  File: Kitchen.jsx:162-168
+  order.notes, item.name, item.quantity injected into HTML via template literals.
+  Malicious input (e.g. <script>) executes in the print popup window.
+
+═══════════════════════════════════════════════════════════════
+ MOY (MEDIUM) — 18 issues
+═══════════════════════════════════════════════════════════════
+
+MOY-03  No Input Validation in add-kitchen-order
+  File: ipc-kitchen-handlers.cjs:80-93
+  No type checks on table_number, priority, items, total, sale_id
+
+MOY-04  Kitchen Order Creation — Missing tableInfo Validation
+  File: ipc-sales-handlers.cjs:142-168
+  tableInfo lookup can silently return null → meaningless table number
+
+MOY-05  No State Machine for Status Transitions
+  File: ipc-kitchen-handlers.cjs:97-123
+  completed→pending, cancelled→preparing are all allowed
+
+MOY-06  Double Sound Playback on New Kitchen Order
+  File: Kitchen.jsx:119-128, 105-107
+  Event handler calls playNewOrderSound() + loadKitchenOrders() also calls it.
+  Sound plays TWICE for every new order.
+
+MOY-07  parseInt on Elapsed Time String = Wrong Overdue Detection
+  File: Kitchen.jsx:335
+  getElapsedTime returns "2h30" → parseInt("2h30") = 2 → 2 > 15 = false
+  Order waiting 2h30min appears NOT overdue.
+
+MOY-08  No Loading/Disabled State on Status Update Buttons
+  File: Kitchen.jsx:371-380, 487-499
+  No button disable during async API calls → double-click triggers duplicates
+
+MOY-09  15s Polling Interval = Visual Jitter
+  File: Kitchen.jsx:121
+  Entire order list re-fetches and re-renders every 15s even if unchanged.
+
+MOY-10  Hardcoded French — No i18n
+  File: Kitchen.jsx throughout
+  "En attente", "En cours", "Prêt" etc. — non-translatable
+
+MOY-11  Order Items Truncated to 4 — No Expand
+  File: Kitchen.jsx:344-358
+  slice(0,4) hides critical info for large orders (catering, banquets)
+
+MOY-12  No Confirmation Dialog for Order Cancellation
+  File: Kitchen.jsx:382-391
+  Cancel button immediately cancels without confirmation
+
+MOY-13  No Auth Checks on Kitchen IPC Handlers
+  File: ipc-kitchen-handlers.cjs (all handlers)
+  Any authenticated user can modify any kitchen order status
+
+MOY-14  Duplicated Kitchen Order Creation Logic
+  File: ipc-kitchen-handlers.cjs:80-93 vs ipc-sales-handlers.cjs:142-168
+  Two different code paths with slightly different logic
+
+MOY-15  Redundant Client-Side Filtering
+  File: Kitchen.jsx:89-117, 200-213
+  Backend already filters by status, frontend re-filters same criteria
+
+MOY-16  getConfig() Called on Every Render (Not Memoized)
+  File: Kitchen.jsx:56-66
+
+MOY-17  No Real-Time Push Notifications (15s Polling Only)
+  File: Kitchen.jsx:121
+
+MOY-18  No Kitchen Printer Integration
+  File: Kitchen.jsx:141-181
+  Uses window.open() for printing. Ignores printer_configs table.
+
+MOY-19  No ARIA Labels on Action Buttons
+  File: Kitchen.jsx:369-406
+
+MOY-20  Color-Only Priority Indicators
+  File: Kitchen.jsx:31-34
+
+MOY-21  Module Name Mismatch: kitchen-printer vs kitchen
+  File: app-config.json:23 vs POSNavbar.jsx:49
+
+MOY-22  Order Priority Always Hardcoded to 'normal' from Sales
+  File: ipc-sales-handlers.cjs:157
+
+═══════════════════════════════════════════════════════════════
+ BAS (LOW) — 7 issues
+═══════════════════════════════════════════════════════════════
+
+BAS-01  get-kitchen-order-stats Handler Is Dead Code (Never Called)
+  File: ipc-kitchen-handlers.cjs:126-139
+
+BAS-02  No Kitchen Order Deletion/Archival Endpoint
+  File: ipc-kitchen-handlers.cjs
+
+BAS-03  Unused Imports: Bell, Filter
+  File: Kitchen.jsx:10-11
+
+BAS-04  StatCard Not Memoized (Re-renders Every 15s)
+  File: Kitchen.jsx:513-527
+
+BAS-05  prevOrderCount Ref Inconsistency With Event Handler
+  File: Kitchen.jsx:52, 105-108, 122
+
+BAS-06  No Pagination/Virtualization for All Orders View
+  File: Kitchen.jsx:286
+
+BAS-07  No Auto-Refresh Indicator (Last Updated Xs Ago)
+  File: Kitchen.jsx
+
+═══════════════════════════════════════════════════════════════
+ INFO — 6 issues
+═══════════════════════════════════════════════════════════════
+
+INFO-01  Stats Cards Grid Overcrowded on Medium Screens (7 cols)
+INFO-02  window.open() May Be Blocked by Popup Blocker
+INFO-03  Missing KITCHEN Role in UserManagementAdvanced.jsx
+INFO-04  No Batch Status Updates ("Start All Pending")
+INFO-05  No KDS Full-Screen/Kanban Mode
+INFO-06  No Estimated Preparation Time Concept
+
+═══════════════════════════════════════════════════════════════
+ HARDCODED VALUES (11+)
+═══════════════════════════════════════════════════════════════
+
+  Kitchen.jsx:121  → 15000 (polling interval)
+  Kitchen.jsx:146  → '─'.repeat(32) (receipt width)
+  Kitchen.jsx:163  → 80mm (paper width)
+  Kitchen.jsx:164  → 12px (font size)
+  Kitchen.jsx:335  → 15 (overdue threshold minutes)
+  Kitchen.jsx:344  → slice(0,4) (item display limit)
+  Kitchen.jsx:78-79 → 880Hz, 0.3s (sound)
+  Kitchen.jsx:80   → 0.3 (volume)
+  ipc-sales-handlers.cjs:157 → 'normal' (default priority)
+  ipc-sales-handlers.cjs:157 → 'pending' (default status)
+
+═══════════════════════════════════════════════════════════════
+ CATEGORY SCORES
+═══════════════════════════════════════════════════════════════
+
+  Backend / Database .... 5/10
+  UI/UX ................ 5/10
+  Code Quality ......... 6/10
+  Security ............. 5/10
+  Performance .......... 6/10
+  Feature Completeness . 5/10
+  Consistency .......... 5/10
+  Accessibility ........ 4/10
+  Hardcoded Values ..... 3/10
+
+  ════════════════════════
+  OVERALL SCORE: 4.9 / 10
+  ════════════════════════
+
+═══════════════════════════════════════════════════════════════
+ TOP 10 PRIORITY FIXES
+═══════════════════════════════════════════════════════════════
+
+  1. Fix XSS in print function (HA-03)
+  2. Fix double sound playback (MOY-06)
+  3. Fix parseInt overdue timer bug (MOY-07)
+  4. Resolve in_progress CHECK constraint (HA-01)
+  5. Add input validation to add-kitchen-order (MOY-03)
+  6. Add auth checks to IPC handlers (MOY-13)
+  7. Implement real-time push notifications (MOY-17)
+  8. Add confirmation dialog for cancellation (MOY-12)
+  9. Memoize expensive computations (MOY-09, MOY-15)
+  10. Integrate with kitchen printer system (MOY-18)
