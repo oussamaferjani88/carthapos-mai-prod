@@ -105,6 +105,10 @@ services:
     rootDir: frontend
     buildCommand: npx pnpm install && npx pnpm run build
     staticPublishPath: dist
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html
     envVars:
       - key: VITE_API_URL
         value: https://carthapos-backend.onrender.com/api
@@ -118,6 +122,10 @@ services:
     rootDir: admin
     buildCommand: npx pnpm install && npx pnpm run build
     staticPublishPath: dist
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html
     envVars:
       - key: VITE_API_URL
         value: https://carthapos-backend.onrender.com/api
