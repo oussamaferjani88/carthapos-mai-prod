@@ -19,6 +19,29 @@ async function autoSeed() {
         console.error('❌ Permission seed failed:', error);
     }
 
+    // Register the restaurant BI dashboard template up front (idempotent).
+    // Temporary bootstrap until the BiTemplates admin management page (separately
+    // requested) is built — at that point new business types get registered through
+    // that UI instead of code. Only 'restaurant' is bootstrapped here because it is
+    // the only master dashboard that exists in Metabase right now.
+    try {
+        const existing = await prisma.biDashboardTemplate.findUnique({
+            where: { businessType: 'restaurant' },
+        });
+        if (!existing) {
+            await prisma.biDashboardTemplate.create({
+                data: {
+                    businessType: 'restaurant',
+                    metabaseDashboardId: 2,
+                    name: 'Restaurant Executive Dashboard',
+                },
+            });
+            console.log('[SEED] Registered restaurant BI dashboard template (metabaseDashboardId=2)');
+        }
+    } catch (error) {
+        console.error('❌ BI dashboard template seed failed:', error);
+    }
+
     try {
         // 1. Check if seeding is needed
         const moduleCount = await prisma.module.count();
