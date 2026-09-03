@@ -1,0 +1,273 @@
+============================================================
+AUDIT PARAMÈTRES MATÉRIEL (HardwareSettings.jsx)
+============================================================
+Score: 4/10
+
+Fichiers audités:
+  - src/pages/HardwareSettings.jsx (406 lignes)
+  - src/lib/hardware/thermalPrinter.js (330 lignes)
+  - src/lib/hardware/cashDrawer.js (227 lignes)
+  - src/hooks/useSettings.js (122 lignes)
+
+Résumé:
+  La section Paramètres Matériel est un assemblage de 6 blocs
+  UI (Tiroir-Caisse, Imprimante, Raccourcis, Notifications,
+  Kiosque, Sauvegarde) qui sauvegardent des clés dans la table
+  SQLite settings via useSettings. Côté backend, les handlers
+  IPC pour les opérations matérielles réelles (ouvrir tiroir,
+  initialiser imprimante) n'existent PAS — les composants
+  appellent des objets window.cashDrawer / window.thermalPrinter
+  qui sont des classes JS côté renderer sans pont Electron réel.
+  La sauvegarde/restauration est tronquée : pas de handler
+  IPC pour créer une vrai backup.
+
+============================================================
+PROBLÈMES HAUTE PRIORITÉ (HA)
+============================================================
+
+HA-01: Aucun handler IPC pour les opérations matérielles
+       HardwareSettings.jsx appelle:
+         - window.cashDrawer.initialize()
+         - window.cashDrawer.testConnection()
+         - window.cashDrawer.openDrawer()
+         - window.thermalPrinter.initialize()
+         - window.thermalPrinter.testPrint()
+         - window.kioskMode.toggleKioskMode()
+         - window.keyboardShortcuts.setEnabled()
+         - window.backupManager.createBackup()
+       Aucun de ces appels n'a de handler IPC correspondant
+       dans electron-modular.cjs ou ipc-app-handlers.cjs.
+       preload.cjs n'expose pas non plus ces méthodes.
+       → Les boutons "Tester", "Ouvrir maintenant", "Basculer
+         le mode kiosque" et "Créer une sauvegarde" ne
+         fonctionneront JAMAIS en production Electron.
+       Fichiers: HardwareSettings.jsx:98-133, cashDrawer.js,
+                 thermalPrinter.js:23-41
+
+HA-02: cashDrawer.js lit localStorage('pos_user') pour le user
+       cashDrawer.js:125 fait localStorage.getItem('pos_user')
+       au lieu d'utiliser le contexte React ou une variable
+       partagée. C'est un pattern fragile qui casse si:
+         - L'utilisateur change de session
+         - Le localStorage est nettoyé
+         - Le format change
+       → Risque de userId=0 / userName='unknown' dans les logs.
+       Fichier: cashDrawer.js:125-136
+
+HA-03: cashDrawer.js écrit encore dans localStorage en parallèle
+       cashDrawer.js:160-168 écrit dans localStorage('drawerEvents')
+       en plus de la DB. Le commentaire dit "NOT the source of
+       truth" mais le code continue de lire ce localStorage dans
+       getDrawerHistory() (ligne 189, 193). Si la DB est
+       indisponible, on retourne des données localStorage qui
+       peuvent être manipulées côté client.
+       Fichier: cashDrawer.js:159-168, 179-193
+
+============================================================
+PROBLÈMES MOYENS PRIORITÉS (MOY)
+============================================================
+
+MOY-01: useSettingsHook contournement fragile
+       HardwareSettings.jsx:22 utilise:
+         const useSettingsHook = typeof useSettings === 'function'
+           ? useSettings : null;
+       puis ligne 25:
+         const { settings, setSetting, setMultipleSettings } = useSettingsHook();
+       Si useSettingsHook est null (import cassé), ligne 25
+       plantera avec "useSettingsHook is not a function".
+       → Le fallback n'a aucun sens : si useSettings n'est pas
+         une fonction, le composant doit planter proprement,
+         pas masquer l'erreur.
+       Fichier: HardwareSettings.jsx:22,25
+
+MOY-02: setMultipleSettings importé mais jamais utilisé
+       useSettings hook retourne setMultipleSettings mais
+       HardwareSettings.jsx ne l'utilise nulle part. Chaque
+       changement fait un setSetting individuel.
+       → Surcoût de 20+ appels IPC séquentiels quand on change
+         plusieurs paramètres d'un coup.
+       Fichier: HardwareSettings.jsx:25, 94-96
+
+MOY-03: Sauvegarde intervalle avec unité "minutes" mais valeur ms
+       HardwareSettings.jsx:361 affiche "1 min, 5 min, 10 min..."
+       mais les valeurs sont en millisecondes (60000, 300000...).
+       Le SelectItem value="60000" affiche "1 min".
+       → Confusion utilisateur : croit configurer en minutes,
+         mais c'est en ms. Si l'utilisateur entre 1 dans un
+         champ texte, il obtient 1ms pas 1 minute.
+       Fichier: HardwareSettings.jsx:361-364
+
+MOY-04: Backup maxBackups n'a pas de debounce
+       HardwareSettings.jsx:370 fait un saveAndNotify() à chaque
+       frappe clavier dans l'Input number. Si l'utilisateur tape
+       "50", cela déclenche 2 appels IPC (sauvegarde "5" puis
+       "50") au lieu d'un seul.
+       → Spam d'écritures DB inutile.
+       Fichier: HardwareSettings.jsx:370
+
+MOY-05: Aucune validation côté client pour maxBackups
+       L'Input min="1" max="200" n'est pas respecté par le
+       handler onChange qui fait parseInt(e.target.value) || 50.
+       Si l'utilisateur tape "0", on obtient 0. Si on tape
+       "999", on obtient 999.
+       → La validation min/max HTML5 est contournée par le JS.
+       Fichier: HardwareSettings.jsx:370
+
+MOY-06: thermalPrinter.js utilise encore \uXXXX dans les strings
+       thermalPrinter.js:80, 89, 97, 126, 163, 223, 297
+       contiennent des séquences Unicode échappées.
+       → Contrairement à la convention du projet (UTF-8 brut).
+         Cela fonctionne mais est incohérent avec le reste.
+       Fichier: thermalPrinter.js (multiples lignes)
+
+MOY-07: Pas de ScrollArea pour la page entière
+       La page HardwareSettings contient 6 Cards empilées sans
+       ScrollArea parent. Sur des écrans petits, il y aura un
+       scroll natif du navigateur au lieu du scroll stylé
+       shadcn/radix utilisé partout ailleurs.
+       → Incohérence UI avec les autres pages Settings.
+       Fichier: HardwareSettings.jsx:179-404
+
+MOY-08: StatusIcon et StatusBadge re-déclarés à chaque render
+       StatusIcon (ligne 162) et StatusBadge (ligne 172) sont
+       déclarés DANS le composant, pas en dehors. À chaque
+       re-render, de nouveaux composants sont créés, ce qui
+       force React à démonter/remonter les badges.
+       → flicker visible, gaspillage de performance.
+       Fichier: HardwareSettings.jsx:162-176
+
+MOY-09: Aucune notification sonore réelle implémentée
+       La section Notifications propose 4 toggles (activées,
+       sons, persistantes, stock faible) qui sauvegardent des
+       clés DB mais n'initialisent/activent aucun système de
+       notification réel. La seule notif IPC est
+       'notifications:show' dans ipc-app-handlers.cjs:371
+       qui n'est jamais appelé par HardwareSettings.
+       → Les toggles sont cosmétiques, sans effet réel.
+
+============================================================
+PROBLÈMES BASSE PRIORITÉ (BAS)
+============================================================
+
+BAS-01: printReceipts vs printerEnabled — deux clés pour le même
+        concept
+        HardwareSettings lit settings.printerEnabled pour l'état
+        du switch "Activer l'imprimante" mais settings.printReceipts
+        pour printer.autoprint. Les deux clés existent dans
+        ALLOWED_SETTINGS_KEYS et BOOLEAN_KEYS. C'est ambigu :
+        printerEnabled contrôle l'imprimante matériellement,
+        printReceipts contrôle l'impression automatique des
+        tickets. Mais dans l'UI il n'y a qu'un seul switch.
+        → Confusion potentiel entre les deux clés.
+
+BAS-02: Aucun feedback quand cashDrawer/thermalPrinter manquent
+        Si window.cashDrawer ou window.thermalPrinter est undefined
+        (pas dans Electron), le bouton "Tester" affiche juste
+        un toast "Non disponible". Il n'y a pas d'indication
+        visuelle dans la System Status Card que le composant
+        n'est pas disponible vs en erreur.
+        → L'utilisateur voit "Erreur" pour les deux cas.
+
+BAS-03: Hardcoded default 'DT' comme devise
+        thermalPrinter.js:55 utilise 'DT' comme devise par
+        défaut si la DB ne renvoie rien. C'est un raccourci
+        spécifique au marché tunisien, pas un vrai défaut mais
+        une coupling forte.
+        Fichier: thermalPrinter.js:55,61,97,143,266,277,306
+
+BAS-04: Backup interval select affiche des valeurs non human-
+        readable
+        Le Select d'intervalle (ligne 361-364) affiche les
+        labels "1 min, 5 min..." mais les values internes
+        sont en ms. Le composant reconvertit parseInt(v) pour
+        sauvegarder. C'est correct mais fragile si quelqu'un
+        ajoute une valeur avec un format différent.
+
+BAS-05: Aucune désactivation conditionnelle des boutons
+        - "Ouvrir maintenant" devrait être disabled si
+          cashDrawer.enabled est false
+        - "Test d'impression" devrait être disabled si
+          printer.enabled est false
+        - "Créer une sauvegarde" devrait être disabled si
+          backup.autoBackup est false
+        - "Basculer le mode kiosque" devrait être disabled si
+          kiosk.enabled est false
+        Fichier: HardwareSettings.jsx:239-240, 277, 343, 374
+
+BAS-06: Aucune confirmation avant restauration
+        Le bouton "Restaurer" dans le Dialog exécute
+        directement executeRestore() sans demander confirmation
+        une seconde fois. L'utilisateur peut accidentellement
+        restaurer un mauvais fichier.
+        Fichier: HardwareSettings.jsx:400
+
+BAS-07: Unused import ScrollArea
+        HardwareSettings.jsx:13 importe ScrollArea mais ne
+        l'utilise nulle part dans le JSX.
+        Fichier: HardwareSettings.jsx:13
+
+BAS-08: Unused import Separator
+        HardwareSettings.jsx:8 importe Separator mais ne
+        l'utilise nulle part dans le JSX.
+        Fichier: HardwareSettings.jsx:8
+
+BAS-09: Unused import Settings
+        HardwareSettings.jsx:17 importe Settings (lucide) mais
+        ne l'utilise nulle part dans le JSX.
+        Fichier: HardwareSettings.jsx:17
+
+BAS-10: Unused import Save
+        HardwareSettings.jsx:19 importe Save (lucide) mais ne
+        l'utilise nulle part dans le JSX.
+        Fichier: HardwareSettings.jsx:19
+
+============================================================
+PROBLÈMES D'INFO / OBSERVATIONS
+============================================================
+
+INFO-01: cashDrawer.js a encore du code de fallback localStorage
+         dans logDrawerEvent et getDrawerHistory. Ce n'est pas
+         un bug mais une dette technique — il faudrait supprimer
+         ces fallbacks et faire planter proprement si ElectronAPI
+         est indisponible.
+
+INFO-02: thermalPrinter.js crée une instance singleton globale
+         (export const thermalPrinter = new ThermalPrinterManager())
+         et l'assigne à window.thermalPrinter. C'est un pattern
+         acceptable pour Electron mais empêche le tree-shaking.
+
+INFO-03: La page HardwareSettings ne fait pas de ScrollArea
+         wrapper. Les autres pages de Settings (Settings.jsx,
+         ReceiptDesigner.jsx) utilisent un layout différent.
+         → Incohérence de layout entre les 3 sous-pages Settings.
+
+INFO-04: Le composant utilise React.useRef pour le input file
+         caché (ligne 38) mais utilise aussi le style "hidden"
+         avec className="hidden". Les deux méthodes fonctionnent,
+         c'est redondant mais pas un bug.
+
+============================================================
+RECOMMANDATIONS
+============================================================
+
+Priorité 1 (Blockant):
+  1. Créer les handlers IPC pour cashDrawer, thermalPrinter,
+     kioskMode, keyboardShortcuts, backupManager dans
+     electron-modular.cjs et exposer dans preload.cjs
+  2. OU marquer ces features comme "preview/développement" et
+     masquer les boutons si les API ne sont pas disponibles
+
+Priorité 2 (Important):
+  3. Supprimer le fallback localStorage dans cashDrawer.js
+  4. Déplacer StatusIcon/StatusBadge en composants séparés
+     hors du render
+  5. Ajouter un debounce sur le champ maxBackups
+  6. Corriger l'unité du Select interval (ms vs minutes)
+  7. Ajouter un ScrollArea wrapper
+
+Priorité 3 (Mineur):
+  8. Supprimer les 4 imports inutilisés (ScrollArea, Separator,
+     Settings, Save)
+  9. Supprimer le useSettingsHook fallback inutile
+  10. Ajouter des disabled states conditionnels sur les boutons
+  11. Nettoyer les \uXXXX dans thermalPrinter.js

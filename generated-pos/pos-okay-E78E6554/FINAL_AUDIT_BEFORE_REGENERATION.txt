@@ -1,0 +1,400 @@
+╔══════════════════════════════════════════════════════════════════════════════╗
+║         FINAL STATIC CODE AUDIT — Before Regenerating the POS              ║
+║         Do NOT consider any issue "resolved" until runtime verified        ║
+╚══════════════════════════════════════════════════════════════════════════════╝
+
+Generated: 2026-07-28
+Scope: D:\Carthapos\pos-template\src
+
+
+═══════════════════════════════════════════════════════════════════════════════
+1.  SESSION SYSTEM — Code Consistency Audit
+═══════════════════════════════════════════════════════════════════════════════
+
+1a. activeSessions.set() — All 4 call sites
+───────────────────────────────────────────────────────────────────────────────
+
+  Line  File                              Handler / Context
+  ───── ───────────────────────────────── ───────────────────────────────────
+   61   ipc-auth-handlers.cjs             auth-session-set (renderer → main)
+  122   ipc-auth-handlers.cjs             create-admin-user (first-time setup)
+  160   ipc-auth-handlers.cjs             authenticate-user (username/password)
+  172   ipc-auth-handlers.cjs             authenticate-by-pin (PIN login)
+
+  ✓ Every login path registers the session.
+  ✓ create-admin-user (line 122) was the FIX: was missing before.
+  ✓ auth-session-set (line 61) is the IPC bridge called by the renderer.
+
+1b. authSessionSet() — All 5 call sites (renderer side)
+───────────────────────────────────────────────────────────────────────────────
+
+  Line  File                              Context
+  ───── ───────────────────────────────── ───────────────────────────────────
+  133   AuthContext.jsx                   checkAuthStatus (app restart)
+  187   AuthContext.jsx                   login() (standard auth)
+  223   AuthContext.jsx                   loginByUserSelect() (card click)
+  263   AuthContext.jsx                   setUserDirectly() (setup wizard)
+  201   App.jsx                           handleSetupComplete() (wizard done)
+
+  ✓ Every path that restores or sets a user now re-registers the session.
+  ✓ checkAuthStatus (line 133) was the FIRST FIX: handles app restart.
+  ✓ setUserDirectly (line 263) was the SECOND FIX: handles setup wizard path.
+  ✓ handleSetupComplete (line 201) was the THIRD FIX: await before navigation.
+
+1c. activeSessions.delete() — All 2 call sites
+───────────────────────────────────────────────────────────────────────────────
+
+  Line  File                              Context
+  ───── ───────────────────────────────── ───────────────────────────────────
+   66   ipc-auth-handlers.cjs             auth-session-clear
+  184   ipc-auth-handlers.cjs             logout
+
+  ✓ Session is properly cleared on explicit logout and session-clear IPC.
+
+1d. getCurrentUserRole() — All call sites
+───────────────────────────────────────────────────────────────────────────────
+
+  Used by 3 files:
+    ipc-auth-handlers.cjs    — 9 calls (line 44,51,107,247,290,338,357,442,516)
+    ipc-app-handlers.cjs     — 4 calls (line 34,198,251,284,355)
+    ipc-hardware-handlers.cjs — 3 calls (line 15,25,32)
+
+  ✓ Reads activeSessions.get(wcId)?.userData?.role
+  ✓ Returns null when session missing → handled by callers (return empty, etc.)
+
+1e. requireAdmin() — All call sites
+───────────────────────────────────────────────────────────────────────────────
+
+  Only in ipc-auth-handlers.cjs:
+    Line 212 (get-all-users), 226 (add-user), 264 (delete-user),
+    305 (admin-reset-password), 384 (set-user-modules), 419 (update-security-settings)
+
+  ✓ Throws "Accès refusé: droits administrateur requis" if role is not admin/manager.
+  ✓ All protected handlers now have sessions properly set.
+
+1f. Suspicious Code Path — Redundant authSessionSet call
+───────────────────────────────────────────────────────────────────────────────
+
+  In handleSetupComplete (App.jsx:196-206):
+
+    setUserDirectly(adminUser);              // ← fires authSessionSet (no await, .catch())
+    if (!isPreviewMode() && window.electronAPI?.authSessionSet) {
+      await window.electronAPI.authSessionSet(...)  // ← fires authSessionSet AGAIN (awaited)
+    }
+
+  IMPACT: authSessionSet is called twice. The first call (from setUserDirectly) is
+  fire-and-forget; the second is explicitly awaited. This is harmless redundancy —
+  the IPC handler just overwrites the same session entry. No bug.
+
+1g. Code Path Analysis — Is every user-setting path covered?
+───────────────────────────────────────────────────────────────────────────────
+
+  Path A: Standard login (username/password)
+    authenticate-user IPC → activeSessions.set (line 160)
+    Renderer: login() → authSessionSet (line 187)
+    ✓ Both sides register
+
+  Path B: PIN login
+    authenticate-by-pin IPC → activeSessions.set (line 172)
+    Renderer: loginByUserSelect() → authSessionSet (line 223)
+    ✓ Both sides register
+
+  Path C: First-time setup → wizard complete
+    create-admin-user IPC → activeSessions.set (line 122) ← FIXED
+    Renderer: handleSetupComplete → setUserDirectly (line 198) → authSessionSet (line 263)
+    + explicit await authSessionSet (line 201)
+    ✓ Session registered before setIsFirstTime(false)
+
+  Path D: App restart (page reload)
+    checkAuthStatus (line 102) reads localStorage
+    → validates user exists → setUser (line 127)
+    → authSessionSet (line 133) ← FIXED
+    ✓ Session re-registered after restart
+
+  Path E: Preview mode
+    setUserDirectly called (line 247 or 198)
+    ✓ isPreviewMode() guards skip authSessionSet — correct (no IPC in preview)
+
+  CONCLUSION: All 4 production paths (A-D) now register the session.
+  Preview mode (E) correctly skips IPC calls.
+
+═══════════════════════════════════════════════════════════════════════════════
+2.  AUDIT LOGGING COVERAGE
+═══════════════════════════════════════════════════════════════════════════════
+
+2a. Events already logged (via ElectronAuthManager.logAuditEvent)
+───────────────────────────────────────────────────────────────────────────────
+
+  Action Type          Source
+  ──────────────────── ──────────────────────────────────────────────────────
+  LOGIN_SUCCESS        ElectronAuthManager.cjs:368 (password auth)
+  LOGIN_SUCCESS        ElectronAuthManager.cjs:1065 (PIN auth)
+  LOGIN_FAILED         ElectronAuthManager.cjs:344 (password)
+  LOGIN_FAILED         ElectronAuthManager.cjs:1051 (PIN)
+  ACCOUNT_LOCKED       ElectronAuthManager.cjs:340 (password)
+  ACCOUNT_LOCKED       ElectronAuthManager.cjs:1047 (PIN)
+  PASSWORD_CHANGE      ElectronAuthManager.cjs:401
+  PASSWORD_RESET       ElectronAuthManager.cjs:426 (by admin)
+  LOGOUT               ElectronAuthManager.cjs:452 ← FIXED (was missing)
+  USER_CREATE          ElectronAuthManager.cjs:806
+  USER_UPDATE          ElectronAuthManager.cjs:886
+  USER_DELETE          ElectronAuthManager.cjs:928
+  SETTINGS_CHANGE      ElectronAuthManager.cjs:1138
+
+2b. Events logged via direct INSERT INTO audit_logs in handlers
+───────────────────────────────────────────────────────────────────────────────
+
+  Action Type          File                          Handler
+  ──────────────────── ───────────────────────────── ────────────────────────
+  SETTINGS_CHANGE      ipc-app-handlers.cjs:111      settings:set
+  SETTINGS_CHANGE      ipc-app-handlers.cjs:111      settings:delete
+  SETTINGS_CHANGE      ipc-app-handlers.cjs:111      settings:export (only JSON)
+  SETTINGS_CHANGE      ipc-app-handlers.cjs:111      settings:import
+  SETTINGS_CHANGE      ipc-app-handlers.cjs:111      save-receipt-config
+  SHIFT_OPEN           ipc-cash-register-handlers.cjs:33   caisse:open-shift
+  SHIFT_CLOSE          ipc-cash-register-handlers.cjs:64   caisse:close-shift
+  CUSTOMER_CREATE      ipc-customer-handlers.cjs:47        add-customer
+  CUSTOMER_UPDATE      ipc-customer-handlers.cjs:47        update-customer
+  CUSTOMER_DELETE      ipc-customer-handlers.cjs:47        delete-customer
+  CUSTOMER_STATUS      ipc-customer-handlers.cjs:47        toggle-customer-active
+  SUPPLIER_CREATE      ipc-supplier-handlers.cjs:17        add-supplier
+  SUPPLIER_UPDATE      ipc-supplier-handlers.cjs:17        update-supplier
+  SUPPLIER_DELETE      ipc-supplier-handlers.cjs:17        delete-supplier
+  SUPPLIER_STATUS      ipc-supplier-handlers.cjs:17        update-supplier-status
+  FAMILY_CREATE        ipc-database-handlers.cjs:793       add-family
+  FAMILY_DELETE        ipc-database-handlers.cjs:863       delete-family
+  FAMILY_MOVE          ipc-database-handlers.cjs:699       update-product-family
+  BACKUP_CREATE        ipc-hardware-handlers.cjs:343       hardware:createBackup
+  BACKUP_RESTORE       ipc-hardware-handlers.cjs:389       hardware:restoreBackup
+
+2c. Handlers that DO NOT log any audit events (read-only operations excluded)
+───────────────────────────────────────────────────────────────────────────────
+
+  These handlers perform MUTATIONS but have NO audit logging:
+
+  File                           Handlers
+  ────────────────────────────── ────────────────────────────────────────────
+  ipc-database-handlers.cjs      add-product, update-product, delete-product
+  ipc-database-handlers.cjs      add-table, update-table, update-table-status,
+                                 delete-table, bulk-add-tables
+  ipc-database-handlers.cjs      add-reservation, update-reservation,
+                                 delete-reservation
+  ipc-database-handlers.cjs      add-zone, update-zone, delete-zone
+  ipc-database-handlers.cjs      add-vat-rate, update-vat-rate, delete-vat-rate
+  ipc-database-handlers.cjs      add-kitchen-department,
+                                 update-kitchen-department,
+                                 delete-kitchen-department
+  ipc-sales-handlers.cjs         add-sale, cancel-sale, hold-order,
+                                 delete-held-order, complete-pending-sale
+  ipc-stock-handlers.cjs         stock:add-movement, stock:adjust
+  ipc-kitchen-handlers.cjs       add-kitchen-order, update-kitchen-order-status,
+                                 kitchen:cancel-order, kitchen:cancel-sale-orders,
+                                 kitchen:delete-order
+  ipc-service-handlers.cjs       add-appointment, update-appointment-status,
+                                 add-service, delete-service
+  ipc-hardware-handlers.cjs      hardware:addPrinter, hardware:updatePrinter,
+                                 hardware:deletePrinter, hardware:setDefaultPrinter,
+                                 hardware:updateDepartmentRoute,
+                                 hardware:addDepartment, hardware:deleteDepartment,
+                                 hardware:toggleKioskMode
+  ipc-bi-export-handler.cjs      bi:export
+
+2d. Files with ZERO audit logging across ALL handlers
+───────────────────────────────────────────────────────────────────────────────
+
+  • ipc-sales-handlers.cjs      — 12 handlers, 0 audit (includes add-sale, cancel-sale)
+  • ipc-stock-handlers.cjs      — 10 handlers, 0 audit (includes stock:add-movement)
+  • ipc-kitchen-handlers.cjs    — 18 handlers, 0 audit (includes order status changes)
+  • ipc-reports-handlers.cjs    — 15 handlers, 0 audit (all read-only — acceptable)
+  • ipc-service-handlers.cjs    —  6 handlers, 0 audit
+  • ipc-bi-export-handler.cjs   —  1 handler,  0 audit
+  • ipc-license-handlers.cjs    —  2 handlers, 0 audit
+
+  NOTE: ipc-reports-handlers.cjs contains only read operations (get/dashboard/report).
+  These are acceptable without audit logging. The same applies to get queries in
+  other files. Only MUTATING handlers are flagged above in §2c.
+
+═══════════════════════════════════════════════════════════════════════════════
+3.  REMAINING SUSPICIOUS CODE PATHS
+═══════════════════════════════════════════════════════════════════════════════
+
+  3a. handleSetupComplete double-call to authSessionSet (see §1f)
+      Severity: LOW. Redundant but harmless — the second call just overwrites.
+
+  3b. handleUserSelected in preview mode (App.jsx:246-256) calls setUserDirectly
+      but passes a synthetic user object (not from IPC). In preview mode,
+      isPreviewMode() is true, so authSessionSet is skipped. This is correct —
+      preview mode has no Electron backend.
+      Severity: NONE. Confirmed correct.
+
+  3c. get-audit-logs (ipc-auth-handlers.cjs:439) returns empty array when
+      getCurrentUserRole returns null. This was the OLD symptom of the session
+      bug. With the session fixes applied, this should now return real data.
+      Severity: NONE (was symptom, now fixed).
+
+  3d. The `add-product`, `update-product`, `delete-product` handlers in
+      ipc-database-handlers.cjs use a `canModify(userRole)` permission check
+      but rely on the renderer passing `userRole` as a parameter rather than
+      reading it from activeSessions. This means a malicious renderer could
+      pass any role. However, in Electron with contextIsolation, this is
+      low risk.
+      Severity: LOW (architectural concern, not a functional bug).
+
+  3e. The `add-product`, `update-product`, `delete-product` handlers do NOT
+      have audit logging (listed in §2c). The previous product CRUD audit
+      was only partially implemented via FAMILY_CREATE/DELETE/MOVE. The actual
+      product create/update/delete operations are UNLOGGED.
+      Severity: MEDIUM (missing audit trail for core product mutations).
+
+═══════════════════════════════════════════════════════════════════════════════
+4.  CODE VERIFICATION SUMMARY
+═══════════════════════════════════════════════════════════════════════════════
+
+  ┌─────────────────────────────────────────────────────────────────────────┐
+  │  VERIFIED (static analysis only — NOT runtime tested):                 │
+  │                                                                         │
+  │  ✓ All 4 login/auth paths register sessions (including setup wizard)   │
+  │  ✓ All 5 renderer-side calls to authSessionSet are present and correct │
+  │  ✓ App restart (checkAuthStatus) re-registers session from localStorage│
+  │  ✓ First-time setup (handleSetupComplete) awaits session before nav    │
+  │  ✓ Preview mode correctly skips all IPC session calls                  │
+  │  ✓ Logout clears session from activeSessions                           │
+  │  ✓ requireAdmin() is called on all admin-restricted handlers           │
+  │  ✓ Shift open/close audit logging added                                │
+  │  ✓ Customer CRUD audit logging added                                   │
+  │  ✓ Supplier CRUD audit logging added                                   │
+  │  ✓ Family CRUD audit logging added                                     │
+  │  ✓ Logout audit event added                                            │
+  │  ✓ Build passes (vite build successful)                                │
+  │  ✓ All 4 activeSessions.set() calls are present and correct            │
+  └─────────────────────────────────────────────────────────────────────────┘
+
+  ┌─────────────────────────────────────────────────────────────────────────┐
+  │  NOT VERIFIED (requires runtime execution in generated POS):           │
+  │                                                                         │
+  │  ✗ First-time setup → admin sees full UI (no permission errors)        │
+  │  ✗ Admin can create/edit/delete users                                  │
+  │  ✗ Journal shows audit events                                          │
+  │  ✗ User CRUD, product CRUD, sale events appear in journal              │
+  │  ✗ Session persists across page navigation in the SPA                  │
+  │  ✗ App restart restores session and permissions                        │
+  │  ✗ No regression in existing features (sales, products, kitchen, etc.) │
+  └─────────────────────────────────────────────────────────────────────────┘
+
+═══════════════════════════════════════════════════════════════════════════════
+5.  RUNTIME TEST CHECKLIST
+═══════════════════════════════════════════════════════════════════════════════
+
+Execute these tests AFTER generating a new POS from the current template.
+Check off each item as you verify it.
+
+───────────────────────────────────────────────────────────────────────────────
+5a. Authentication — First-Time Setup
+───────────────────────────────────────────────────────────────────────────────
+
+  [ ] Launch the freshly generated POS for the first time
+  [ ] Confirm the setup wizard appears (no blank screen)
+  [ ] Create admin user with username "admin" and a known password
+  [ ] After wizard completes, confirm you are logged in as admin
+  [ ] Confirm you see the full navigation (Users, Products, Sales, etc.)
+  [ ] Confirm NO "Accès refusé" errors appear anywhere
+
+───────────────────────────────────────────────────────────────────────────────
+5b. Authentication — Login / Logout
+───────────────────────────────────────────────────────────────────────────────
+
+  [ ] Logout from admin account
+  [ ] Confirm the login screen appears
+  [ ] Login again with the admin credentials
+  [ ] Confirm you see the full UI again
+  [ ] Logout and login via user card click (if users exist)
+  [ ] Login via PIN (if PIN is enabled)
+  [ ] Close and reopen the application
+  [ ] Confirm you are automatically logged in (session restored)
+  [ ] Confirm full permissions after restart
+
+───────────────────────────────────────────────────────────────────────────────
+5c. User Management
+───────────────────────────────────────────────────────────────────────────────
+
+  [ ] Navigate to Users section
+  [ ] Create a new user with role "cashier"
+  [ ] Create a new user with role "manager"
+  [ ] Edit the cashier user (change name, role, etc.)
+  [ ] Delete a test user
+  [ ] Confirm NO "Accès refusé" errors during any user operation
+  [ ] Logout and login as the manager user
+  [ ] Confirm manager can see users, edit them, but NOT delete them
+  [ ] Confirm manager CAN create/update products, customers, etc.
+  [ ] Logout and login as cashier
+  [ ] Confirm cashier can ONLY see Sales and Customers (no Users, Products)
+
+───────────────────────────────────────────────────────────────────────────────
+5d. Journal / Audit Logs
+───────────────────────────────────────────────────────────────────────────────
+
+  After performing the operations above, navigate to the Journal / Audit Logs:
+
+  [ ] Login event appears
+  [ ] Logout event appears (after logout)
+  [ ] User creation events appear
+  [ ] User modification events appear
+  [ ] User deletion events appear
+
+  Additional tests for newly added audit events:
+  [ ] Create a product → Product creation appears in journal
+  [ ] Modify a product → Product modification appears in journal
+  [ ] Delete a product → Product deletion appears in journal
+  [ ] Create a family → Family creation appears in journal
+  [ ] Open a shift → Shift open appears in journal
+  [ ] Close a shift → Shift close appears in journal
+  [ ] Create a customer → Customer creation appears in journal
+  [ ] Create a supplier → Supplier creation appears in journal
+
+  [ ] Complete a sale → Sale appears in journal (verify via add-sale handler)
+  [ ] Change a setting → Settings change appears in journal
+
+───────────────────────────────────────────────────────────────────────────────
+5e. Existing Feature Regression Checks
+───────────────────────────────────────────────────────────────────────────────
+
+  [ ] Can create products (name, price, family, etc.)
+  [ ] Can edit products
+  [ ] Can delete products (no referential integrity errors)
+  [ ] Can complete a sale (cash, card, or other payment)
+  [ ] Can view sales history
+  [ ] Kitchen: can view and update order status (if kitchen module enabled)
+  [ ] Tables: can create, edit, and manage table status
+  [ ] Reports: dashboard, sales reports, X-report, Z-report generate correctly
+  [ ] Settings: can change POS settings and they persist after restart
+  [ ] BI Export: export functions work (if BI module enabled)
+
+═══════════════════════════════════════════════════════════════════════════════
+6.  IF SOMETHING FAILS — Debugging Guide
+═══════════════════════════════════════════════════════════════════════════════
+
+  Symptom A: "Accès refusé" after setup wizard
+    → activeSessions Map not populated for this webContents ID.
+    → Check: Did create-admin-user (ipc-auth-handlers.cjs:122) run?
+    → Check: Did handleSetupComplete (App.jsx:196) await authSessionSet?
+    → Check DevTools console for IPC errors
+
+  Symptom B: Journal returns empty even after operations
+    → get-audit-logs (ipc-auth-handlers.cjs:439) returns [] when role is null.
+    → Same root cause as Symptom A — session not registered.
+    → Check: Is there an activeSessions entry for your webContents?
+
+  Symptom C: Some audit events appear, others don't
+    → An event missing: the specific handler does not INSERT INTO audit_logs.
+    → See §2c for the list of handlers without audit logging.
+    → These require adding `db.run(\`INSERT INTO audit_logs...\`)` to the handler.
+
+  Symptom D: Journal shows events with "System" user_id=0 instead of real user
+    → The handler is using hardcoded `0, 'System'` instead of reading from session.
+    → Affects: family CRUD (add-family, delete-family, update-product-family).
+    → The session-based user ID was not threaded into these handlers because
+      they don't use event.sender.id. Fix: read getCurrentUserId/getCurrentUserName.
+
+═══════════════════════════════════════════════════════════════════════════════
+END OF AUDIT
+═══════════════════════════════════════════════════════════════════════════════
