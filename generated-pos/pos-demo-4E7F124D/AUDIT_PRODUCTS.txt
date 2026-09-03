@@ -1,0 +1,587 @@
+╔══════════════════════════════════════════════════════════════════════════════╗
+║                    CARTHAMPOS — PRODUCTS SECTION AUDIT                      ║
+║                         Date: 2026-07-18                                   ║
+╚══════════════════════════════════════════════════════════════════════════════╝
+
+FILES ANALYZED:
+  • Products.jsx           (916 lines) — Main products page
+  • ProductFormDialog.jsx  (564 lines) — Add/Edit product form dialog
+  • ipc-database-handlers.cjs (lines 89-204, 426-568) — Backend IPC handlers
+  • ElectronDatabaseManager.cjs (lines 692-721, 1249-1345) — DB schema & migrations
+  • preload.cjs            (lines 39-49, 126-130) — IPC bridge
+  • preload.js             (lines 24-29) — Alternative preload (root cause of issue #1)
+
+══════════════════════════════════════════════════════════════════════════════
+  SECTION 1: CRITICAL BUGS (Will cause errors or data loss)
+══════════════════════════════════════════════════════════════════════════════
+
+BUG #1: getSettings() — WRONG IPC METHOD NAME [SEVERITY: HIGH]
+  File:     Products.jsx:347
+  Code:     if (window.electronAPI?.getSettings) {
+              const settings = await window.electronAPI.getSettings();
+  Problem:  preload.cjs exposes `getAllSettings` and `getSetting(key)` but NOT
+            `getSettings`. The method `window.electronAPI.getSettings` is always
+            `undefined`.
+  Effect:   `loadTaxSettings()` silently fails. `taxEnabled` stays at its
+            default `true` — the VAT fields in ProductFormDialog always show,
+            even if the user disabled tax in Settings. If the user has NO VAT
+            rates configured but tax is disabled, the form still shows the
+            empty VAT dropdown.
+  Fix:      Change to `window.electronAPI.getAllSettings()` and extract
+            `settings.taxEnabled` from the result, OR add `getSettings` to
+            preload.cjs.
+
+BUG #2: formatPrice() — NO NULL SAFETY [SEVERITY: HIGH]
+  File:     Products.jsx:61-66
+  Code:     const formatPrice = (price) => {
+              if (config.currencyPosition === 'before') {
+                return `${config.currency}${price.toFixed(2)}`;
+              }
+              return `${price.toFixed(2)} ${config.currency}`;
+            };
+  Problem:  `price.toFixed(2)` crashes if `price` is `undefined`, `null`, or
+            `NaN`. Product cards call `formatPrice(product.price)` on line 759.
+            If any product in the DB has a NULL price (edge case, but possible
+            via direct SQL edit), the entire products page crashes with
+            "Cannot read property 'toFixed' of undefined".
+  Effect:   White screen of death if any product has null/undefined price.
+  Fix:      `const val = parseFloat(price) || 0;` before calling `.toFixed(2)`.
+
+BUG #3: getStockBadge() — WRONG DEFAULT min_stock [SEVERITY: MEDIUM]
+  File:     Products.jsx:589
+  Code:     const getStockBadge = (stock, minStock = 10) => {
+  Problem:  Default `minStock` is `10`, but the DB schema default for
+            `min_stock` is `0`. If a product has `min_stock = 0` (never set),
+            the function receives `0` which is falsy, and the default `10`
+            kicks in via the default parameter. Actually, `0` is falsy BUT
+            `min_stock` is a number, so `= 10` only triggers if `undefined`.
+            However, on line 760: `getStockBadge(product.stock, product.min_stock)`
+            — if `product.min_stock` is `null` from DB, it passes `null` which
+            IS falsy, and the default `10` triggers, showing false "Stock faible"
+            badges for products that should be fine.
+  Effect:   False "Stock faible" alerts for products with null min_stock.
+  Fix:      `const minStockVal = minStock ?? 10;` or handle null explicitly.
+
+BUG #4: DEAD CODE — UNUSED FUNCTIONS [SEVERITY: LOW]
+  File:     Products.jsx:223-269
+  Code:     handleImageUpload(), removeImage(), startBarcodeScanner()
+  Problem:  These functions are defined in Products.jsx but NEVER called.
+            ProductFormDialog.jsx has its own identical implementations.
+            This is leftover from before the dialog was extracted.
+  Effect:   No runtime impact, but code bloat and confusion. The
+            `startBarcodeScanner` function references `setIsScanning` and
+            `formData` state variables that DON'T EXIST in Products.jsx —
+            this would crash if somehow called.
+  Fix:      Delete lines 223-269 entirely.
+
+BUG #5: BARCODE SCANNER IS FAKE [SEVERITY: MEDIUM]
+  File:     ProductFormDialog.jsx:128-140, Products.jsx:260-269 (dead)
+  Code:     const startBarcodeScanner = useCallback(() => {
+              setIsScanning(true);
+              setTimeout(() => {
+                const scannedCode = '1234567890123';
+                ...
+                alert(`Code-barres scanné: ${scannedCode}`);
+              }, 2000);
+            }, []);
+  Problem:  The barcode scanner always returns the same hardcoded code
+            `1234567890123` after a 2-second fake delay. This is a placeholder.
+  Effect:   If a user clicks "scan", they get a fake barcode. Could create
+            duplicate barcodes if used repeatedly (though DB UNIQUE constraint
+            would catch it on save).
+  Fix:      Integrate a real barcode scanner library (e.g., `quagga2`,
+            `html5-qrcode`, or native Electron USB scanner support).
+
+══════════════════════════════════════════════════════════════════════════════
+  SECTION 2: DATA INTEGRITY ISSUES
+══════════════════════════════════════════════════════════════════════════════
+
+DATA #1: DUPLICATE `family` AND `category` COLUMNS [SEVERITY: MEDIUM]
+  File:     ElectronDatabaseManager.cjs:709-710, ipc-database-handlers.cjs:124
+  Schema:   products has BOTH `category TEXT` and `family TEXT`
+  Handler:  INSERT sets `category || family` and `family` — so category = family
+  Problem:  Two columns serve the same purpose. The `category` table exists in
+            the DB (line 723-730) but is never used by the UI. The Products page
+            only shows "families". This dual-column design is confusing.
+  Effect:   `category` always equals `family`. Wasted column. If someone edits
+            `category` directly in DB, the UI filter won't work correctly
+            (filter checks `product.family === selectedFamily || product.category ===
+            selectedFamily` on line 385).
+  Fix:      Deprecate `category` column, use only `family`. Or merge them.
+
+DATA #2: IMAGES STORED AS BASE64 IN SQLITE [SEVERITY: MEDIUM]
+  File:     ProductFormDialog.jsx:186-188, ElectronDatabaseManager.cjs:713
+  Schema:   `image TEXT` — stores base64-encoded image data
+  Problem:  Base64 images are ~33% larger than binary. A 5MB image becomes
+            ~6.7MB of text in SQLite. Over time, with many product images,
+            the database file can grow to hundreds of MB, slowing ALL queries.
+  Effect:   Performance degradation as product count + images grow. Backup/
+            restore becomes slow. SQLite has a practical limit of ~1GB for
+            efficient operation.
+  Fix:      Store images as files on disk, keep only the file path in DB.
+
+DATA #3: OPTIMISTIC UPDATE WITH FAKE ID [SEVERITY: LOW]
+  File:     Products.jsx:433-434
+  Code:     const newProduct = { id: Date.now(), ...productData, created_at: new Date().toISOString() };
+  Problem:  `Date.now()` as temp ID. If two products are created within the
+            same millisecond (unlikely but possible in fast batch entry),
+            they'd share the same ID. The reconciliation on lines 460-464
+            fixes the ID after DB save, but the temporary duplicate could
+            cause a brief React key collision.
+  Effect:   Minor React rendering glitch in edge cases.
+  Fix:      Use `crypto.randomUUID()` or a counter.
+
+DATA #4: CREATED_AT FORMAT MISMATCH [SEVERITY: LOW]
+  File:     Products.jsx:436 vs ElectronDatabaseManager.cjs:718
+  Optimistic: `created_at: new Date().toISOString()` → "2026-07-18T14:30:00.000Z"
+  DB Default: `DATETIME DEFAULT CURRENT_TIMESTAMP` → "2026-07-18 14:30:00"
+  Problem:  The optimistic product has ISO format, but the DB-reloaded version
+            has SQLite format. After `loadProducts()` on line 474, the timestamp
+            format changes, which could cause display glitches if timestamps
+            are shown to the user.
+  Effect:   Inconsistent timestamp format for ~1 second until DB reload.
+  Fix:      Use the same format as DB in optimistic update.
+
+DATA #5: NO FOREIGN KEY CASCADE FOR SALE_ITEMS [SEVERITY: MEDIUM]
+  File:     ElectronDatabaseManager.cjs:188 (delete-product handler)
+  Problem:  `DELETE FROM products WHERE id = ?` — but `sale_items` has
+            `product_id` referencing `products(id)`. If a product has been
+            sold, deleting it orphans the sale_items rows. SQLite doesn't
+            enforce foreign keys by default (PRAGMA foreign_keys must be ON).
+  Effect:   Orphaned sale_items. Reports that join sale_items with products
+            will silently miss these items. Historical sales data is
+            partially lost.
+  Fix:      Either: (a) Block deletion if product has sale_items, or
+            (b) Set PRAGMA foreign_keys=ON and use ON DELETE SET NULL,
+            or (c) Soft-delete products instead of hard delete.
+
+DATA #6: BARCODE COLLISION RISK [SEVERITY: LOW]
+  File:     Products.jsx:99-108 (generateLocalBarcode)
+  Problem:  Generates random 13-digit EAN-13 codes. With ~1 trillion possible
+            codes and a small product catalog, collision probability is low.
+            But: (a) DB has UNIQUE constraint, so collision causes a silent
+            error, (b) no UI-level validation before sending to DB.
+  Effect:   If collision occurs, `add-product` handler rejects with a SQLite
+            UNIQUE constraint error. The optimistic update already added the
+            product with the duplicate barcode, but the error rollback on
+            line 467 removes it. User sees product appear then disappear.
+  Fix:      Check barcode uniqueness before optimistic update, or retry
+            with a new barcode on collision error.
+
+══════════════════════════════════════════════════════════════════════════════
+  SECTION 3: UX/UI ISSUES
+══════════════════════════════════════════════════════════════════════════════
+
+UI #1: NO PRODUCT COUNT SUMMARY [SEVERITY: LOW]
+  File:     Products.jsx:626-650
+  Problem:  No "Showing X of Y products" indicator. User has no idea how many
+            products exist vs how many match the current filter.
+  Fix:      Add a small text: "{filteredProducts.length} sur {products.length} produits"
+
+UI #2: NO SORTING CONTROLS [SEVERITY: MEDIUM]
+  Problem:  Products are always sorted by name (ASC from DB). No way to sort
+            by price, stock, family, date created, or barcode.
+  Fix:      Add sort dropdown: Name, Price ↑↓, Stock ↑↓, Recently added
+
+UI #3: NO PAGINATION OR VIRTUALIZATION [SEVERITY: MEDIUM]
+  File:     Products.jsx:717-791
+  Problem:  All products are rendered as cards in a grid. For catalogs with
+            500+ products, this creates a very long page with hundreds of
+            DOM nodes. No virtualization (react-window/react-virtual) is used.
+  Effect:   Slow initial render, high memory usage, laggy scrolling for
+            large catalogs.
+  Fix:      Add pagination (50/page) or virtualized grid.
+
+UI #4: NO BULK OPERATIONS [SEVERITY: MEDIUM]
+  Problem:  No multi-select, no bulk delete, no bulk family reassignment,
+            no bulk price update. User must edit each product individually.
+  Fix:      Add checkbox selection + bulk action toolbar.
+
+UI #5: NO EXPORT/IMPORT [SEVERITY: MEDIUM]
+  Problem:  No CSV/Excel export of product catalog. No bulk import from file.
+            For a POS system, importing products from a spreadsheet is a
+            common requirement.
+  Fix:      Add Export CSV button + Import CSV with column mapping.
+
+UI #6: NATIVE confirm() AND alert() FOR DIALOGS [SEVERITY: MEDIUM]
+  File:     Products.jsx:485, 509, 513, 516
+  Code:     if (!confirm(`Êtes-vous sûr de vouloir supprimer "${product.name}" ?`))
+            alert('Erreur lors de la suppression: ' + error.message);
+            alert('Produit supprimé avec succès');
+  Problem:  Uses ugly native browser dialogs. The rest of the app uses custom
+            Dialog components (shadcn/ui). This breaks the professional feel.
+            `alert()` is also blocking — it freezes the entire UI.
+  Fix:      Use the same Dialog component used elsewhere, or toast notifications.
+
+UI #7: NO DESCRIPTION SHOWN ON PRODUCT CARDS [SEVERITY: LOW]
+  File:     Products.jsx:720-787
+  Problem:  Product cards show name, family, price, stock, barcode, and image
+            — but NOT the description, supplier, unit, cost_price, or VAT rate.
+            All this data is saved but invisible in the list view.
+  Fix:      Show truncated description, unit, and/or margin on hover/expand.
+
+UI #8: NO IMAGE PLACEHOLDER [SEVERITY: LOW]
+  File:     Products.jsx:747-755
+  Problem:  If a product has no image, nothing is shown — not even a Package
+            icon placeholder. The card has an inconsistent height.
+  Fix:      Show a grey placeholder with a Package icon when no image.
+
+UI #9: NO PRICE TYPE INDICATOR [SEVERITY: LOW]
+  Problem:  Product cards show `formatPrice(product.price)` but don't indicate
+            if the price is HT or TTC. The `price_type` field is saved but
+            never displayed in the product list.
+  Fix:      Show a small "HT" or "TTC" badge next to the price.
+
+UI #10: NO VAT RATE DISPLAY [SEVERITY: LOW]
+  Problem:  VAT rate is stored (`vat_rate_id`) but not shown anywhere in the
+            product list or cards.
+  Fix:      Show the applied VAT rate as a small badge or tooltip.
+
+UI #11: SEARCH IS TOO NARROW [SEVERITY: LOW]
+  File:     Products.jsx:382-384
+  Code:     const matchesSearch = product.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                                 (isBarcodeEnabled && product.barcode && product.barcode.includes(searchTerm));
+  Problem:  Search only matches name and barcode. Doesn't search by family,
+            description, supplier, or category.
+  Fix:      Add: || product.family?.toLowerCase().includes(searchTerm.toLowerCase())
+                  || product.description?.toLowerCase().includes(searchTerm.toLowerCase())
+                  || product.supplier?.toLowerCase().includes(searchTerm.toLowerCase())
+
+UI #12: NO PRODUCT DETAIL VIEW [SEVERITY: LOW]
+  Problem:  Clicking a product only allows edit. No read-only detail view
+            showing all fields, stock history, sales history, etc.
+  Fix:      Add a detail view panel or modal.
+
+UI #13: FAMILY DIALOG NO LOADING STATE [SEVERITY: LOW]
+  File:     Products.jsx:144-193
+  Problem:  When adding/deleting a family, there's no loading indicator.
+            The user can click "Ajouter" multiple times while the DB is
+            processing, potentially creating duplicates (though the UNIQUE
+            constraint + INSERT OR IGNORE prevents actual duplicates).
+  Fix:      Add a loading state and disable the button during DB operations.
+
+UI #14: NO CONFIRMATION FOR BULK BARCODE GENERATION [SEVERITY: LOW]
+  File:     Products.jsx:557-587
+  Problem:  `generateBulkBarcodes()` runs immediately on click with no
+            confirmation dialog. If the user clicks accidentally, all
+            products without barcodes get new ones.
+  Fix:      Add a confirm dialog: "Générer des codes-barres pour X produits ?"
+
+UI #15: PRODUCT CARD GRID — NO RESPONSIVE BREAKPOINTS [SEVERITY: LOW]
+  File:     Products.jsx:717
+  Code:     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+  Problem:  Only 1→2→3 columns. No 4-column option for very wide screens.
+            No compact mode for small screens.
+  Fix:      Add `xl:grid-cols-4` for large screens.
+
+══════════════════════════════════════════════════════════════════════════════
+  SECTION 4: PERFORMANCE ISSUES
+══════════════════════════════════════════════════════════════════════════════
+
+PERF #1: REDUNDANT loadProducts() AFTER EVERY SUBMIT [SEVERITY: MEDIUM]
+  File:     Products.jsx:474
+  Code:     // After optimistic update + DB save:
+            await loadProducts();  // Fetches ALL products again from DB
+  Problem:  The optimistic update already reflected the change in UI. The
+            subsequent `loadProducts()` re-fetches ALL products from DB,
+            overwriting the optimistic state. This is redundant and causes
+            an unnecessary full re-render.
+  Effect:   Double render. Brief flash as products list is rebuilt. Wasted
+            DB query + IPC call.
+  Fix:      Remove line 474. Trust the optimistic update + ID reconciliation.
+
+PERF #2: EXCESSIVE CONSOLE.LOG IN PRODUCTION [SEVERITY: LOW]
+  Files:    Products.jsx (30+ console.log), ProductFormDialog.jsx (5+),
+            ipc-database-handlers.cjs (20+)
+  Problem:  Performance timing logs (`console.log with ⏱️`), IPC call logs,
+            etc. are present in production code. These slow down I/O in
+            Electron's renderer process (especially with DevTools closed).
+  Effect:   ~5-15% overhead on IPC calls due to string serialization.
+  Fix:      Wrap in a DEBUG flag or remove for production builds.
+
+PERF #3: FAMILY LIST RELOAD ON EVERY ADD [SEVERITY: LOW]
+  File:     Products.jsx:176
+  Code:     await loadFamilies();  // After adding a family
+  Problem:  After adding a family, the entire family list is re-fetched from
+            DB. Could just append to local state (which is done in the
+            fallback path on line 181, but not in the IPC path).
+  Fix:      Append the new family to `families` state directly.
+
+PERF #4: NO DEBOUNCE ON SEARCH [SEVERITY: LOW]
+  File:     Products.jsx:668
+  Problem:  `onChange={(e) => setSearchTerm(e.target.value)}` triggers
+            re-filter on every keystroke. The `useMemo` on `filteredProducts`
+            prevents unnecessary re-renders of the grid, but the memo
+            recomputation itself runs on every keystroke.
+  Fix:      Add a 200ms debounce on search input.
+
+PERF #5: IMAGE LOADING IN PRODUCT CARDS [SEVERITY: LOW]
+  File:     Products.jsx:749-753
+  Problem:  Base64 images are rendered via `<img src={product.image}>`. Each
+            image is a large base64 string embedded in the DOM. For catalogs
+            with many images, this causes high memory usage.
+  Fix:      Use lazy loading (`loading="lazy"`) or virtualize the grid.
+
+══════════════════════════════════════════════════════════════════════════════
+  SECTION 5: SECURITY ISSUES
+══════════════════════════════════════════════════════════════════════════════
+
+SEC #1: NO INPUT SANITIZATION ON PRODUCT NAME [SEVERITY: LOW]
+  File:     ProductFormDialog.jsx:167, ipc-database-handlers.cjs:117
+  Problem:  Product name is passed directly to SQL via parameterized query
+            (safe from SQL injection), but NOT sanitized for XSS if the
+            name is ever rendered as HTML. React's default rendering escapes
+            HTML, so this is safe in practice.
+  Risk:     Low — React auto-escapes. But if product names are ever used in
+            innerHTML, toasts, or printed receipts without escaping, XSS is
+            possible.
+
+SEC #2: NO AUTHORIZATION CHECK ON PRODUCT OPERATIONS [SEVERITY: MEDIUM]
+  File:     ipc-database-handlers.cjs:93-204
+  Problem:  The IPC handlers for `get-products`, `add-product`, `update-product`,
+            `delete-product` do NOT check the user's role or permissions.
+            Any authenticated user (including cashiers) can add, edit, or
+            delete products.
+  Effect:   A cashier can delete all products, change prices, etc.
+  Fix:      Add role check in each handler: `if (role !== 'admin' && role !== 'manager') throw new Error('Forbidden')`
+
+SEC #3: NO RATE LIMITING ON PRODUCT CREATION [SEVERITY: LOW]
+  Problem:  No limit on how many products can be created per minute. A
+            malicious user (or buggy script) could flood the DB.
+  Risk:     Low — Electron is local-only, no network exposure.
+
+══════════════════════════════════════════════════════════════════════════════
+  SECTION 6: BACKEND ISSUES
+══════════════════════════════════════════════════════════════════════════════
+
+BE #1: DUPLICATE `category` HANDLER [SEVERITY: LOW]
+  File:     ipc-database-handlers.cjs:124
+  Code:     INSERT INTO products (..., category, family, ...) VALUES (..., category || family, family, ...)
+  Problem:  `category` is always set to `family` (or `category` if provided).
+            But `category` is never sent from the frontend — `productData`
+            from ProductFormDialog doesn't include `category`. So it's
+            always `family || null`.
+  Effect:   `category` column in products is always NULL or equal to `family`.
+            Wasted column.
+
+BE #2: NO TRANSACTION FOR PRODUCT UPDATE + FAMILY CHANGE [SEVERITY: LOW]
+  Problem:  Product updates and family operations are not wrapped in
+            transactions (except delete-family which uses BEGIN/COMMIT).
+            If the app crashes during a product save, the DB could be in
+            an inconsistent state.
+  Risk:     Low — SQLite handles single-statement operations atomically.
+
+BE #3: DELETE-FAMILY DOESN'T CHECK FOR PRODUCTS [SEVERITY: LOW]
+  File:     ipc-database-handlers.cjs:536-537
+  Code:     UPDATE products SET family = NULL WHERE family = ?
+  Problem:  When a family is deleted, all products in that family have their
+            `family` field set to NULL. The user is NOT warned about this.
+  Effect:   Products lose their family assignment silently.
+  Fix:      Show a warning: "X products will be unassigned. Continue?"
+
+BE #4: NO PRODUCT SEARCH ENDPOINT [SEVERITY: LOW]
+  Problem:  There's no IPC handler for searching products server-side.
+            All filtering is done client-side after fetching ALL products.
+  Effect:   For large catalogs, the entire product table is transferred
+            over IPC on every page load.
+  Fix:      Add a `search-products` handler with SQL WHERE clause.
+
+══════════════════════════════════════════════════════════════════════════════
+  SECTION 7: ARCHITECTURE ISSUES
+══════════════════════════════════════════════════════════════════════════════
+
+ARCH #1: TWO PRELOAD FILES — INCONSISTENCY RISK [SEVERITY: MEDIUM]
+  Files:    preload.js (122 lines), public/preload.cjs (187 lines)
+  Problem:  Two preload files exist. `preload.cjs` has more methods
+            (getFamilies, addFamily, getVatRates, etc.) while `preload.js`
+            is missing many of them. If Electron loads `preload.js` instead
+            of `preload.cjs`, many features break silently.
+  Effect:   Products page may work or break depending on which preload is
+            loaded. The `getSettings` bug (#1) is likely caused by this
+            inconsistency.
+  Fix:      Consolidate into a single preload file. Delete the other.
+
+ARCH #2: MIXED CONTROLLED/UNCONTROLLED INPUTS [SEVERITY: LOW]
+  File:     ProductFormDialog.jsx
+  Problem:  Most inputs use `defaultValue` (uncontrolled), but family, VAT
+            rate, and price type use `useState` (controlled). This mixed
+            approach is confusing and error-prone.
+  Risk:     Low — works correctly, but harder to maintain.
+
+ARCH #3: NO ERROR BOUNDARY [SEVERITY: LOW]
+  Problem:  If Products.jsx crashes (e.g., null price), the entire app
+            crashes. No React error boundary to show a fallback UI.
+  Fix:      Wrap in `<ErrorBoundary>` component.
+
+ARCH #4: ACTIVITY LOG FOR EVERY OPERATION [SEVERITY: LOW]
+  File:     Products.jsx:413-422, 449-457, 496-504
+  Problem:  Every product add, edit, and delete triggers an activity log
+            write. This is good for audit, but the `activityLog.log()`
+            call is fire-and-forget — errors are silently swallowed.
+  Risk:     Low — but audit trail could have gaps.
+
+══════════════════════════════════════════════════════════════════════════════
+  SECTION 8: DATABASE SCHEMA NOTES
+══════════════════════════════════════════════════════════════════════════════
+
+CURRENT PRODUCTS TABLE:
+  CREATE TABLE products (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    name        TEXT NOT NULL,
+    price       DECIMAL(10,2) NOT NULL,
+    cost_price  DECIMAL(10,2) DEFAULT 0,        -- Added by migration
+    category    TEXT,                            -- DEPRECATED: always = family
+    family      TEXT,
+    description TEXT,
+    barcode     TEXT UNIQUE,
+    image       TEXT,                            -- Base64 encoded
+    unit        TEXT DEFAULT 'unit',             -- Added by migration
+    stock       INTEGER DEFAULT 0,
+    min_stock   INTEGER DEFAULT 0,
+    supplier    TEXT DEFAULT '',                 -- Added by migration
+    vat_rate_id INTEGER DEFAULT NULL,            -- Added by migration
+    price_type  TEXT DEFAULT 'ttc',              -- Added by migration
+    created_at  DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at  DATETIME DEFAULT CURRENT_TIMESTAMP
+  );
+
+  Notes:
+  - `category` is redundant with `family` — always set to same value
+  - `image` stores base64 — should store file path instead
+  - No `is_active` / soft-delete column — products are hard-deleted
+  - No `sort_order` column for manual ordering
+  - `barcode` UNIQUE constraint can cause silent failures on collision
+
+PRODUCT_FAMILIES TABLE:
+  CREATE TABLE product_families (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    name        TEXT NOT NULL UNIQUE,
+    description TEXT,
+    icon        TEXT,                            -- Added by migration
+    created_at  DATETIME DEFAULT CURRENT_TIMESTAMP
+  );
+
+  Notes:
+  - Clean table, no issues
+  - `description` is never shown in the UI
+  - `icon` is stored but only shown in the family management dialog
+
+CATEGORIES TABLE (UNUSED):
+  CREATE TABLE categories (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    name        TEXT NOT NULL UNIQUE,
+    description TEXT,
+    color       TEXT DEFAULT '#3B82F6',
+    created_at  DATETIME DEFAULT CURRENT_TIMESTAMP
+  );
+
+  Notes:
+  - This table exists in the DB schema but is NEVER used by any UI
+  - Completely dead schema. Should be removed or integrated.
+
+══════════════════════════════════════════════════════════════════════════════
+  SECTION 9: PRIORITY RANKING
+══════════════════════════════════════════════════════════════════════════════
+
+PRIORITY 1 — FIX IMMEDIATELY (Bugs):
+  • #1  getSettings() wrong method name — tax settings never load
+  • #2  formatPrice() null safety — crash on null price
+  • #3  getStockBadge() wrong default — false stock alerts
+  • #4  Dead code cleanup — remove unused functions
+  • #5  Two preload files — consolidation needed
+
+PRIORITY 2 — FIX SOON (Data + Security):
+  • DATA #5  No cascade for sale_items — orphaned records on delete
+  • SEC #2   No authorization on product operations
+  • DATA #1  Duplicate family/category columns
+  • PERF #1  Redundant loadProducts() after submit
+  • BE #3    Delete-family doesn't warn about product count
+
+PRIORITY 3 — IMPROVE (UX):
+  • UI #2   Sorting controls
+  • UI #3   Pagination/virtualization
+  • UI #4   Bulk operations
+  • UI #5   Export/import
+  • UI #6   Native confirm/alert → custom dialogs
+  • UI #11  Broader search (description, supplier)
+
+PRIORITY 4 — ENHANCE (Nice-to-have):
+  • UI #1   Product count summary
+  • UI #7-10 More info on product cards
+  • UI #12  Product detail view
+  • UI #13  Family dialog loading state
+  • UI #14  Bulk barcode confirmation
+  • UI #15  Responsive grid improvements
+  • PERF #2-5 Performance optimizations
+  • ARCH #3  Error boundary
+  • DATA #2  Image storage optimization
+
+══════════════════════════════════════════════════════════════════════════════
+  SECTION 10: COMPLETE FILE LINE MAP
+══════════════════════════════════════════════════════════════════════════════
+
+Products.jsx (916 lines):
+  1-27    Imports
+  29-33   FamilyIcon helper
+  35-66   Component init, config, formatPrice (BUG #2)
+  68-70   isBarcodeEnabled check
+  72-89   State declarations
+  91-96   Family input focus effect
+  99-108  generateLocalBarcode() (DATA #6)
+  111-141 loadFamilies()
+  144-193 handleAddFamily()
+  196-221 handleDeleteFamily() / confirmDeleteFamily()
+  223-269 DEAD CODE — handleImageUpload/removeImage/startBarcodeScanner (BUG #4)
+  271-327 DEMO_PRODUCTS
+  329-334 useEffect — mount
+  336-352 loadVatRates() / loadTaxSettings() (BUG #1)
+  354-378 loadProducts()
+  380-388 filteredProducts (useMemo)
+  391-482 handleFormSubmit() (PERF #1, DATA #3, DATA #4)
+  484-518 handleDelete() (UI #6)
+  520-535 openCreateDialog / handleEdit / handleKeyboardEnter
+  537-587 generateBarcodeForProduct / generateBulkBarcodes (UI #14)
+  589-597 getStockBadge() (BUG #3)
+  599-623 Loading skeleton
+  625-650 Header + action buttons
+  652-692 Filters (search + family dropdown)
+  694-792 Product grid (UI #7-10)
+  794-804 ProductFormDialog render
+  806-909 Family management dialog
+  911-915 Empty floating keyboard comment + close
+
+ProductFormDialog.jsx (564 lines):
+  1-16    Imports
+  17-22   RENDER_WARN_THRESHOLD + JSDoc
+  23-32   memo() wrapper + props
+  33-45   Refs + controlled state
+  47-55   Render counter (performance monitoring)
+  57-95   handleDialogChange() — init/reset form
+  97-118  handleImageUpload()
+  120-126 removeImage()
+  128-140 startBarcodeScanner() (BUG #5)
+  142-157 generateBarcode()
+  159-224 handleSubmit()
+  226-233 convertImageToBase64()
+  235-559 JSX — form fields (13 inputs total)
+  560-564 displayName + export
+
+ipc-database-handlers.cjs (relevant sections):
+  93-108  get-products handler (BE #4)
+  111-142 add-product handler (DATA #1)
+  145-176 update-product handler
+  179-204 delete-product handler (DATA #5)
+  429-459 get-families handler
+  462-519 add-family handler
+  522-568 delete-family handler (BE #3)
+  571-639 VAT rates handlers
+
+ElectronDatabaseManager.cjs (relevant sections):
+  692-721 Table creation (products + product_families)
+  723-731 categories table (UNUSED — ARCH)
+  1249-1277 Migrations: cost_price, unit, supplier
+  1322-1345 Migrations: vat_rate_id, price_type
+
+══════════════════════════════════════════════════════════════════════════════
+  END OF AUDIT
+══════════════════════════════════════════════════════════════════════════════

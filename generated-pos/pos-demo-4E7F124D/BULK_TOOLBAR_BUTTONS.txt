@@ -1,0 +1,60 @@
+================================================================================
+  PRODUCT SELECTION TOOLBAR - BUTTON REFERENCE
+  (ProductBulkToolbar.jsx — Fixed bottom toolbar when products are selected)
+================================================================================
+
+This toolbar appears when 1+ products are selected via checkboxes.
+Each button calls a specific handler passed from Products.jsx.
+
+================================================================================
+  BUTTON              STATUS      HANDLER PROP           WHAT IT SHOULD DO
+================================================================================
+
+1. Famille            BROKEN      onAssignFamily         Opens a dialog to pick a family,
+                                                     then assigns that family to ALL
+                                                     selected products (UPDATE products SET
+                                                     family=? WHERE id IN (...))
+
+2. Fournisseur        BROKEN      onAssignSupplier       Opens a dialog with a text input to
+                                                     type a supplier name, then assigns it
+                                                     to ALL selected products (UPDATE
+                                                     products SET supplier=? WHERE id IN (...))
+
+3. TVA                BROKEN      onAssignVat            Opens a dialog to pick a VAT rate
+                                                     from existing rates, then assigns
+                                                     vat_rate_id to ALL selected products
+                                                     (UPDATE products SET vat_rate_id=?
+                                                     WHERE id IN (...))
+
+4. Codes-barres       WORKING     onGenerateBarcodes     Generates random EAN-13 barcodes for
+                                                     all selected products that don't already
+                                                     have one. Calls updateProduct per item.
+
+5. Dupliquer          BROKEN      onDuplicateSelected    Duplicates ALL selected products
+                                                     (clones name + suffix " (copie)",
+                                                     family, price, cost_price, etc.)
+                                                     Each duplicate is inserted as a new
+                                                     product via addProduct.
+
+6. Exporter           WORKING     onExportSelected       Exports the selected products to a
+                                                     CSV file (same format as full export).
+
+7. Supprimer          WORKING     onDeleteSelected       Deletes ALL selected products after
+                                                     confirmation prompt. Calls
+                                                     deleteProduct per item.
+
+8. X (clear)          WORKING     onClearSelection       Clears the selection (empties the
+                                                     selectedIds Set).
+
+================================================================================
+  NOTES
+================================================================================
+- Buttons marked BROKEN have `() => {}` as their handler (no-op).
+- All handlers receive NO arguments; they must read `selectedIds` from
+  component state internally.
+- All write operations should only be available to admin/manager roles
+  (canEdit check in Products.jsx).
+- Each handler should optimistically update local state, then persist
+  to DB via window.electronAPI, with rollback on error.
+
+================================================================================

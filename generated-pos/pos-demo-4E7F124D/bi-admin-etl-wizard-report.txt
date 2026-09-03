@@ -1,0 +1,102 @@
+BI ADMIN — ETL MANAGEMENT CONSOLE WIZARD
+=========================================
+Date: 2026-07-30
+
+1. OBJECTIVE
+------------
+Redesign the existing BI Admin Panel upload flow into a 9-step ETL
+Management Console wizard while reusing the existing backend architecture
+as much as possible (PFE scope — no new Prisma models, no staging tables,
+no database redesign).
+
+
+2. PRINCIPLES
+-------------
+- Prepared warehouse data stored as a JSON file on disk
+  (uploads/bi-previews/{uploadId}.json) between steps — not in memory,
+  not in the database.
+- Raw CSV data parsed once during extractAndValidate(), persisted into
+  the preview JSON; all subsequent steps read from that file.
+- Corrections modify the prepared warehouse objects in the JSON file
+  before loadIntoWarehouse() runs — the warehouse is written to exactly
+  once.
+- The original run() method on etl-pipeline.js is kept UNCHANGED.
+- Existing backend endpoints are NOT modified — 8 new endpoints added.
+- Old pages (BiUploadPortal, AdminBIAnalystWorkspace, etc.) are kept
+  as-is.
+- BI_SCHEMA_VERSION bumped from 1.0.0 to 2.2.0 to match POS
+  BiSchemaContract.cjs.
+
+
+3. BACKEND CHANGES
+------------------
+
+  A. services/etl-pipeline.js
+     Added 3 new public methods (+873 lines total):
+       • extractAndValidate(upload)   — calls _extractZipSync, _readMetadata,
+                                         _validateDatasets in sequence
+       • prepareWarehouse(rawDatasets, metadata, uploadId) — calls
+                                         _loadDimensions, _loadFacts to build
+                                         warehouse objects in memory
+       • loadIntoWarehouse(preparedData, metadata, uploadId) — writes
+                                         warehouse objects into the database
+
+  B. routes/bi-uploads.js
+     Added 8 new wizard endpoints (+929 lines total):
+
+       POST  /:id/validate             — Run extractAndValidate
+       GET   /:id/validation-report    — Return validation results
+       GET   /:id/raw-preview           — Return raw CSV data preview
+       POST  /:id/prepare              — Run prepareWarehouse
+       GET   /:id/transformation-preview — Return warehouse preview
+       POST  /:id/correct              — Apply corrections to prepared data
+       POST  /:id/confirm-load         — Run loadIntoWarehouse
+       GET   /:id/report               — Return success report
+
+  C. services/bi-schema-registry.js
+     • BI_SCHEMA_VERSION: 1.0.0 → 2.2.0
+
+
+4. FRONTEND CHANGES
+-------------------
+
+  A. Created admin/src/pages/BiWizard.jsx
+     9-step wizard container with:
+       • Progress stepper (9 labeled steps with icons)
+       • Step state management
+       • Next/Back navigation
+       • Automatic advance on upload complete
+
+  B. Created 9 step components in admin/src/pages/wizard/:
+
+       Step1Upload.jsx      — Drag & drop ZIP upload + client/businessType
+       Step2Validation.jsx  — Validation report with pass/fail per dataset
+       Step3RawPreview.jsx  — Raw CSV data browser (tabs per dataset)
+       Step4Preparation.jsx — Triggers warehouse preparation
+       Step5TransformationPreview.jsx — Dimension/fact tables browser
+       Step6Corrections.jsx — Manual correction editor (dataset, field,
+                              old/new value, reason)
+       Step7LoadConfirm.jsx — Irreversible load confirmation
+       Step8Dashboard.jsx   — Available dashboards viewer
+       Step9Success.jsx     — Final report with stats
+
+  C. Modified admin/src/App.jsx
+     Added: import BiWizard + Route /bi-wizard
+
+  D. Modified admin/src/components/layout/Layout.jsx
+     Added: "Import BI" sidebar link (WandSparkles icon)
+
+  E. Modified admin/src/pages/BiUploadPortal.jsx
+     Added: "Assistant d'import" button linking to /bi-wizard
+
+  F. Modified admin/src/lib/api.js
+     Added: 8 wizard methods to biUploadsApi (validate, getValidationReport,
+            getRawPreview, prepare, getTransformationPreview, correct,
+            confirmLoad, getReport)
+
+
+5. VERIFICATION
+---------------
+- Backend syntax check: PASS (node -c on all 3 files)
+- Frontend build: PASS (vite build, 2632 modules, 0 errors)
+
