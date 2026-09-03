@@ -1,4 +1,5 @@
 import axios from 'axios';
+import { toast } from 'react-hot-toast';
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001/api';
 
@@ -30,8 +31,11 @@ api.interceptors.response.use(
     return response;
   },
   (error) => {
-    // 401 Unauthorized — session cookie missing/expired/invalid
+    // 401 Unauthorized — session cookie missing/expired/invalid. Show a brief
+    // message so a genuine session expiry doesn't look like an unexplained
+    // crash/black screen before we redirect to login.
     if (error.response?.status === 401 && window.location.pathname !== '/login') {
+      toast.error('Session expirée, redirection vers la connexion...');
       window.location.href = '/login';
     }
     console.error('API Error:', error);

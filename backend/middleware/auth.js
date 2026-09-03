@@ -49,7 +49,13 @@ function extractToken(req) {
 function cookieOptions(maxAgeMs) {
   return {
     httpOnly: true,
-    sameSite: 'lax',
+    // In production the admin frontend and backend live on different subdomains
+    // of onrender.com, which browsers treat as separate sites. SameSite=Lax
+    // silently drops the cookie on those cross-site XHR/fetch calls, so admin
+    // cookie-based auth never reaches the backend. Only SameSite=None (paired
+    // with Secure, which browsers require alongside None) travels on cross-site
+    // requests. Keep 'lax' + non-secure for local dev (same localhost origin).
+    sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
     secure: process.env.NODE_ENV === 'production',
     path: '/',
     maxAge: maxAgeMs,
@@ -81,7 +87,14 @@ function setAuthCookie(res, token) {
  * @param {import('express').Response} res
  */
 function clearAuthCookie(res) {
-  res.clearCookie(AUTH_COOKIE_NAME, { httpOnly: true, sameSite: 'lax', path: '/' });
+  // Options must mirror the login cookie's SameSite/Secure attributes or some
+  // browsers won't actually delete it.
+  res.clearCookie(AUTH_COOKIE_NAME, {
+    httpOnly: true,
+    sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
+    secure: process.env.NODE_ENV === 'production',
+    path: '/'
+  });
 }
 
 /**

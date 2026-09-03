@@ -64,7 +64,7 @@ services:
       - key: AUTH_REQUIRED
         value: "false"
       - key: CORS_ORIGINS
-        value: "https://carthapos-admin.onrender.com,https://carthapos.onrender.com"
+        value: "https://carthapos-admin-x8ov.onrender.com,https://carthapos-admin.onrender.com,https://carthapos.onrender.com"
       - key: FRONTEND_URL
         value: https://carthapos.onrender.com
       - key: ADMIN_URL

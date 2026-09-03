@@ -60,12 +60,19 @@ const ALLOWED_ORIGINS = (process.env.CORS_ORIGINS || 'http://localhost:5173,http
   .map((s) => s.trim())
   .filter(Boolean);
 const isLocalOrigin = (origin) => /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin);
+// Render/hosting-platform origin: admin panel and client portal live on
+// distinct *.onrender.com subdomains whose exact public hostnames carry
+// unpredictable per-service suffixes (e.g. carthapos-admin-x8ov.onrender.com).
+// Allowing any onrender.com subdomain keeps credentialed CORS working there
+// while still echoing a specific (non-wildcard) origin — required alongside
+// `credentials: true` by browser spec.
+const isOnrenderOrigin = (origin) => /^https:\/\/[a-z0-9-]+\.onrender\.com$/i.test(origin);
 
 // Middleware
 app.use(helmet());
 app.use(cors({
   origin(origin, callback) {
-    if (!origin || isLocalOrigin(origin) || ALLOWED_ORIGINS.includes(origin)) {
+    if (!origin || isLocalOrigin(origin) || isOnrenderOrigin(origin) || ALLOWED_ORIGINS.includes(origin)) {
       return callback(null, true);
     }
     return callback(null, false);
