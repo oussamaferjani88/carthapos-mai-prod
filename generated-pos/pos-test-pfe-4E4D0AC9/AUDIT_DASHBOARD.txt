@@ -1,0 +1,320 @@
+================================================================================
+                    DASHBOARD AUDIT REPORT - CarthaPOS
+                    Generated: 2026-07-18
+================================================================================
+
+TABLE OF CONTENTS
+-----------------
+  1. KPI Cards
+  2. Charts
+  3. Layout Structure
+  4. Backend (IPC & SQL)
+  5. Database Tables
+  6. Data Flow
+  7. Issues & Gaps
+
+================================================================================
+1. KPI CARDS (Dashboard.jsx lines 281-318, rendered lines 355-412)
+================================================================================
+
+There are 4 stat cards:
+
+  #1  "Ventes du jour"
+      Icon: ShoppingCart | Color: bg-blue-500
+      Value: stats.totalSales (count of ALL sales)
+      SQL: SELECT COUNT(*) as count, COALESCE(SUM(total), 0) as revenue
+           FROM sales
+      ** BUG: Label says "du jour" (today) but SQL pulls ALL-TIME data **
+
+  #2  "Chiffre d'affaires"
+      Icon: Euro | Color: bg-green-500
+      Value: formatCurrency(stats.totalRevenue)
+      SQL: same query as #1 (revenue column)
+      ** BUG: Label says "Revenus du jour" but SQL pulls ALL-TIME data **
+
+  #3  "Produits"
+      Icon: Package | Color: bg-purple-500
+      Value: stats.productsCount
+      SQL: SELECT COUNT(*) as count FROM products
+
+  #4  "Stock faible"
+      Icon: TrendingUp | Color: bg-orange-500
+      Value: stats.lowStockCount
+      SQL: SELECT COUNT(*) as count FROM products
+           WHERE min_stock > 0 AND stock <= min_stock
+
+  Trend indicators (e.g. +12%, +8%) are ONLY shown in preview mode.
+  In production, change is always null -- no comparisons are ever shown.
+
+  Icon color override bug:
+  The icon badge uses both className={stat.color} AND
+  style={{ backgroundColor: config.primaryColor }}. The inline style wins,
+  so ALL 4 icons will be the theme primary color instead of their distinct
+  blue/green/purple/orange.
+
+================================================================================
+2. CHARTS (Dashboard.jsx lines 509-531)
+================================================================================
+
+  1 chart total: "Revenus mensuels" (Monthly Revenue)
+
+  Type:     BarChart (recharts library)
+  X-axis:   month (e.g. "Jan", "Fev", "Mar")
+  Y-axis:   revenue (formatted as XX.XX DT)
+  Bar color: #3B82F6 (blue-500)
+  Height:   300px
+
+  Data SQL:
+    SELECT strftime('%Y-%m', created_at) as month,
+           COALESCE(SUM(total), 0) as revenue
+    FROM sales
+    GROUP BY strftime('%Y-%m', created_at)
+    ORDER BY month ASC
+
+  Months are displayed using French abbreviations (Jan, Fev, Mars, Avr, Mai, Juin,
+  Juil, Aout, Sept, Oct, Nov, Dec).
+
+  ** BUG: If sales span multiple years, month labels repeat with no year info **
+
+  Components imported from recharts:
+    BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer
+
+================================================================================
+3. LAYOUT STRUCTURE (Dashboard.jsx lines 320-533)
+================================================================================
+
+  <div> root (with theme styles)
+  |
+  |-- <Header> (lines 329-352)
+  |     |-- <h1> "Dashboard"
+  |     |-- <p> "Here's what's happening with your store today"
+  |     |-- "View Reports" button (NON-FUNCTIONAL, no onClick)
+  |
+  |-- <Stats Grid> (lines 355-412)
+  |     |-- Responsive grid: 1 col mobile / 2 cols md / 4 cols xl
+  |     |-- 4x <Card> (KPI cards)
+  |           |-- Icon badge (top-right)
+  |           |-- Title (top-left)
+  |           |-- Value (2xl bold)
+  |           |-- Trend indicator (preview mode only)
+  |
+  |-- <Recent Activity Section> (lines 415-507)
+  |     |-- Grid: 1 col mobile / 2 cols lg
+  |     |
+  |     |-- Card "Ventes recentes" (lines 417-456)
+  |     |     |-- 5 most recent sales
+  |     |     |-- Each shows: ID, items count, time, total
+  |     |     |-- Empty state: "Aucune vente enregistree"
+  |     |
+  |     |-- Card "Alertes" (lines 459-506)
+  |           |-- Low stock alert (if any product stock <= min_stock)
+  |           |-- "Objectif atteint" notification (if totalSales > 20)
+  |           |   ** HARDCODED threshold of 20 **
+  |           |-- "Aucune alerte" empty state
+  |
+  |-- <Sales Chart> (lines 509-531)
+        |-- Card "Revenus mensuels"
+        |-- BarChart or empty state
+
+  Custom components defined INLINE (not imported):
+    Card, CardHeader, CardTitle, CardDescription, CardContent, Badge
+    These are simple div wrappers with Tailwind classes.
+
+================================================================================
+4. BACKEND (IPC Handlers & SQL Queries)
+================================================================================
+
+  *** NO dedicated dashboard IPC handler exists ***
+
+  All dashboard data is fetched via the GENERIC query passthrough:
+    Channel: 'database:query'
+    Handler: ipc-database-handlers.cjs lines 353-368
+    Exposed: window.electronAPI.query(sql, params)
+
+  The handler simply runs: db.all(sql, params, callback)
+  No validation, no whitelisting, no caching for dashboard queries.
+
+  6 queries total in loadDashboardData():
+
+  Query 1: Sales stats (line 166-169)
+    SELECT COUNT(*) as count, COALESCE(SUM(total), 0) as revenue
+    FROM sales
+    -> Returns: { count, revenue }
+
+  Query 2: Product count (line 174-175)
+    SELECT COUNT(*) as count FROM products
+    -> Returns: { count }
+
+  Query 3: Low stock count (line 181-182)
+    SELECT COUNT(*) as count FROM products
+    WHERE min_stock > 0 AND stock <= min_stock
+    -> Returns: { count }
+
+  Query 4: Recent 5 sales (line 188-191)
+    SELECT id, total, created_at FROM sales
+    ORDER BY created_at DESC LIMIT 5
+    -> Returns: [{ id, total, created_at }]
+
+  Query 5: Items per sale (line 200-201) -- N+1 QUERY!
+    SELECT SUM(quantity) as items FROM sale_items WHERE sale_id = ?
+    -> Run ONCE PER ORDER (5 times) in a loop
+    -> Returns: { items }
+
+  Query 6: Monthly revenue chart (line 220-227)
+    SELECT strftime('%Y-%m', created_at) as month,
+           COALESCE(SUM(total), 0) as revenue
+    FROM sales
+    GROUP BY strftime('%Y-%m', created_at)
+    ORDER BY month ASC
+    -> Returns: [{ month, revenue }]
+
+================================================================================
+5. DATABASE TABLES (relevant to Dashboard)
+================================================================================
+
+  SALES TABLE (ElectronDatabaseManager.cjs lines 734-745 + migrations):
+    id              INTEGER PK AUTOINCREMENT
+    total           DECIMAL(10,2) NOT NULL
+    tax             DECIMAL(10,2) DEFAULT 0
+    discount        DECIMAL(10,2) DEFAULT 0
+    payment_method  TEXT DEFAULT 'cash'
+    customer_id     INTEGER
+    user_id         INTEGER
+    table_id        INTEGER (migration)
+    created_at      DATETIME DEFAULT CURRENT_TIMESTAMP
+    subtotal        DECIMAL(10,2) DEFAULT 0 (migration)
+    notes           TEXT DEFAULT '' (migration)
+    shift_id        INTEGER DEFAULT NULL (migration)
+
+  SALE_ITEMS TABLE (lines 748-756 + migrations):
+    id         INTEGER PK AUTOINCREMENT
+    sale_id    INTEGER NOT NULL
+    product_id INTEGER NOT NULL
+    quantity   INTEGER NOT NULL
+    price      DECIMAL(10,2) NOT NULL
+    vat_rate   DECIMAL(5,2) DEFAULT 0 (migration)
+    vat_amount DECIMAL(10,2) DEFAULT 0 (migration)
+
+  PRODUCTS TABLE (lines 704-721 + migrations):
+    id           INTEGER PK AUTOINCREMENT
+    name         TEXT NOT NULL
+    price        DECIMAL(10,2) NOT NULL
+    cost_price   DECIMAL(10,2) DEFAULT 0
+    category     TEXT
+    family       TEXT
+    description  TEXT
+    barcode      TEXT UNIQUE
+    image        TEXT
+    unit         TEXT DEFAULT 'unit'
+    stock        INTEGER DEFAULT 0
+    min_stock    INTEGER DEFAULT 0
+    supplier     TEXT DEFAULT ''
+    created_at   DATETIME DEFAULT CURRENT_TIMESTAMP
+    updated_at   DATETIME DEFAULT CURRENT_TIMESTAMP
+    vat_rate_id  INTEGER DEFAULT NULL (migration)
+    price_type   TEXT DEFAULT 'ttc' (migration)
+
+  OTHER TABLES IN DB (not queried by dashboard):
+    customers, stock_movements, shifts, users, kitchen_orders,
+    appointments, services, suppliers, audit_logs, cash_drawer_events,
+    restaurant_tables, user_sessions, user_modules, held_orders,
+    vat_rates, product_families, categories, settings
+
+  Database engine: SQLite3 v5.1.7, WAL journal mode, synchronous FULL
+
+================================================================================
+6. DATA FLOW
+================================================================================
+
+  [SQLite DB]
+       |
+       | db.all(sql, params, callback)
+       v
+  [ipc-database-handlers.cjs]
+       | Channel: 'database:query'
+       v
+  [preload.js]
+       | ipcRenderer.invoke('database:query', sql, params)
+       v
+  [Dashboard.jsx - loadDashboardData()]
+       | window.electronAPI.query(sql, params)
+       |
+       | Post-processing:
+       |  - N+1 loop for item counts per order
+       |  - French month name mapping for chart
+       |  - Stats assembled into object
+       v
+  [React State: stats, recentOrders, chartData, loading]
+       |
+       v
+  [JSX Render: 4 KPI cards + Recent orders list + Bar chart]
+
+  Auto-refresh: Listens for 'sale-completed' CustomEvent from Sales.jsx
+  No polling. No manual refresh button.
+
+================================================================================
+7. ISSUES & GAPS
+================================================================================
+
+  BUGS:
+  -----
+  [1] Misleading KPI labels: "Ventes du jour" / "Revenus du jour" display
+      ALL-TIME data, not today's data. No WHERE clause filters by date.
+
+  [2] N+1 query: 5 separate queries fired to count items per order.
+      Should be a single JOIN or subquery.
+
+  [3] Icon color override: Inline style backgroundColor from config.primaryColor
+      overrides all 4 distinct Tailwind color classes on icon badges.
+
+  [4] Chart month collision: Multi-year data shows duplicate month labels
+      with no year distinction (e.g. "Jan" appears twice).
+
+  [5] "View Reports" button is non-functional (no onClick, no navigation).
+
+  SECURITY:
+  ---------
+  [6] Raw SQL passthrough: The generic 'database:query' channel accepts ANY
+      SQL with no validation. Dashboard constructs safe static SQL, but the
+      channel itself is an attack surface.
+
+  PERFORMANCE:
+  ------------
+  [7] No query optimizer: Dashboard bypasses DatabaseQueryOptimizer.cjs
+      which provides caching and timeout protection.
+
+  [8] No memoization: statsArray, config, styles, formatCurrency are all
+      recomputed on every render. No useMemo/useCallback usage.
+
+  MISSING FEATURES:
+  -----------------
+  [9] No "today's data" filter despite card labels suggesting it.
+
+  [10] No trend/comparison data in production mode (only in preview).
+
+  [11] No real-time clock or date display in header.
+
+  [12] No manual refresh button.
+
+  [13] Hardcoded alert threshold: "Objectif atteint" triggers at totalSales > 20.
+       Should be configurable.
+
+  [14] No dedicated dashboard backend handler. All logic is inline in the
+       React component. No server-side aggregation or caching.
+
+  [15] Empty dashboard.css file (0 bytes).
+
+  [16] No user-visible error state on query failure.
+
+  CODE QUALITY:
+  -------------
+  [17] Excessive console.log statements (~20+ debug logs in production code).
+
+  [18] Unused imports: Users, DollarSign, Clock from lucide-react.
+
+  [19] Dashboard defines its own Card/CardHeader/CardTitle/CardContent
+       components instead of importing from ui/card.
+
+================================================================================
+                         END OF DASHBOARD AUDIT
+================================================================================
